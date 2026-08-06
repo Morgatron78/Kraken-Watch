@@ -1,12 +1,12 @@
-const CACHE = 'kraken-watch-v44';
+const CACHE = 'kraken-watch-v45';
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './manifest.json',
-  './icon-192.svg',
-  './icon-512.svg'
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -51,8 +51,8 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(data.title, {
       body: data.body,
       silent: true,
-      icon: './icon-192.svg',
-      badge: './icon-192.svg',
+      icon: './icon-192.png',
+      badge: './icon-192.png',
       tag: 'ev-status' // replaces any previous EV notification rather than stacking
     })
   );
