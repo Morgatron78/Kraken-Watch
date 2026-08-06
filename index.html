@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kraken Watch</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#131226">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kraken Watch">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<link rel="icon" href="icon-192.svg">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">K</div>
+      <div>
+        <div class="brand-name">Kraken Watch</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="status" id="sync-status"><span class="dot" id="sync-dot"></span> <span id="sync-text">Not connected</span></div>
+      <button class="icon-btn" id="sync-btn" aria-label="Sync now">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 4v6h-6"/>
+          <path d="M1 20v-6h6"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="settings-btn" aria-label="Settings">⚙</button>
+    </div>
+  </div>
+
+  <!-- Diagnostics: shown when something failed to load live, or when debug info is available -->
+  <div class="card" id="diagnostics-card" style="display:none;padding:14px 18px;margin-bottom:14px;border-color:rgba(255,107,91,0.4);">
+    <div id="diagnostics-title" style="font-size:12px;font-weight:600;color:var(--coral);margin-bottom:8px;">⚠ Diagnostics</div>
+    <div id="diagnostics-list" class="mono" style="font-size:11px;color:var(--text-dim);line-height:1.7;"></div>
+  </div>
+
+  <!-- Shown until the user connects an account -->
+  <div class="card state-block" id="connect-card">
+    <div class="state-icon">🔌</div>
+    <div class="state-title">Connect your Octopus account</div>
+    <div class="state-desc">Add your API key and account number to pull in live rates, EV charging and billing data.</div>
+    <button class="btn" id="connect-btn">Connect account</button>
+  </div>
+
+  <!-- App content: hidden until data has loaded at least once -->
+  <div id="app-content" class="hidden">
+
+    <!-- CURRENT RATE + LIVE USAGE (compact, half-width, no charts) -->
+    <div class="half-row">
+      <div class="card compact-card hero">
+        <div class="card-head-col">
+          <div class="card-title">⚡ Current rate</div>
+          <div class="card-tag tag-mint" id="rate-pill">● —</div>
+        </div>
+        <div class="big-label">Now</div>
+        <div class="big-value" id="rate-value">—<span>p/kWh</span></div>
+        <div class="meta">
+          Standard <b id="rate-standard">—</b><br>
+          Off-peak <b id="rate-offpeak">—</b><br>
+          Next <b id="rate-next">—</b>
+        </div>
+      </div>
+
+      <div class="card compact-card hero" id="live-card">
+        <div class="card-head-col">
+          <div class="card-title">📡 Live usage</div>
+          <div class="card-tag tag-mint" id="live-tag" style="display:none;"><span class="live-dot"></span> LIVE</div>
+        </div>
+        <div id="live-body">
+          <div class="big-label">Current draw</div>
+          <div class="big-value" id="live-watts">—<span>W</span></div>
+          <div class="sub" id="live-cost-rate"></div>
+          <div class="sub" id="live-updated">Not connected</div>
+        </div>
+        <div class="state-block hidden" id="live-unavailable" style="padding:12px 4px 4px;">
+          <div class="state-desc" style="font-size:11px;">No live-telemetry device found — needs an Octopus Home Mini or similar. Everything else works without one.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EV CHARGING -->
+    <div class="card" id="ev-card">
+      <div class="card-head" id="ev-header" style="cursor:pointer;" role="button" aria-expanded="true">
+        <div class="card-title">⚡ EV charging<span id="ev-name"></span></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="card-tag tag-mint" id="ev-tag">—</div>
+          <span id="ev-chevron" style="font-size:11px;color:var(--text-dim);">▾</span>
+        </div>
+      </div>
+      <div id="ev-body">
+        <div class="ev-row">
+          <div style="flex:1">
+            <div class="ev-detail-label">Next dispatch window</div>
+            <div class="ev-detail-value" id="ev-ready">—</div>
+          </div>
+        </div>
+
+        <div class="ev-mini-row">
+          <div class="ev-mini"><div class="ev-mini-label">Added this session</div><div class="ev-mini-value" id="ev-added">—</div></div>
+          <div class="ev-mini"><div class="ev-mini-label">Session cost</div><div class="ev-mini-value" id="ev-cost">—</div></div>
+          <div class="ev-mini"><div class="ev-mini-label">Avg rate paid</div><div class="ev-mini-value" id="ev-avg-rate">—</div></div>
+        </div>
+
+        <div class="stat-label" style="margin:16px 0 8px;">Dispatch windows</div>
+        <div class="slot-list" id="ev-slots"></div>
+
+        <div class="stat-label" style="margin:16px 0 8px;">This week</div>
+        <div class="week-bars" id="ev-week"></div>
+        <div class="curve-labels" style="margin-top:8px;" id="ev-week-totals"></div>
+      </div>
+    </div>
+
+    <!-- CONSUMPTION -->
+    <div class="card" id="consumption-card">
+      <div class="card-head">
+        <div class="card-title">📊 Consumption</div>
+        <div class="card-tag tag-dim" id="period-toggle-tag" style="padding:0;background:none;border:none;">
+          <div class="unit-toggle" data-role="period">
+            <button type="button" class="unit-toggle-btn active" data-period="week">Week</button>
+            <button type="button" class="unit-toggle-btn" data-period="month">Month</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="fuel-panels">
+        <div class="fuel-panel elec">
+          <div class="fuel-panel-head">
+            <span class="fuel-panel-title"><span class="fuel-icon">⚡</span> Electricity — Intelligent Go</span>
+            <div class="unit-toggle" data-fuel="elec">
+              <button type="button" class="unit-toggle-btn active" data-unit="cost">£</button>
+              <button type="button" class="unit-toggle-btn" data-unit="kwh">kWh</button>
+            </div>
+          </div>
+          <div class="stat-row tight">
+            <div class="stat"><div class="stat-label" id="elec-latest-label">Latest available</div><div class="stat-value-sm" id="elec-latest">—</div></div>
+            <div class="stat"><div class="stat-label">Last 7 days</div><div class="stat-value-sm" id="elec-week-total">—</div></div>
+          </div>
+          <div class="stat-row tight">
+            <div class="stat"><div class="stat-label">Month to date</div><div class="stat-value-sm" id="elec-mtd">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="elec-predicted" style="color:var(--violet)">—</div></div>
+          </div>
+          <div class="week-bars-wrap">
+            <div class="chart-row">
+              <div class="chart-scale" id="elec-week-scale"></div>
+              <div class="week-bars" id="elec-week" style="height:76px;"></div>
+            </div>
+            <div class="chart-legend">
+              <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
+              <span><i style="background:var(--mint)"></i>Off-peak</span>
+              <span><i style="background:var(--violet)"></i>Peak</span>
+            </div>
+          </div>
+          <div class="fuel-panel-foot">
+            <span>Unit rate now: <b id="elec-unit-rate">—</b></span>
+            <span>Standing charge: <b id="elec-standing">—</b></span>
+          </div>
+        </div>
+
+        <div class="fuel-panel gas">
+          <div class="fuel-panel-head">
+            <span class="fuel-panel-title"><span class="fuel-icon">🔥</span> Gas — Flexible Octopus</span>
+            <div class="unit-toggle" data-fuel="gas">
+              <button type="button" class="unit-toggle-btn active" data-unit="cost">£</button>
+              <button type="button" class="unit-toggle-btn" data-unit="kwh">kWh</button>
+            </div>
+          </div>
+          <div class="stat-row tight">
+            <div class="stat"><div class="stat-label" id="gas-latest-label">Latest available</div><div class="stat-value-sm" id="gas-latest">—</div></div>
+            <div class="stat"><div class="stat-label">Last 7 days</div><div class="stat-value-sm" id="gas-week-total">—</div></div>
+          </div>
+          <div class="stat-row tight">
+            <div class="stat"><div class="stat-label">Month to date</div><div class="stat-value-sm" id="gas-mtd">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="gas-predicted" style="color:var(--amber)">—</div></div>
+          </div>
+          <div class="week-bars-wrap">
+            <div class="chart-row">
+              <div class="chart-scale" id="gas-week-scale"></div>
+              <div class="week-bars" id="gas-week" style="height:76px;"></div>
+            </div>
+            <div class="chart-legend">
+              <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
+              <span><i style="background:var(--amber)"></i>Usage</span>
+            </div>
+          </div>
+          <div class="fuel-panel-foot">
+            <span>Unit rate: <b id="gas-unit-rate">—</b></span>
+            <span>Standing charge: <b id="gas-standing">—</b></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BILLING -->
+    <div class="card" id="billing-card">
+      <div class="card-head">
+        <div class="card-title">💳 Billing <span id="billing-account-number" style="color:var(--text-dim);font-weight:500;font-size:11px;font-family:'IBM Plex Mono',monospace;"></span></div>
+        <div class="card-tag tag-amber">CURRENT CYCLE</div>
+      </div>
+
+      <div class="balance-banner">
+        <div>
+          <div class="stat-label">Account balance now</div>
+          <div class="stat-value" id="balance-now">—<span class="suffix" id="balance-now-suffix"></span></div>
+        </div>
+        <div class="predict-arrow">→</div>
+        <div>
+          <div class="stat-label">Projected balance, end of month</div>
+          <div class="stat-value" id="balance-projected">—<span class="suffix" id="balance-projected-suffix"></span></div>
+        </div>
+      </div>
+      <div class="dd-banner" id="balance-after-dd-row" style="display:none;">
+        <div class="dd-row">
+          <div class="dd-col">
+            <div class="stat-label">Next Direct Debit</div>
+            <div class="dd-value" id="next-dd-amount" style="color:var(--amber)">—</div>
+            <div class="dd-due" id="next-dd-due">—</div>
+          </div>
+          <div class="dd-arrow">→</div>
+          <div class="dd-col">
+            <div class="stat-label">Balance after that payment</div>
+            <div class="dd-value" id="balance-after-dd">—<span class="suffix" id="balance-after-dd-suffix"></span></div>
+            <div class="trend-pill" id="balance-trend-pill"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="predict-banner">
+        <div>
+          <div class="stat-label">Month to date (both fuels)</div>
+          <div class="stat-value" id="cost-mtd">—</div>
+        </div>
+        <div class="predict-arrow">→</div>
+        <div>
+          <div class="stat-label">Predicted this month</div>
+          <div class="stat-value" id="cost-predicted" style="color:var(--mint)">—</div>
+        </div>
+        <div class="bar-track" style="flex:1;min-width:80px;align-self:center;"><div class="bar-fill" id="cycle-bar" style="width:0%"></div></div>
+        <div class="predict-day" id="cycle-day">—</div>
+      </div>
+
+      <div class="fuel-split">
+        <div class="fuel-row">
+          <div class="fuel-name"><span class="fuel-dot"></span>Last bill</div>
+          <div class="fuel-figs" id="last-bill">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">Kraken Watch <span id="app-version"></span> — unofficial, uses your own Octopus Energy API credentials, stored only on this device.</div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-backdrop hidden" id="settings-modal">
+  <div class="modal">
+    <h2>Connect Octopus account</h2>
+    <p class="desc">Your credentials are stored only in this browser (localStorage) and sent directly to Octopus's API — never to a third-party server.</p>
+
+    <div class="field">
+      <label for="input-api-key">API key</label>
+      <input id="input-api-key" type="password" placeholder="sk_live_...">
+      <div class="hint">From your Octopus dashboard → Personal details → API access.</div>
+    </div>
+    <div class="field">
+      <label for="input-account">Account number</label>
+      <input id="input-account" type="text" placeholder="A-AAAA1111">
+    </div>
+    <div class="field">
+      <label for="input-email">Octopus login email <span style="opacity:.6">(for EV charging data)</span></label>
+      <input id="input-email" type="email" placeholder="you@example.com">
+    </div>
+    <div class="field">
+      <label for="input-password">Octopus login password</label>
+      <input id="input-password" type="password" placeholder="••••••••">
+      <div class="hint">Needed separately because Intelligent Octopus Go dispatch data comes from Octopus's app API (Kraken), not the public REST API — it uses your account login rather than the API key.</div>
+    </div>
+
+    <button type="button" class="btn-ghost" id="advanced-toggle" style="width:100%;padding:9px;border-radius:10px;font-size:12px;margin-bottom:4px;">
+      Advanced: set meter details manually ▾
+    </button>
+    <div id="advanced-fields" class="hidden">
+      <p class="desc" style="margin-top:10px;">Auto-detection picks the first meter point it finds on your account, which can be wrong if you've had a meter exchange. Leave blank to use auto-detection, or fill these in from your Octopus dashboard to override it.</p>
+      <div class="field">
+        <label for="input-elec-mpan">Electricity MPAN</label>
+        <input id="input-elec-mpan" type="text" placeholder="e.g. 1234567890123">
+      </div>
+      <div class="field">
+        <label for="input-elec-serial">Electricity meter serial</label>
+        <input id="input-elec-serial" type="text" placeholder="e.g. 21L1234567">
+      </div>
+      <div class="field">
+        <label for="input-gas-mprn">Gas MPRN</label>
+        <input id="input-gas-mprn" type="text" placeholder="e.g. 1234567890">
+      </div>
+      <div class="field">
+        <label for="input-gas-serial">Gas meter serial</label>
+        <input id="input-gas-serial" type="text" placeholder="e.g. E6S12345678901">
+      </div>
+    </div>
+
+    <div class="field" style="display:flex;align-items:center;gap:10px;">
+      <input id="input-show-diagnostics" type="checkbox" style="width:auto;accent-color:var(--violet);">
+      <label for="input-show-diagnostics" style="margin:0;text-transform:none;font-size:13px;color:var(--text);letter-spacing:0;">Show diagnostics panel when syncing</label>
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:10px;">
+      <input id="input-use-demo-fallback" type="checkbox" style="width:auto;accent-color:var(--violet);">
+      <label for="input-use-demo-fallback" style="margin:0;text-transform:none;font-size:13px;color:var(--text);letter-spacing:0;">Show demo data when something fails to load (off by default — shows "Unavailable" instead)</label>
+    </div>
+
+    <hr style="border:none;border-top:1px solid var(--line);margin:18px 0;">
+
+    <h2 style="font-size:14px;">EV notifications</h2>
+    <p class="desc">Silent push when charging starts or finishes. Needs a one-time setup: this button subscribes your phone, then you paste the result into a GitHub secret so the checker (running separately on a schedule) knows where to send pushes. See the README for the full setup, including the other secrets it needs.</p>
+
+    <button type="button" class="btn btn-ghost" id="ev-push-enable" style="width:100%;margin-bottom:10px;">Enable EV notifications</button>
+    <div id="ev-push-status" class="hint" style="margin-bottom:10px;"></div>
+    <textarea id="ev-push-subscription" readonly class="hidden" style="width:100%;min-height:90px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:10.5px;"></textarea>
+    <div id="ev-push-last-check" class="hint"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="settings-cancel">Cancel</button>
+      <button class="btn" id="settings-save">Save &amp; connect</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

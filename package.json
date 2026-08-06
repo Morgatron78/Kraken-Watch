@@ -1,0 +1,9 @@
+{
+  "name": "kraken-watch-ev-notify",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Actions checker for EV dispatch status — sends push notifications on charging start/end. Not part of the deployed app itself.",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
