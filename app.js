@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v53';
+const APP_VERSION = 'v54';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -352,16 +352,6 @@ let periodMode = 'week';
 // completely different day in the new array.
 let selectedDay = { elec: null, gas: null };
 
-// Finds the most recent day in a period array that actually has data —
-// same logic the "Latest available" headline stat uses, reused here so the
-// breakdown box has a sensible default before any bar is tapped.
-function findLatestAvailableIndex(periodData) {
-  for (let i = periodData.length - 1; i >= 0; i--) {
-    if (periodData[i].hasData !== false) return i;
-  }
-  return periodData.length - 1;
-}
-
 // Maps an index in the current period array back to a real calendar date —
 // week view counts backward from today, month view counts forward from the
 // 1st of the current month.
@@ -377,7 +367,13 @@ function breakdownRow(label, cssClass, costStr, kwhStr) {
 
 function renderBreakdown(fuel, periodData, index) {
   const box = $(`${fuel}-breakdown`);
-  if (!box || !periodData || !periodData[index]) return;
+  if (!box) return;
+  if (index === null || !periodData || !periodData[index]) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  box.classList.remove('hidden');
   const day = periodData[index];
   const date = dateForPeriodIndex(index, periodData.length);
   const dateLabel = date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
@@ -462,9 +458,6 @@ function renderFuelPanel(fuel) {
   const periodData = periodMode === 'month' ? d.month : d.week;
   if (periodData) {
     const dayStacks = periodData.map(day => buildDaySegments(fuel, day, unit));
-    if (selectedDay[fuel] === null || selectedDay[fuel] >= periodData.length) {
-      selectedDay[fuel] = findLatestAvailableIndex(periodData);
-    }
     renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel]);
     renderBreakdown(fuel, periodData, selectedDay[fuel]);
   }
@@ -1320,15 +1313,16 @@ function init() {
     });
   });
 
-  // Tap a bar to see that day's breakdown — event delegation so it works
-  // regardless of how many bars get re-rendered (week vs month view).
+  // Tap a bar to see that day's breakdown; tap the same bar again to close
+  // it. Event delegation so it works regardless of how many bars get
+  // re-rendered (week vs month view).
   ['elec', 'gas'].forEach(fuel => {
     $(`${fuel}-week`).addEventListener('click', (e) => {
       const bar = e.target.closest('.col-stack');
       if (!bar) return;
       const index = parseInt(bar.dataset.index, 10);
       if (Number.isNaN(index)) return;
-      selectedDay[fuel] = index;
+      selectedDay[fuel] = (selectedDay[fuel] === index) ? null : index;
       renderFuelPanel(fuel);
     });
   });

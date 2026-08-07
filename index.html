@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=53">
+<link rel="stylesheet" href="styles.css?v=54">
 </head>
 <body>
 <div class="wrap">
@@ -162,7 +162,7 @@
               <span><i style="background:var(--mint)"></i>Off-peak</span>
               <span><i style="background:var(--violet)"></i>Peak</span>
             </div>
-            <div class="breakdown-box" id="elec-breakdown"></div>
+            <div class="breakdown-box hidden" id="elec-breakdown"></div>
           </div>
           <div class="fuel-panel-foot">
             <span>Unit rate now: <b id="elec-unit-rate">—</b></span>
@@ -195,7 +195,7 @@
               <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
               <span><i style="background:var(--amber)"></i>Usage</span>
             </div>
-            <div class="breakdown-box" id="gas-breakdown"></div>
+            <div class="breakdown-box hidden" id="gas-breakdown"></div>
           </div>
           <div class="fuel-panel-foot">
             <span>Unit rate: <b id="gas-unit-rate">—</b></span>
@@ -346,6 +346,6 @@
   </div>
 </div>
 
-<script src="app.js?v=53"></script>
+<script src="app.js?v=54"></script>
 </body>
 </html>
