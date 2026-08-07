@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v1.0';
+const APP_VERSION = 'v2.0';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -274,6 +274,11 @@ function logIssue(section, err) {
 let debugNotes = [];
 let meterDebugNote = null;
 let fuelData = { elec: null, gas: null };
+
+// Populated by loadBilling() with figures Insights reuses rather than
+// recomputing — the balance and its trend are already fully calculated
+// there, no reason to duplicate that logic.
+let billingState = { balancePounds: null, trend: null, hasNextPayment: false };
 let fuelUnit = { elec: 'cost', gas: 'cost' };
 function logDebug(label, msg) {
   console.info(`${label} debug:`, msg);
@@ -638,6 +643,254 @@ function renderYearView(fuel, unit, fmt) {
   $(`${fuel}-week`).innerHTML = bars.join('');
 
   renderYearBreakdown(fuel, months, selIdx);
+}
+
+// --- Insights (collapsed by default; data lazy-loaded on first expand) ---
+
+let insightsLoaded = false;
+
+async function loadInsights() {
+  if (insightsLoaded) return;
+  insightsLoaded = true;
+  try {
+    fuelData.elec = fuelData.elec || {};
+    fuelData.gas = fuelData.gas || {};
+    const tasks = [];
+    if (!fuelData.elec.month) tasks.push(loadMonthData('elec'));
+    if (!fuelData.gas.month) tasks.push(loadMonthData('gas'));
+    if (!fuelData.gas.year) tasks.push(fetchYearMonthly('gas').then(y => { fuelData.gas.year = y; }));
+    await Promise.all(tasks);
+  } catch (err) {
+    logIssue('Insights', err);
+  }
+  renderInsightsElec();
+  renderInsightsGas();
+  renderInsightsBilling();
+  renderInsightsStanding();
+}
+
+// A month-array index maps directly to a calendar date (index 0 = the 1st).
+// Deliberately independent of the shared `periodMode`/`dateForPeriodIndex`
+// used by the Consumption panel — Insights can load while that panel is
+// showing Week, Day, or Year, so it needs its own fixed month-index mapping.
+function insightsMonthDate(index) {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), index + 1);
+}
+
+function renderInsightsElec() {
+  const week = fuelData.elec?.week;
+  const month = fuelData.elec?.month;
+
+  // Trend vs 7-day average — same "latest available day" logic used
+  // elsewhere, just restated here since Insights doesn't share that render path.
+  if (week) {
+    let found = null, daysAgo = -1;
+    for (let i = week.length - 1; i >= 0; i--) {
+      if (week[i].hasData !== false) { found = week[i]; daysAgo = week.length - 1 - i; break; }
+    }
+    const avg = week.reduce((s, d) => s + dayTotal('elec', d, 'cost'), 0) / week.length;
+    if (found) {
+      const val = dayTotal('elec', found, 'cost');
+      const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : 'Latest available day';
+      $('insights-elec-trend-label').textContent = label;
+      $('insights-elec-trend-value').textContent = fmtGBP(val);
+      const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
+      const pill = $('insights-elec-trend-pill');
+      pill.className = 'trend-pill ' + (diff <= 0 ? 'down' : 'up');
+      pill.textContent = `${diff <= 0 ? '↓' : '↑'} ${Math.abs(diff).toFixed(0)}% ${diff <= 0 ? 'below' : 'above'} your 7-day average`;
+      $('insights-elec-trend-caption').textContent = `Your average: ${fmtGBP(avg)}/day`;
+    }
+  }
+
+  if (month) {
+    // Off-peak vs standard split, by cost, across the month so far.
+    let offPeak = 0, standard = 0, offPeakKwh = 0, standardKwh = 0;
+    let weekdayTotal = 0, weekdayCount = 0, weekendTotal = 0, weekendCount = 0;
+    let high = null, low = null;
+    const validDays = month.filter((d, i) => d.hasData !== false && insightsMonthDate(i) <= new Date());
+    validDays.forEach((d) => {
+      offPeak += d.offPeakCost || 0; standard += d.peakCost || 0;
+      offPeakKwh += d.offPeakKwh || 0; standardKwh += d.peakKwh || 0;
+    });
+    const totalCost = offPeak + standard;
+    const totalKwh = offPeakKwh + standardKwh;
+    if (totalCost > 0) {
+      const offPeakPct = (offPeak / totalCost) * 100, standardPct = 100 - offPeakPct;
+      $('insights-elec-split-offpeak').style.width = offPeakPct + '%';
+      $('insights-elec-split-standard').style.width = standardPct + '%';
+      $('insights-elec-split-offpeak-pct').textContent = offPeakPct.toFixed(0) + '%';
+      $('insights-elec-split-standard-pct').textContent = standardPct.toFixed(0) + '%';
+      const kwhOffPeakPct = totalKwh > 0 ? (offPeakKwh / totalKwh) * 100 : offPeakPct;
+      $('insights-elec-split-note').textContent =
+        `By energy used, it's closer to ${kwhOffPeakPct.toFixed(0)}/${(100 - kwhOffPeakPct).toFixed(0)} — but Standard rate costs about 4x as much per kWh, so it dominates your bill more than usage alone would suggest.`;
+    }
+
+    // Weekday vs weekend, and best/worst day — same pass over the month.
+    month.forEach((d, i) => {
+      const date = insightsMonthDate(i);
+      if (date > new Date() || d.hasData === false) return;
+      const total = dayTotal('elec', d, 'cost');
+      const dow = date.getDay();
+      if (dow === 0 || dow === 6) { weekendTotal += total; weekendCount++; }
+      else { weekdayTotal += total; weekdayCount++; }
+      if (!high || total > high.total) high = { total, date };
+      if (!low || total < low.total) low = { total, date };
+    });
+
+    if (weekdayCount > 0 && weekendCount > 0) {
+      const weekdayAvg = weekdayTotal / weekdayCount, weekendAvg = weekendTotal / weekendCount;
+      const maxAvg = Math.max(weekdayAvg, weekendAvg, 0.01);
+      $('insights-elec-weekday-value').textContent = fmtGBP(weekdayAvg);
+      $('insights-elec-weekend-value').textContent = fmtGBP(weekendAvg);
+      $('insights-elec-weekday-bar').style.height = Math.max(2, Math.round((weekdayAvg / maxAvg) * 56)) + 'px';
+      $('insights-elec-weekend-bar').style.height = Math.max(2, Math.round((weekendAvg / maxAvg) * 56)) + 'px';
+      const diffPct = weekdayAvg > 0 ? Math.abs((weekendAvg - weekdayAvg) / weekdayAvg) * 100 : 0;
+      const pricier = weekendAvg > weekdayAvg ? 'Weekends' : 'Weekdays';
+      const headline = $('insights-elec-pattern-headline');
+      headline.classList.toggle('mint', diffPct < 5);
+      headline.textContent = diffPct < 5 ? 'No significant weekday/weekend difference' : `${pricier} cost ${diffPct.toFixed(0)}% more on average`;
+      $('insights-elec-weekday-block').classList.remove('hidden');
+    } else {
+      $('insights-elec-weekday-block').classList.add('hidden'); // not enough of both kinds yet this month
+    }
+
+    if (high && low) {
+      $('insights-elec-high-value').textContent = fmtGBP(high.total);
+      $('insights-elec-high-date').textContent = high.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      $('insights-elec-low-value').textContent = fmtGBP(low.total);
+      $('insights-elec-low-date').textContent = low.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      $('insights-elec-extremes-block').classList.remove('hidden');
+    } else {
+      $('insights-elec-extremes-block').classList.add('hidden');
+    }
+
+    // Trajectory: first half of the elapsed month-to-date vs second half.
+    if (validDays.length >= 6) {
+      const mid = Math.floor(validDays.length / 2);
+      const firstHalf = validDays.slice(0, mid), secondHalf = validDays.slice(mid);
+      const firstAvg = firstHalf.reduce((s, d) => s + dayTotal('elec', d, 'cost'), 0) / firstHalf.length;
+      const secondAvg = secondHalf.reduce((s, d) => s + dayTotal('elec', d, 'cost'), 0) / secondHalf.length;
+      const diffPct = firstAvg > 0 ? ((secondAvg - firstAvg) / firstAvg) * 100 : 0;
+      $('insights-elec-trajectory-icon').textContent = diffPct >= 0 ? '📈' : '📉';
+      $('insights-elec-trajectory-text').innerHTML = Math.abs(diffPct) < 5
+        ? 'Fairly steady so far this month — no clear upward or downward trend'
+        : `Second half of the month running <b>${Math.abs(diffPct).toFixed(0)}% ${diffPct >= 0 ? 'higher' : 'lower'}</b> than the first half so far`;
+      $('insights-elec-trajectory-block').classList.remove('hidden');
+    } else {
+      $('insights-elec-trajectory-block').classList.add('hidden'); // too early in the month for this to mean much
+    }
+  }
+}
+
+function renderInsightsGas() {
+  const week = fuelData.gas?.week;
+  const month = fuelData.gas?.month;
+  const year = fuelData.gas?.year;
+
+  if (week) {
+    let found = null, daysAgo = -1;
+    for (let i = week.length - 1; i >= 0; i--) {
+      if (week[i].hasData !== false) { found = week[i]; daysAgo = week.length - 1 - i; break; }
+    }
+    const avg = week.reduce((s, d) => s + dayTotal('gas', d, 'cost'), 0) / week.length;
+    if (found) {
+      const val = dayTotal('gas', found, 'cost');
+      const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : 'Latest available day';
+      $('insights-gas-trend-label').textContent = label;
+      $('insights-gas-trend-value').textContent = fmtGBP(val);
+      const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
+      const pill = $('insights-gas-trend-pill');
+      pill.className = 'trend-pill ' + (diff <= 0 ? 'down' : 'up');
+      pill.textContent = `${diff <= 0 ? '↓' : '↑'} ${Math.abs(diff).toFixed(0)}% ${diff <= 0 ? 'below' : 'above'} your 7-day average`;
+      $('insights-gas-trend-caption').textContent = `Your average: ${fmtGBP(avg)}/day`;
+    }
+  }
+
+  if (month) {
+    let standing = 0, usage = 0, high = null, low = null;
+    month.forEach((d, i) => {
+      const date = insightsMonthDate(i);
+      if (date > new Date() || d.hasData === false) return;
+      standing += d.standing || 0; usage += d.cost || 0;
+      const total = dayTotal('gas', d, 'cost');
+      if (!high || total > high.total) high = { total, date };
+      if (!low || total < low.total) low = { total, date };
+    });
+    const total = standing + usage;
+    if (total > 0) {
+      const standingPct = (standing / total) * 100, usagePct = 100 - standingPct;
+      $('insights-gas-split-standing').style.width = standingPct + '%';
+      $('insights-gas-split-usage').style.width = usagePct + '%';
+      $('insights-gas-split-standing-pct').textContent = standingPct.toFixed(0) + '%';
+      $('insights-gas-split-usage-pct').textContent = usagePct.toFixed(0) + '%';
+    }
+    if (high && low) {
+      $('insights-gas-high-value').textContent = fmtGBP(high.total);
+      $('insights-gas-high-date').textContent = high.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      $('insights-gas-low-value').textContent = fmtGBP(low.total);
+      $('insights-gas-low-date').textContent = low.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      $('insights-gas-extremes-block').classList.remove('hidden');
+    } else {
+      $('insights-gas-extremes-block').classList.add('hidden');
+    }
+  }
+
+  // Seasonal narrative from Year data — kWh-based (Year view is deliberately
+  // kWh-only), comparing this month's total against the highest month so far.
+  if (year && year.length >= 2) {
+    const now = new Date();
+    const thisMonth = year.find(m => m.month === now.getMonth());
+    const peakMonth = year.reduce((max, m) => (m.kwh > (max?.kwh || 0) ? m : max), null);
+    if (thisMonth && peakMonth && peakMonth.kwh > 0 && thisMonth.month !== peakMonth.month) {
+      const dropPct = ((peakMonth.kwh - thisMonth.kwh) / peakMonth.kwh) * 100;
+      const isLowest = year.every(m => m.month === thisMonth.month || m.kwh >= thisMonth.kwh);
+      if (Math.abs(dropPct) >= 10) {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        $('insights-gas-seasonal-text').textContent =
+          `${dropPct > 0 ? 'Down' : 'Up'} ${Math.abs(dropPct).toFixed(0)}% from your highest month (${monthNames[peakMonth.month]})` +
+          (isLowest && dropPct > 0 ? ' — your lowest month so far this year.' : '.');
+        $('insights-gas-seasonal-note').classList.remove('hidden');
+      }
+    }
+  }
+}
+
+function renderInsightsBilling() {
+  const icon = $('insights-runway-icon'), headline = $('insights-runway-headline'), detail = $('insights-runway-detail');
+  if (!billingState.hasNextPayment || billingState.trend === null || billingState.balancePounds === null) {
+    icon.textContent = '—';
+    headline.textContent = 'Not enough data yet';
+    headline.className = 'runway-headline';
+    detail.textContent = 'Needs a Direct Debit figure to project from — see the Billing card above.';
+    return;
+  }
+  const { trend, balancePounds } = billingState;
+  if (trend >= 0) {
+    icon.textContent = '📈';
+    headline.className = 'runway-headline ok';
+    headline.textContent = 'Building steadily — no action needed';
+    detail.textContent = `At ${fmtGBP(trend)}/mo, balance keeps growing`;
+  } else {
+    const monthsLeft = balancePounds / Math.abs(trend);
+    const zeroDate = new Date();
+    zeroDate.setDate(zeroDate.getDate() + Math.round(monthsLeft * 30.44));
+    icon.textContent = '⚠️';
+    headline.className = 'runway-headline warn';
+    headline.textContent = `Projected to reach £0 around ${zeroDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+    detail.textContent = `Drawing down ${fmtGBP(trend)}/mo from ${fmtGBP(balancePounds)} now`;
+  }
+}
+
+function renderInsightsStanding() {
+  if (!cachedElecStandingP && !cachedGasStandingP) return;
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const daysElapsed = Math.max(1, Math.round((now - startOfYear) / 86400000));
+  const daysInYear = (now.getFullYear() % 4 === 0 && (now.getFullYear() % 100 !== 0 || now.getFullYear() % 400 === 0)) ? 366 : 365;
+  const dailyRateP = (cachedElecStandingP || 0) + (cachedGasStandingP || 0);
+  $('insights-standing-ytd').textContent = fmtGBP((dailyRateP * daysElapsed) / 100);
+  $('insights-standing-full-year').textContent = fmtGBP((dailyRateP * daysInYear) / 100);
 }
 
 function renderYearBreakdown(fuel, months, monthIndex) {
@@ -1206,10 +1459,12 @@ async function loadBilling() {
         const pill = $('balance-trend-pill');
         pill.className = 'trend-pill ' + (trend >= 0 ? 'up' : 'down');
         pill.textContent = `${trend >= 0 ? '↑' : '↓'} ${fmtGBP(trend)}/mo`;
+        billingState = { balancePounds, trend, hasNextPayment: true };
 
         $('balance-after-dd-row').style.display = '';
       } else {
         $('balance-after-dd-row').style.display = 'none';
+        billingState = { balancePounds, trend: null, hasNextPayment: false };
       }
     }
 
@@ -1547,6 +1802,19 @@ function init() {
     $('ev-header').setAttribute('aria-expanded', String(evManualOverride));
   });
   $('ev-push-enable').addEventListener('click', enableEvPush);
+
+  // Insights — collapsed by default; data is lazy-loaded on the first
+  // expand only, since it needs a full month's data (~30 calls) that
+  // shouldn't be paid for on every app load if the user never opens this.
+  $('insights-header').addEventListener('click', () => {
+    const currentlyExpanded = !$('insights-body').classList.contains('hidden');
+    const nowExpanded = !currentlyExpanded;
+    $('insights-body').classList.toggle('hidden', !nowExpanded);
+    $('insights-hint').classList.toggle('hidden', nowExpanded);
+    $('insights-chevron').textContent = nowExpanded ? '▾' : '▸';
+    $('insights-header').setAttribute('aria-expanded', String(nowExpanded));
+    if (nowExpanded) loadInsights();
+  });
 
   // £ / kWh toggle — per fuel panel, instant re-render from cached data.
   document.querySelectorAll('.unit-toggle[data-fuel] .unit-toggle-btn').forEach(btn => {

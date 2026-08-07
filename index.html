@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=1.0">
+<link rel="stylesheet" href="styles.css?v=2.0">
 </head>
 <body>
 <div class="wrap">
@@ -156,7 +156,7 @@
           </div>
           <div class="stat-row tight hidden" id="elec-stats-day">
             <div class="stat"><div class="stat-label" id="elec-day-label">Latest available day</div><div class="stat-value-sm" id="elec-day-total">—</div></div>
-            <div class="stat"><div class="stat-label">Peak draw</div><div class="stat-value-sm" id="elec-day-peak">—</div></div>
+            <div class="stat"><div class="stat-label">Peak draw (kWh, not £)</div><div class="stat-value-sm" id="elec-day-peak">—</div></div>
           </div>
           <div class="stat-row tight hidden" id="elec-stats-year">
             <div class="stat"><div class="stat-label">Year to date</div><div class="stat-value-sm" id="elec-ytd">—</div></div>
@@ -298,7 +298,132 @@
       </div>
     </div>
 
-    <div class="foot">Kraken Watch <span id="app-version"></span> — unofficial, uses your own Octopus Energy API credentials, stored only on this device.</div>
+    <!-- INSIGHTS -->
+    <div class="card" id="insights-card">
+      <div class="card-head" id="insights-header" style="cursor:pointer;" role="button" aria-expanded="false">
+        <div class="card-title">💡 Insights</div>
+        <span id="insights-chevron" style="font-size:11px;color:var(--text-dim);">▸</span>
+      </div>
+      <div class="collapsed-hint" id="insights-hint">Tap to see spending patterns, trends, and balance projections</div>
+      <div id="insights-body" class="hidden">
+
+        <div class="fuel-panel elec">
+          <div class="fuel-panel-title">⚡ Electricity — Intelligent Go</div>
+
+          <div class="insight-block">
+            <div class="insight-label" id="insights-elec-trend-label">Latest available day</div>
+            <div class="trend-row">
+              <div class="trend-num" id="insights-elec-trend-value">—</div>
+              <div class="trend-detail">
+                <div class="trend-pill" id="insights-elec-trend-pill"></div>
+                <div class="trend-caption" id="insights-elec-trend-caption">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="insight-block">
+            <div class="insight-label">This month's spend — off-peak vs standard rate</div>
+            <div class="split-bar">
+              <div id="insights-elec-split-offpeak" style="width:0%;background:var(--mint);"></div>
+              <div id="insights-elec-split-standard" style="width:0%;background:var(--violet);"></div>
+            </div>
+            <div class="split-legend">
+              <span><span class="dot" style="background:var(--mint)"></span>Off-peak <span id="insights-elec-split-offpeak-pct">—</span></span>
+              <span><span class="dot" style="background:var(--violet)"></span>Standard <span id="insights-elec-split-standard-pct">—</span></span>
+            </div>
+            <div class="split-note" id="insights-elec-split-note">—</div>
+          </div>
+
+          <div class="insight-block" id="insights-elec-weekday-block">
+            <div class="insight-label">Weekday vs weekend, this month</div>
+            <div class="compare-row">
+              <div class="compare-col"><div class="compare-value" id="insights-elec-weekday-value">—</div><div class="compare-bar weekday" id="insights-elec-weekday-bar" style="height:2px;"></div><div class="compare-label">Weekday</div></div>
+              <div class="compare-col"><div class="compare-value" id="insights-elec-weekend-value">—</div><div class="compare-bar weekend" id="insights-elec-weekend-bar" style="height:2px;"></div><div class="compare-label">Weekend</div></div>
+            </div>
+            <div class="pattern-headline" id="insights-elec-pattern-headline">—</div>
+          </div>
+
+          <div class="insight-block" id="insights-elec-extremes-block">
+            <div class="insight-label">This month's extremes</div>
+            <div class="minmax-row">
+              <div class="minmax-col"><div class="minmax-tag high">Priciest</div><div class="minmax-value" id="insights-elec-high-value">—</div><div class="minmax-date" id="insights-elec-high-date">—</div></div>
+              <div class="minmax-col"><div class="minmax-tag low">Cheapest</div><div class="minmax-value" id="insights-elec-low-value">—</div><div class="minmax-date" id="insights-elec-low-date">—</div></div>
+            </div>
+          </div>
+
+          <div class="insight-block" id="insights-elec-trajectory-block">
+            <div class="insight-label">This month's trajectory</div>
+            <div class="trajectory-row"><span class="trajectory-icon" id="insights-elec-trajectory-icon">—</span><span class="trajectory-text" id="insights-elec-trajectory-text">—</span></div>
+          </div>
+        </div>
+
+        <div class="fuel-panel gas">
+          <div class="fuel-panel-title">🔥 Gas — Flexible Octopus</div>
+
+          <div class="insight-block">
+            <div class="insight-label" id="insights-gas-trend-label">Latest available day</div>
+            <div class="trend-row">
+              <div class="trend-num" id="insights-gas-trend-value">—</div>
+              <div class="trend-detail">
+                <div class="trend-pill" id="insights-gas-trend-pill"></div>
+                <div class="trend-caption" id="insights-gas-trend-caption">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="insight-block">
+            <div class="insight-label">This month's bill — standing charge vs usage</div>
+            <div class="split-bar">
+              <div id="insights-gas-split-standing" style="width:0%;background:var(--text-dim);"></div>
+              <div id="insights-gas-split-usage" style="width:0%;background:var(--amber);"></div>
+            </div>
+            <div class="split-legend">
+              <span><span class="dot" style="background:var(--text-dim)"></span>Standing charge <span id="insights-gas-split-standing-pct">—</span></span>
+              <span><span class="dot" style="background:var(--amber)"></span>Usage <span id="insights-gas-split-usage-pct">—</span></span>
+            </div>
+            <div class="seasonal-note hidden" id="insights-gas-seasonal-note"><span class="icon">📉</span><span id="insights-gas-seasonal-text"></span></div>
+          </div>
+
+          <div class="insight-block" id="insights-gas-extremes-block">
+            <div class="insight-label">This month's extremes</div>
+            <div class="minmax-row">
+              <div class="minmax-col"><div class="minmax-tag high">Priciest</div><div class="minmax-value" id="insights-gas-high-value">—</div><div class="minmax-date" id="insights-gas-high-date">—</div></div>
+              <div class="minmax-col"><div class="minmax-tag low">Cheapest</div><div class="minmax-value" id="insights-gas-low-value">—</div><div class="minmax-date" id="insights-gas-low-date">—</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fuel-panel billing">
+          <div class="fuel-panel-title">💳 Balance runway</div>
+          <div class="insight-block">
+            <div class="runway-row">
+              <div class="runway-icon" id="insights-runway-icon">—</div>
+              <div>
+                <div class="runway-headline" id="insights-runway-headline">—</div>
+                <div class="runway-detail" id="insights-runway-detail">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fuel-panel general">
+          <div class="fuel-panel-title">🧾 Standing charges</div>
+          <div class="insight-block">
+            <div class="standing-cols">
+              <div class="standing-col"><div class="standing-label">Year to date</div><div class="standing-value" id="insights-standing-ytd">—</div></div>
+              <div class="standing-col"><div class="standing-label">Full year</div><div class="standing-value" id="insights-standing-full-year">—</div></div>
+            </div>
+            <div class="standing-total-note">Paid across both fuels, before a single unit of energy is even used. Full-year figure assumes today's rates hold — standing charges change less often than usage rates, but aren't fixed.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="foot">
+      <div class="foot-version">Kraken Watch <span id="app-version"></span></div>
+      <div class="foot-disclaimer">Unofficial app not affiliated with Octopus Energy</div>
+    </div>
   </div>
 </div>
 
@@ -376,6 +501,6 @@
   </div>
 </div>
 
-<script src="app.js?v=1.0"></script>
+<script src="app.js?v=2.0"></script>
 </body>
 </html>

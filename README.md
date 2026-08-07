@@ -11,8 +11,9 @@ one screen, with your own API credentials stored only on your device.
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
 | Live usage | Current draw (W), £/hr estimate, color-coded by level | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
 | EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled | **Live**, via Kraken GraphQL |
-| Consumption (electricity + gas) | Latest available day, last 7 days, month to date, predicted month, stacked Week/Month chart (standing charge / off-peak / peak) — tap any bar for that day's full breakdown | **Live** |
+| Consumption (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown | **Live** |
 | Billing | Account balance and projected balance as two side-by-side boxes with a CREDIT/DEBIT pill, Direct Debit (estimated) with a trend indicator, month-to-date/predicted both fuels, last bill link | **Live**, Direct Debit is an estimate (see below) |
+| Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, balance runway projection, annual standing charge total | **Live**, lazy-loads a month of data on first expand |
 
 If a live call fails, that section shows "Unavailable" rather than a fake
 number. Demo data is available for testing but is **off by default** —
