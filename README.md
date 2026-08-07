@@ -109,7 +109,13 @@ what this project actually uses day to day.
 
 ## Updating after a change
 
-The footer shows the app version (e.g. "v50") — check it after a deploy to
+Versioning switched to MAJOR.MINOR at v1.0 (previously a flat incrementing
+number). MINOR bumps (v1.1, v1.2...) cover regular fixes and small-to-moderate
+additions; MAJOR only moves (v2.0) for something that feels like a genuine
+new generation of the app — a big new capability, or a real architecture
+shift.
+
+The footer shows the app version (e.g. "v1.2") — check it after a deploy to
 confirm the new build actually landed. On every release, bump **four**
 things together, all to the same number:
 

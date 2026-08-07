@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v58';
+const APP_VERSION = 'v1.0';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -55,7 +55,10 @@ const fmtP = (n) => `${n.toFixed(2)}p`;
 async function octRest(path) {
   const { apiKey } = store.creds || {};
   const res = await fetch(`${REST_BASE}${path}`, {
-    headers: { Authorization: 'Basic ' + btoa(`${apiKey}:`) }
+    headers: { Authorization: 'Basic ' + btoa(`${apiKey}:`) },
+    cache: 'no-store' // always hit the network — a browser-cached response for
+    // an identical URL (e.g. re-checking the same past day) could otherwise
+    // serve stale data even after the underlying logic is fixed elsewhere.
   });
   if (!res.ok) throw new Error(`REST ${path} → ${res.status}`);
   return res.json();
@@ -446,6 +449,24 @@ function renderFuelPanel(fuel) {
     $('gas-day-unavailable').classList.toggle('hidden', !isGasDay);
   }
 
+  // Legend and "Unit rate now" footer: swap content for Year, since it's a
+  // single-color total per month, not the standing/off-peak/peak split the
+  // Week/Month legend describes — showing that legend in Year mode was a
+  // real, confirmed bug (the legend markup existed but had no JS wiring at
+  // all, so it silently never changed no matter what was on screen). The
+  // unit-rate footer is hidden entirely in Year mode rather than relabeled,
+  // since Year shows no cost figures at all for that rate to relate to.
+  const legendEl = $(`${fuel}-wmy-legend`);
+  if (legendEl) {
+    legendEl.innerHTML = isYear
+      ? `<span><i style="background:${fuel === 'elec' ? 'var(--violet)' : 'var(--amber)'}"></i>Total usage</span>`
+      : (fuel === 'elec'
+        ? `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--mint)"></i>Off-peak</span><span><i style="background:var(--violet)"></i>Peak</span>`
+        : `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--amber)"></i>Usage</span>`);
+  }
+  const footEl = document.querySelector(`.fuel-panel.${fuel} .fuel-panel-foot`);
+  if (footEl) footEl.classList.toggle('hidden', isYear);
+
   // £/kWh toggle only makes sense where £ is actually available — hidden
   // for Year, since group_by=month gives exact kWh but not an accurate cost
   // (see fetchYearMonthly for why).
@@ -536,6 +557,7 @@ function renderElecDayView() {
   for (const sl of day.slots) if (sl.kwh > peakSlot.kwh) peakSlot = sl;
   const peakTime = new Date(peakSlot.start).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   $('elec-day-peak').textContent = `${(peakSlot.kwh * 2).toFixed(2)} kW at ${peakTime}`;
+  logDebug('Day view peak', `${day.slots.length} slot(s), peak ${peakSlot.kwh.toFixed(3)} kWh at ${peakSlot.start} (local ${peakTime})`);
 
   const values = day.slots.map(sl => unit === 'cost' ? sl.cost : sl.kwh);
   const max = Math.max(...values, 0.01);
