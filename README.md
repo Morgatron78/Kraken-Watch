@@ -109,17 +109,36 @@ what this project actually uses day to day.
 
 ## Updating after a change
 
-The footer shows the app version (e.g. "v47") — check it after a deploy to
-confirm the new build actually landed. Bump `APP_VERSION` in `app.js` and
-`CACHE` in `sw.js` together on every release; they're meant to stay
-numerically in sync.
+The footer shows the app version (e.g. "v50") — check it after a deploy to
+confirm the new build actually landed. On every release, bump **four**
+things together, all to the same number:
 
-Two layers can cache the app: your host's CDN, and the service worker
-itself. This project sets `updateViaCache: 'none'` on registration, which
-should make redeploys show up automatically. If a change still doesn't
-appear:
+1. `APP_VERSION` in `app.js`
+2. `CACHE` in `sw.js`
+3. The `?v=NN` query string on `styles.css` and `app.js` in **both**
+   `index.html` (the `<link>`/`<script>` tags) and `sw.js` (the `SHELL`
+   array) — these must match exactly, or the service worker will try to
+   cache a URL that doesn't exist in the page and silently fail to update
+   the shell.
 
-1. Confirm the version bump above actually landed (check the footer).
+**Why the query strings exist:** GitHub Pages sits behind a CDN with its
+own cache timing that `updateViaCache: 'none'` can't override — that
+setting only controls the *browser's* local cache, not GitHub's edge
+cache. Without a version-tagged URL, a new service worker could install
+successfully but still pull `styles.css`/`app.js` from a stale CDN edge
+cache using the old URL, baking outdated code into an otherwise "fresh"
+install. Bumping the query string on every release makes each version a
+guaranteed cache miss everywhere, browser and CDN both.
+
+This doesn't fully solve staleness for `index.html` itself, since the page
+URL can't be query-string-versioned the same way (it's what people
+actually navigate to) — if the page itself seems stale right after a
+deploy, that's GitHub's CDN propagation delay, typically resolving within
+a few minutes on its own.
+
+If a change still doesn't appear after confirming the version bump:
+
+1. Wait a few minutes for GitHub's CDN to catch up, then reload.
 2. On iPhone: fully close the app (swipe it away in the app switcher), or
    as a last resort go to **Settings → Safari → Advanced → Website Data**,
    find the site, and remove it — clears both the HTTP cache and the
