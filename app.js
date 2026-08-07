@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.0';
+const APP_VERSION = 'v2.1';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -682,11 +682,15 @@ function renderInsightsElec() {
   const week = fuelData.elec?.week;
   const month = fuelData.elec?.month;
 
-  // Trend vs 7-day average — same "latest available day" logic used
-  // elsewhere, just restated here since Insights doesn't share that render path.
+  // Trend vs 7-day average. Deliberately starts from YESTERDAY, not today —
+  // today's REST data is essentially always partial (the well-established
+  // settlement lag means only a handful of early readings exist for most of
+  // the day), so hasData:true for today means "something exists", not "this
+  // day is actually complete". Treating a barely-started day as a genuine
+  // low point was a real bug, not just an edge case.
   if (week) {
     let found = null, daysAgo = -1;
-    for (let i = week.length - 1; i >= 0; i--) {
+    for (let i = week.length - 2; i >= 0; i--) {
       if (week[i].hasData !== false) { found = week[i]; daysAgo = week.length - 1 - i; break; }
     }
     const avg = week.reduce((s, d) => s + dayTotal('elec', d, 'cost'), 0) / week.length;
@@ -705,10 +709,16 @@ function renderInsightsElec() {
 
   if (month) {
     // Off-peak vs standard split, by cost, across the month so far.
+    // Excludes today specifically (not just future dates) — same reasoning
+    // as the trend calculation above: today's data is essentially always
+    // partial, so including it would understate the split and skew averages
+    // toward whatever fraction of today happens to have settled so far.
+    const now0 = new Date();
+    const todayMidnight = new Date(now0.getFullYear(), now0.getMonth(), now0.getDate());
     let offPeak = 0, standard = 0, offPeakKwh = 0, standardKwh = 0;
     let weekdayTotal = 0, weekdayCount = 0, weekendTotal = 0, weekendCount = 0;
     let high = null, low = null;
-    const validDays = month.filter((d, i) => d.hasData !== false && insightsMonthDate(i) <= new Date());
+    const validDays = month.filter((d, i) => d.hasData !== false && insightsMonthDate(i) < todayMidnight);
     validDays.forEach((d) => {
       offPeak += d.offPeakCost || 0; standard += d.peakCost || 0;
       offPeakKwh += d.offPeakKwh || 0; standardKwh += d.peakKwh || 0;
@@ -729,7 +739,7 @@ function renderInsightsElec() {
     // Weekday vs weekend, and best/worst day — same pass over the month.
     month.forEach((d, i) => {
       const date = insightsMonthDate(i);
-      if (date > new Date() || d.hasData === false) return;
+      if (date >= todayMidnight || d.hasData === false) return;
       const total = dayTotal('elec', d, 'cost');
       const dow = date.getDay();
       if (dow === 0 || dow === 6) { weekendTotal += total; weekendCount++; }
@@ -790,7 +800,7 @@ function renderInsightsGas() {
 
   if (week) {
     let found = null, daysAgo = -1;
-    for (let i = week.length - 1; i >= 0; i--) {
+    for (let i = week.length - 2; i >= 0; i--) {
       if (week[i].hasData !== false) { found = week[i]; daysAgo = week.length - 1 - i; break; }
     }
     const avg = week.reduce((s, d) => s + dayTotal('gas', d, 'cost'), 0) / week.length;
@@ -808,10 +818,12 @@ function renderInsightsGas() {
   }
 
   if (month) {
+    const now1 = new Date();
+    const todayMidnight1 = new Date(now1.getFullYear(), now1.getMonth(), now1.getDate());
     let standing = 0, usage = 0, high = null, low = null;
     month.forEach((d, i) => {
       const date = insightsMonthDate(i);
-      if (date > new Date() || d.hasData === false) return;
+      if (date >= todayMidnight1 || d.hasData === false) return;
       standing += d.standing || 0; usage += d.cost || 0;
       const total = dayTotal('gas', d, 'cost');
       if (!high || total > high.total) high = { total, date };

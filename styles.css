@@ -250,6 +250,7 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-panel.gas{border-top-color:var(--amber);}
 .fuel-panel-head{font-size:12px;font-weight:600;letter-spacing:0.2px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;}
 .fuel-panel-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;letter-spacing:0.3px;}
+#insights-body .fuel-panel-title{margin-bottom:14px;}
 .fuel-icon{font-size:15px;line-height:1;}
 .unit-toggle{display:flex;background:var(--bg);border-radius:100px;padding:2px;flex-shrink:0;}
 .unit-toggle-btn{
