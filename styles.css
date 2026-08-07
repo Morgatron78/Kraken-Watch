@@ -194,7 +194,6 @@ svg.rate-curve{display:block;width:100%;height:auto;}
 }
 .balance-banner{background:var(--violet-soft);border:1px solid rgba(139,107,255,0.3);margin-bottom:14px;}
 .predict-banner{background:var(--mint-soft);border:1px solid rgba(61,220,151,0.3);margin-bottom:18px;}
-.predict-arrow{color:var(--text-dim);font-size:18px;}
 .predict-day{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim);}
 .balance-note{width:100%;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:2px;}
 
