@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.2';
+const APP_VERSION = 'v2.3';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -105,11 +105,27 @@ let cachedCurrentRateP = null; // right-now electricity rate — used for the li
 let cachedElecStandingP = null;
 let cachedGasStandingP = null;
 
+// Rate queries use a wider lookback window than the actual date range being
+// priced. Narrow single-day queries (used for the 7-day bars) were missing
+// the currently-active rate period on recent days — gas in particular only
+// has a couple of rate changes a month, so a tight 24h window sometimes
+// doesn't span back far enough to catch the row whose valid_from covers it,
+// leaving every reading that day unmatched and silently priced at £0 usage.
+// The month-wide MTD query never hit this because its window is naturally
+// wide enough. Buffering period_from here gives every query that same safety
+// margin without changing what date range is actually being priced.
+const RATE_LOOKBACK_DAYS = 45;
+function bufferedRateFrom(fromISO) {
+  const d = new Date(fromISO);
+  d.setDate(d.getDate() - RATE_LOOKBACK_DAYS);
+  return d.toISOString();
+}
+
 async function fetchElecRates(fromISO, toISO) {
   const { elecProductCode, elecTariffCode } = store.creds;
   const key = `elec_${elecTariffCode}_${fromISO}_${toISO}`;
   if (rateCache[key]) return rateCache[key];
-  const data = await octRest(`/products/${elecProductCode}/electricity-tariffs/${elecTariffCode}/standard-unit-rates/?period_from=${fromISO}&period_to=${toISO}&page_size=1500`);
+  const data = await octRest(`/products/${elecProductCode}/electricity-tariffs/${elecTariffCode}/standard-unit-rates/?period_from=${bufferedRateFrom(fromISO)}&period_to=${toISO}&page_size=1500`);
   const rows = (data.results || [])
     .map(r => ({ from: +new Date(r.valid_from), to: r.valid_to ? +new Date(r.valid_to) : +new Date(toISO), rate: r.value_inc_vat }))
     .sort((a, b) => a.from - b.from);
@@ -122,7 +138,7 @@ async function fetchGasRates(fromISO, toISO) {
   if (!gasProductCode || !gasTariffCode) return [];
   const key = `gas_${gasTariffCode}_${fromISO}_${toISO}`;
   if (rateCache[key]) return rateCache[key];
-  const data = await octRest(`/products/${gasProductCode}/gas-tariffs/${gasTariffCode}/standard-unit-rates/?period_from=${fromISO}&period_to=${toISO}&page_size=1500`);
+  const data = await octRest(`/products/${gasProductCode}/gas-tariffs/${gasTariffCode}/standard-unit-rates/?period_from=${bufferedRateFrom(fromISO)}&period_to=${toISO}&page_size=1500`);
   const rows = (data.results || [])
     .map(r => ({ from: +new Date(r.valid_from), to: r.valid_to ? +new Date(r.valid_to) : +new Date(toISO), rate: r.value_inc_vat }))
     .sort((a, b) => a.from - b.from);
