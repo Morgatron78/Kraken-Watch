@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v56';
+const APP_VERSION = 'v57';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -666,6 +666,12 @@ async function lastNDaysGasSplitWithStanding(n) {
 async function fetchElecDayHalfHourly() {
   const { elecMpan, elecSerial } = store.creds;
   if (!elecMpan || !elecSerial) throw new Error('No elec meter point on file');
+  // A full day is 48 half-hour slots (46/47 on a DST-change day) — require
+  // most of that before accepting a day as "available". A handful of early
+  // readings trickling in for today passed the old "any data at all" check,
+  // producing a near-empty 2-bar chart that looked broken rather than
+  // genuinely incomplete.
+  const MIN_SLOTS_FOR_COMPLETE_DAY = 40;
   for (let daysAgo = 0; daysAgo <= 3; daysAgo++) {
     const now = new Date();
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
@@ -674,7 +680,8 @@ async function fetchElecDayHalfHourly() {
     const consPath = `/electricity-meter-points/${elecMpan}/meters/${elecSerial}/consumption/?period_from=${fromISO}&period_to=${toISO}&page_size=100`;
     const [consData, rates] = await Promise.all([octRest(consPath), fetchElecRates(fromISO, toISO)]);
     const results = consData.results || [];
-    if (!results.length) continue; // no data yet for this day — try further back
+    logDebug('Day view', `Checked ${dayStart.toDateString()}: ${results.length} reading(s)${results.length < MIN_SLOTS_FOR_COMPLETE_DAY ? ' — not enough for a full day, trying further back' : ' — using this day'}`);
+    if (results.length < MIN_SLOTS_FOR_COMPLETE_DAY) continue; // incomplete — try further back
     const threshold = rates.length ? Math.min(...rates.map(r => r.rate)) + 1 : 0;
     const slots = results
       .map(r => {
@@ -692,7 +699,7 @@ async function fetchElecDayHalfHourly() {
       .sort((a, b) => +new Date(a.start) - +new Date(b.start));
     return { date: dayStart, slots };
   }
-  return { date: null, slots: [] }; // genuinely no data in the last few days
+  return { date: null, slots: [] }; // genuinely no complete day in the last few days
 }
 
 // Monthly kWh totals for the calendar year so far, one API call per fuel via
