@@ -53,6 +53,7 @@ jobs:
           cp state/ev-status.json /tmp/ev-status.json
           git config user.name "kraken-watch-bot"
           git config user.email "actions@github.com"
+          rm -rf state
           if git ls-remote --exit-code --heads origin state > /dev/null 2>&1; then
             git checkout -B state origin/state
           else
