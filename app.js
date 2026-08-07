@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v45';
+const APP_VERSION = 'v47';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -792,7 +792,21 @@ async function loadBilling() {
       .filter(p => p.paymentDate >= today)
       .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
     if (upcoming[0]) nextPayment = upcoming[0];
-    logDebug('Next payment', `${allPayments.length} payment(s) fetched, ${upcoming.length} future-dated${upcoming[0] ? `, nearest: ${upcoming[0].paymentDate} (${upcoming[0].status})` : ''}`);
+
+    // No future-dated payment yet — fall back to the most recent PAST
+    // payment as an estimate. UK energy Direct Debits are periodically
+    // reviewed but typically stay fixed for months at a time, so the last
+    // actual payment is a reasonable stand-in until Octopus creates the
+    // real next-payment record. Flagged as an estimate so the UI can be
+    // honest about it rather than presenting a guess as a confirmed fact.
+    if (!nextPayment) {
+      const past = allPayments
+        .filter(p => p.paymentDate < today && p.status !== 'CANCELLED' && p.status !== 'FAILED')
+        .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
+      if (past[0]) nextPayment = { ...past[0], isEstimate: true };
+    }
+
+    logDebug('Next payment', `${allPayments.length} payment(s) fetched, ${upcoming.length} future-dated${nextPayment ? `, using: ${nextPayment.paymentDate} (${nextPayment.status}${nextPayment.isEstimate ? ', estimated from last payment' : ''})` : ', none usable'}`);
   } catch (err) { logIssue('Next payment', err); }
 
   // --- Diagnostic-only probe: paymentSchedules ---
@@ -899,7 +913,10 @@ async function loadBilling() {
         const afterDD = projected + (nextPayment.amount / 100);
         const dateStr = new Date(nextPayment.paymentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
         $('next-dd-amount').textContent = fmtGBP(nextPayment.amount / 100);
-        $('next-dd-due').textContent = `Due ${dateStr}`;
+        $('next-dd-due').textContent = nextPayment.isEstimate
+          ? `Est. from last payment (${dateStr})`
+          : `Due ${dateStr}`;
+        $('next-dd-label').textContent = nextPayment.isEstimate ? 'Direct Debit (est.)' : 'Next Direct Debit';
         renderBalanceFigure('balance-after-dd', afterDD);
 
         // Trend: is the incoming payment bigger or smaller than what this

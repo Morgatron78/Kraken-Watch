@@ -220,6 +220,16 @@ last push status, pulled from `state/ev-status.json`.
 
 ## Known limitations / next steps
 
+- **Direct Debit amount is now estimated from your last actual payment**
+  when no future-dated payment record exists yet (the usual case — Octopus
+  doesn't seem to materialize the next payment until close to the
+  collection date). Labeled "Direct Debit (est.)" with "Est. from last
+  payment (date)" instead of "Next Direct Debit"/"Due (date)" so it's
+  honest about being an assumption, not a confirmed fact. Reasonable since
+  UK energy Direct Debits are periodically reviewed but typically stay
+  fixed for months — but if Octopus revises your DD amount, this will be
+  stale until the next real payment happens and updates it.
+
 - **Demo data is now opt-in, off by default.** Settings → "Show demo data
   when something fails to load" (unchecked by default). When off, any
   section that fails to load shows "Unavailable"/"—" instead of a fake
