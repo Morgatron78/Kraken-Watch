@@ -66,6 +66,11 @@ to spot the actual cause rather than guessing.
   fields (`savingSessions`, `joinSavingSessionsCampaign`) are deprecated on
   Octopus's side as of early 2026, with no confirmed working replacement.
   Not built.
+- **Polestar/Smartcar integration** (state of charge, charging status in the
+  EV panel) — researched thoroughly (real signal names, ~$3/month Smartcar
+  plan, webhook-based to avoid 12V battery drain risk) and technically
+  viable, but parked since the user can already see this via existing phone
+  widgets. Revisit if wanted later — the groundwork is already scoped.
 - **Native app wrapper with Lock Screen/Watch widgets** — technically
   possible via Capacitor, but genuine widgets need a separate native
   Swift/WidgetKit codebase and a paid ($99/year) Apple Developer account for
