@@ -1,4 +1,4 @@
-const CACHE = 'kraken-watch-v47';
+const CACHE = 'kraken-watch-v49';
 const SHELL = [
   './',
   './index.html',

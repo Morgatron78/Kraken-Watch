@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v47';
+const APP_VERSION = 'v49';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -808,37 +808,6 @@ async function loadBilling() {
 
     logDebug('Next payment', `${allPayments.length} payment(s) fetched, ${upcoming.length} future-dated${nextPayment ? `, using: ${nextPayment.paymentDate} (${nextPayment.status}${nextPayment.isEstimate ? ', estimated from last payment' : ''})` : ', none usable'}`);
   } catch (err) { logIssue('Next payment', err); }
-
-  // --- Diagnostic-only probe: paymentSchedules ---
-  // `payments` (above) only has records once Octopus materializes them close
-  // to the collection date. `paymentSchedules` is described as "the schedules
-  // that describe how we would expect to take payments... on a given month" —
-  // sounds like the right field for a recurring DD amount known well ahead of
-  // time, but its exact returned fields aren't confirmed (couldn't retrieve
-  // that part of Octopus's docs). `amount` and `validFrom` are educated
-  // guesses — `amount` because nearly every payment-related type in this
-  // schema uses it, `validFrom` because it's confirmed as the matching input
-  // field name on the sibling mutation. This ONLY logs to diagnostics for
-  // now — nothing here touches the UI, precisely because those field names
-  // aren't confirmed. If they're wrong, the GraphQL error itself will name
-  // the correct field, which turns this into a one-line fix rather than a
-  // guessing game.
-  try {
-    const data = await krakenGQL(`
-      query PaymentSchedulesProbe($accountNumber: String!) {
-        account(accountNumber: $accountNumber) {
-          paymentSchedules(first: 5, active: true) {
-            edges { node { amount validFrom } }
-          }
-        }
-      }`, { accountNumber: store.creds.accountNumber });
-    const schedules = (data?.account?.paymentSchedules?.edges || []).map(e => e.node);
-    logDebug('Payment schedules probe', schedules.length
-      ? `${schedules.length} schedule(s): ${schedules.map(s => `£${(s.amount / 100).toFixed(2)} from ${s.validFrom}`).join('; ')}`
-      : 'Query succeeded but returned 0 schedules');
-  } catch (err) {
-    logDebug('Payment schedules probe', `Query failed — field names need adjusting: ${err.message}`);
-  }
 
   // --- Cost so far this cycle (assumes calendar month as the cycle — Octopus's
   // API doesn't expose your actual billing-cycle start date, so this is an

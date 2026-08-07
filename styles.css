@@ -45,13 +45,13 @@ button{font-family:inherit;cursor:pointer;}
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:10px;}
 .brand{display:flex;align-items:center;gap:10px;}
 .brand-mark{
-  width:30px;height:30px;border-radius:9px;
+  width:44px;height:44px;border-radius:12px;
   display:flex;align-items:center;justify-content:center;
   overflow:hidden;flex-shrink:0;
   box-shadow:0 0 0 1px rgba(255,255,255,0.08) inset;
 }
 .brand-mark img{width:100%;height:100%;object-fit:cover;}
-.brand-name{font-weight:600;font-size:16px;letter-spacing:0.2px;}
+.brand-name{font-weight:600;font-size:19px;letter-spacing:0.2px;}
 .brand-sub{font-size:10.5px;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;letter-spacing:0.5px;}
 .topbar-right{display:flex;align-items:center;gap:10px;}
 .status{display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);}
