@@ -16,11 +16,11 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v54';
+const APP_VERSION = 'v55';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
-const VAPID_PUBLIC_KEY = 'BIq7brwFs3Q_UHtekH2z3dX7zkd40WyOLarOvSoMSOF0N06xtDQcx6qBIQHShuBKHvwoq6irApOWhLyoozYk7U4';
+const VAPID_PUBLIC_KEY = 'BHGWakjQv2_jirzApA8FrA1S1Zp6PVXB29Qy1KHtbVPwKYH1Hzh5oFqiuxIDByEFIQpiJvTVrb7s0Y1_vUs-yt8';
 
 const store = {
   get creds() {

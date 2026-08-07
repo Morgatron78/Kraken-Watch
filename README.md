@@ -165,13 +165,35 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `OCTOPUS_ACCOUNT_NUMBER` | Your account number, e.g. `A-AAAA1111` |
 | `KRAKEN_EMAIL` | Your Octopus account login email |
 | `KRAKEN_PASSWORD` | Your Octopus account login password |
-| `VAPID_PUBLIC_KEY` | `BIq7brwFs3Q_UHtekH2z3dX7zkd40WyOLarOvSoMSOF0N06xtDQcx6qBIQHShuBKHvwoq6irApOWhLyoozYk7U4` |
-| `VAPID_PRIVATE_KEY` | `sNaKhNNE77zc07nkJ1srm70QtZs687GKWvz0tMaL-WI` |
+| `VAPID_PUBLIC_KEY` | `BHGWakjQv2_jirzApA8FrA1S1Zp6PVXB29Qy1KHtbVPwKYH1Hzh5oFqiuxIDByEFIQpiJvTVrb7s0Y1_vUs-yt8` |
+| `VAPID_PRIVATE_KEY` | **Do not put this in the README or commit it anywhere.** Ask whoever's helping you build this for the private key value directly (never in a file that gets committed), or generate your own pair — see below. |
 | `PUSH_SUBSCRIPTION` | Added in step 2 below — leave this until then |
 
-The VAPID keys are a real key pair generated for this deployment. The
-public half is also embedded in `app.js` — that's expected. The private
-key should only ever live in this GitHub secret.
+The public VAPID key is safe to publish — that's the nature of public-key
+cryptography, and it's also embedded directly in `app.js`. The private key
+is a genuine secret and must **only** ever exist as a GitHub Actions
+secret, never written into a file that gets committed to the repo (a
+version of this README once did exactly that — if you're rotating a key
+because of that mistake, generate a fresh pair rather than reusing the one
+that was exposed). To generate your own pair, Node's built-in crypto can do
+it with no extra packages:
+
+```js
+const crypto = require('crypto');
+const ecdh = crypto.createECDH('prime256v1');
+ecdh.generateKeys();
+const b64url = (buf) => buf.toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+console.log('PUBLIC:', b64url(ecdh.getPublicKey()));
+const priv = ecdh.getPrivateKey();
+console.log('PRIVATE:', b64url(Buffer.concat([Buffer.alloc(32 - priv.length), priv])));
+```
+
+If you generate a new pair, update `VAPID_PUBLIC_KEY` in `app.js` to match
+before deploying, and set the new private key as the `VAPID_PRIVATE_KEY`
+secret. If you'd already run "Enable EV notifications" with an old key
+pair, you'll need to do it again after switching keys — a push
+subscription is cryptographically tied to the specific key pair it was
+created with.
 
 ### 2. Subscribe from the app
 
