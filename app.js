@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v57';
+const APP_VERSION = 'v58';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -450,7 +450,16 @@ function renderFuelPanel(fuel) {
   // for Year, since group_by=month gives exact kWh but not an accurate cost
   // (see fetchYearMonthly for why).
   const toggleWrap = document.querySelector(`.unit-toggle[data-fuel="${fuel}"]`);
-  if (toggleWrap) toggleWrap.classList.toggle('hidden', isYear);
+  if (toggleWrap) {
+    toggleWrap.classList.toggle('hidden', isYear);
+    // Sync the active button state here, unconditionally, rather than at the
+    // end of the function — Day/Year both return early below, and this was
+    // previously stranded after those returns, so the toggle's underlying
+    // data changed correctly but the button itself never visually updated.
+    toggleWrap.querySelectorAll('.unit-toggle-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.unit === unit);
+    });
+  }
 
   if (isGasDay) return; // nothing else to render for gas in Day mode
 
@@ -493,12 +502,6 @@ function renderFuelPanel(fuel) {
     const dayStacks = periodData.map(day => buildDaySegments(fuel, day, unit));
     renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel]);
     renderBreakdown(fuel, periodData, selectedDay[fuel]);
-  }
-
-  if (toggleWrap) {
-    toggleWrap.querySelectorAll('.unit-toggle-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.unit === unit);
-    });
   }
 }
 
