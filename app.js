@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.3';
+const APP_VERSION = 'v2.4';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -220,10 +220,17 @@ async function costForRange(fuel, fromISO, toISO, debugLabel) {
     logIssue(`${fuel === 'elec' ? 'Electricity' : 'Gas'} rate lookup`,
       new Error(`${missed}/${(consData.results || []).length} reading(s) had no matching rate period and were excluded from the cost total`));
   }
-  // hasData distinguishes "genuinely used 0 kWh" from "no readings back yet" —
-  // smart meter consumption data usually lags 24-48h behind real time, so
-  // very recent windows (today, sometimes yesterday) often have no rows at all.
-  const hasData = (consData.results || []).length > 0;
+  // hasData distinguishes "genuinely used this much" from "no readings back
+  // yet" — smart meter consumption data usually lags 24-48h behind real
+  // time, so very recent windows (today, sometimes yesterday) often have no
+  // rows at all. But a reading-period placeholder can also land with rows
+  // present and kwh totalling exactly zero before the real consumption
+  // figure has settled — seen on gas specifically, worse than the usual
+  // lag. A genuine zero-usage day (away on holiday) is rare enough that
+  // treating 0 kWh as "not settled yet" is the safer default; it just means
+  // an actual holiday day briefly shows as pending rather than £0, which
+  // self-corrects once a later day's data supersedes it as "latest".
+  const hasData = (consData.results || []).length > 0 && kwh > 0.001;
   return { kwh, cost: costPence / 100, hasData };
 }
 
@@ -257,7 +264,10 @@ async function elecCostSplit(fromISO, toISO) {
   return {
     offPeakKwh, peakKwh,
     offPeakCost: offPeakCostP / 100, peakCost: peakCostP / 100,
-    hasData: (consData.results || []).length > 0
+    // Same reasoning as costForRange: a placeholder reading-period with rows
+    // present but kwh totalling zero is treated as not-yet-settled rather
+    // than a genuine zero-usage day.
+    hasData: (consData.results || []).length > 0 && (offPeakKwh + peakKwh) > 0.001
   };
 }
 
