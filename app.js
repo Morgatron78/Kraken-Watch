@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.1';
+const APP_VERSION = 'v2.2';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -660,6 +660,12 @@ async function loadInsights() {
     if (!fuelData.gas.month) tasks.push(loadMonthData('gas'));
     if (!fuelData.gas.year) tasks.push(fetchYearMonthly('gas').then(y => { fuelData.gas.year = y; }));
     await Promise.all(tasks);
+    if (fuelData.elec.month) {
+      logDebug('Insights elec month', fuelData.elec.month.map((d, i) => `[${i}] £${dayTotal('elec', d, 'cost').toFixed(2)} (hasData:${d.hasData})`).join(' '));
+    }
+    if (fuelData.gas.month) {
+      logDebug('Insights gas month', fuelData.gas.month.map((d, i) => `[${i}] £${dayTotal('gas', d, 'cost').toFixed(2)} (hasData:${d.hasData})`).join(' '));
+    }
   } catch (err) {
     logIssue('Insights', err);
   }
@@ -1497,6 +1503,7 @@ async function loadBilling() {
     try {
       fuelData.gas = fuelData.gas || {};
       fuelData.gas.week = await lastNDaysGasSplitWithStanding(7);
+      logDebug('Gas week breakdown', fuelData.gas.week.map((d, i) => `[${i}] £${dayTotal('gas', d, 'cost').toFixed(2)} (hasData:${d.hasData})`).join(' '));
       renderFuelPanel('gas');
     } catch (err) { logIssue('Gas daily cost', err); }
 
