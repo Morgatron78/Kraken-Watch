@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v52';
+const APP_VERSION = 'v53';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -37,11 +37,16 @@ const fmtGBP = (n) => `£${Math.abs(n).toFixed(2)}`;
 // Renders a balance figure as a hero number with a small "in credit"/"owed"
 // suffix, coloring coral only when genuinely in debit — the exceptional case
 // worth flagging, not the normal one.
-function renderBalanceFigure(id, pounds) {
-  const el = $(id);
+function renderBalanceFigure(valueId, pillId, pounds) {
+  const el = $(valueId);
   const owed = pounds < 0;
   el.classList.toggle('owed', owed);
-  el.innerHTML = `${fmtGBP(pounds)}<span class="suffix">${owed ? 'owed' : 'in credit'}</span>`;
+  el.textContent = fmtGBP(pounds);
+  const pill = $(pillId);
+  if (pill) {
+    pill.textContent = owed ? 'DEBIT' : 'CREDIT';
+    pill.className = 'status-pill ' + (owed ? 'debit' : 'credit');
+  }
 }
 const fmtP = (n) => `${n.toFixed(2)}p`;
 
@@ -316,7 +321,7 @@ const fmtKwh = (v) => `${v.toFixed(1)} kWh`;
 // Stacked variant: each day is [{value, cssClass}, ...] segments stacked
 // bottom-to-top (e.g. standing charge, then off-peak, then peak). Segment
 // order in the array is bottom-to-top.
-function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44, scaleId = null) {
+function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44, scaleId = null, selectedIndex = null) {
   const el = $(containerId);
   const totals = dayStacks.map(day => day.reduce((s, seg) => s + seg.value, 0));
   const max = Math.max(...totals, 0.01);
@@ -327,19 +332,68 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
   el.classList.toggle('dense', !showLabels);
   el.innerHTML = dayStacks.map((segs, i) => {
     const isToday = i === dayStacks.length - 1;
+    const isSelected = i === selectedIndex;
     const segHtml = segs.map(seg => {
       const h = Math.max(seg.value > 0 ? 1 : 0, Math.round((seg.value / max) * maxBarHeight));
       return `<div class="col-seg ${seg.cssClass}${isToday ? ' today' : ''}" style="height:${h}px"></div>`;
     }).join('');
-    const total = totals[i];
-    const label = showLabels ? `<span>${labels[(today - (dayStacks.length - 1 - i) + 7) % 7]}</span>` : '';
-    return `<div class="week-bar"><div class="col-stack" title="${formatter ? formatter(total) : total}">${segHtml}</div>${label}</div>`;
+    const label = showLabels ? `<span class="${isSelected ? 'active-day' : ''}">${labels[(today - (dayStacks.length - 1 - i) + 7) % 7]}</span>` : '';
+    return `<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${i}">${segHtml}</div>${label}</div>`;
   }).join('');
 }
 
 // Renders a fuel panel (elec/gas) from cached data in the currently-selected
 // unit (cost or kWh) — pure re-render, no refetch, so the toggle is instant.
 let periodMode = 'week';
+
+// Tap-to-see-breakdown state, per fuel. null = no manual selection yet,
+// defaults to the latest-available day. Reset to null whenever the
+// Week/Month period changes, since the old index would point at a
+// completely different day in the new array.
+let selectedDay = { elec: null, gas: null };
+
+// Finds the most recent day in a period array that actually has data —
+// same logic the "Latest available" headline stat uses, reused here so the
+// breakdown box has a sensible default before any bar is tapped.
+function findLatestAvailableIndex(periodData) {
+  for (let i = periodData.length - 1; i >= 0; i--) {
+    if (periodData[i].hasData !== false) return i;
+  }
+  return periodData.length - 1;
+}
+
+// Maps an index in the current period array back to a real calendar date —
+// week view counts backward from today, month view counts forward from the
+// 1st of the current month.
+function dateForPeriodIndex(index, arrayLength) {
+  const now = new Date();
+  if (periodMode === 'month') return new Date(now.getFullYear(), now.getMonth(), index + 1);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (arrayLength - 1 - index));
+}
+
+function breakdownRow(label, cssClass, costStr, kwhStr) {
+  return `<div class="breakdown-row"><span class="label"><span class="dot ${cssClass}"></span>${label}${kwhStr ? ` (${kwhStr})` : ''}</span><span class="val">${costStr}</span></div>`;
+}
+
+function renderBreakdown(fuel, periodData, index) {
+  const box = $(`${fuel}-breakdown`);
+  if (!box || !periodData || !periodData[index]) return;
+  const day = periodData[index];
+  const date = dateForPeriodIndex(index, periodData.length);
+  const dateLabel = date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+
+  let rows;
+  if (fuel === 'elec') {
+    rows = breakdownRow('Standing charge', 'seg-standing', fmtGBP(day.standing || 0), null)
+      + breakdownRow('Off-peak', 'seg-offpeak', fmtGBP(day.offPeakCost || 0), fmtKwh(day.offPeakKwh || 0))
+      + breakdownRow('Peak', 'seg-peak', fmtGBP(day.peakCost || 0), fmtKwh(day.peakKwh || 0));
+  } else {
+    rows = breakdownRow('Standing charge', 'seg-gas-standing', fmtGBP(day.standing || 0), null)
+      + breakdownRow('Usage', 'seg-gas-usage', fmtGBP(day.cost || 0), fmtKwh(day.kwh || 0));
+  }
+  const total = dayTotal(fuel, day, 'cost');
+  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${fmtGBP(total)}</span></div>`;
+}
 
 // Turns one day's split figures into stacked-bar segments, bottom-to-top.
 // Standing charge only appears in £ mode — it has no kWh equivalent.
@@ -408,7 +462,11 @@ function renderFuelPanel(fuel) {
   const periodData = periodMode === 'month' ? d.month : d.week;
   if (periodData) {
     const dayStacks = periodData.map(day => buildDaySegments(fuel, day, unit));
-    renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`);
+    if (selectedDay[fuel] === null || selectedDay[fuel] >= periodData.length) {
+      selectedDay[fuel] = findLatestAvailableIndex(periodData);
+    }
+    renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel]);
+    renderBreakdown(fuel, periodData, selectedDay[fuel]);
   }
 
   const toggleEl = document.querySelector(`.unit-toggle[data-fuel="${fuel}"]`);
@@ -765,7 +823,7 @@ async function loadBilling() {
     const balancePence = data?.account?.balance;
     if (typeof balancePence === 'number') {
       balancePounds = balancePence / 100;
-      renderBalanceFigure('balance-now', balancePounds);
+      renderBalanceFigure('balance-now', 'balance-now-pill', balancePounds);
       anyLive = true;
     }
   } catch (err) { logIssue('Account balance', err); }
@@ -876,7 +934,7 @@ async function loadBilling() {
       // not just the not-yet-incurred remainder (which would double-count
       // the "already billed" assumption that doesn't hold here).
       const projected = balancePounds - predictedTotal;
-      renderBalanceFigure('balance-projected', projected);
+      renderBalanceFigure('balance-projected', 'balance-projected-pill', projected);
 
       if (nextPayment) {
         const afterDD = projected + (nextPayment.amount / 100);
@@ -886,7 +944,7 @@ async function loadBilling() {
           ? `Est. from last payment (${dateStr})`
           : `Due ${dateStr}`;
         $('next-dd-label').textContent = nextPayment.isEstimate ? 'Direct Debit (est.)' : 'Next Direct Debit';
-        renderBalanceFigure('balance-after-dd', afterDD);
+        renderBalanceFigure('balance-after-dd', 'balance-after-dd-pill', afterDD);
 
         // Trend: is the incoming payment bigger or smaller than what this
         // month's predicted to cost? Positive = balance building (summer),
@@ -972,11 +1030,11 @@ async function lastNDaysCost(fuel, n) {
 }
 
 function populateDemoBilling() {
-    renderBalanceFigure('balance-now', 42.10);
-    renderBalanceFigure('balance-projected', 35.70);
+    renderBalanceFigure('balance-now', 'balance-now-pill', 42.10);
+    renderBalanceFigure('balance-projected', 'balance-projected-pill', 35.70);
     $('next-dd-amount').textContent = '£95.00';
     $('next-dd-due').textContent = 'Due 1 Sep (demo)';
-    renderBalanceFigure('balance-after-dd', 130.70);
+    renderBalanceFigure('balance-after-dd', 'balance-after-dd-pill', 130.70);
     $('balance-trend-pill').className = 'trend-pill up';
     $('balance-trend-pill').textContent = '↑ £95.00/mo';
     $('balance-after-dd-row').style.display = '';
@@ -999,10 +1057,13 @@ function populateDemoBilling() {
 
 function clearBillingUnavailable() {
     $('balance-now').textContent = 'Unavailable';
+    $('balance-now-pill').textContent = '';
     $('balance-projected').textContent = 'Unavailable';
+    $('balance-projected-pill').textContent = '';
     $('next-dd-amount').textContent = '—';
     $('next-dd-due').textContent = '—';
     $('balance-after-dd').textContent = '—';
+    $('balance-after-dd-pill').textContent = '';
     $('balance-trend-pill').textContent = '';
     $('balance-trend-pill').className = 'trend-pill';
     $('balance-after-dd-row').style.display = 'none';
@@ -1073,10 +1134,24 @@ function urlBase64ToUint8Array(base64) {
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
 }
 
+// State now lives on a separate "state" branch (see ev-notify.yml), not
+// main, so Pages never rebuilds from the checker's automated commits.
+// Derives the raw-content URL from the page's own GitHub Pages address
+// (https://{owner}.github.io/{repo}/) rather than hardcoding a repo name,
+// since this project has already been recreated under a new repo once.
+function stateFileUrl() {
+  try {
+    const owner = location.hostname.split('.')[0];
+    const repo = location.pathname.split('/').filter(Boolean)[0];
+    if (owner && repo) return `https://raw.githubusercontent.com/${owner}/${repo}/state/state/ev-status.json`;
+  } catch { /* fall through to relative path below */ }
+  return './state/ev-status.json'; // unlikely to have fresh data, but won't crash
+}
+
 async function refreshEvPushStatus() {
   const el = $('ev-push-last-check');
   try {
-    const res = await fetch('./state/ev-status.json', { cache: 'no-store' });
+    const res = await fetch(stateFileUrl(), { cache: 'no-store' });
     if (!res.ok) throw new Error('No status file yet');
     const state = await res.json();
     const parts = [];
@@ -1235,11 +1310,26 @@ function init() {
     btn.addEventListener('click', async () => {
       periodMode = btn.dataset.period;
       document.querySelectorAll('.unit-toggle[data-role="period"] .unit-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+      selectedDay.elec = null; // reset — old index would point at a different day in the new array
+      selectedDay.gas = null;
       if (periodMode === 'month') {
         await Promise.all([loadMonthData('elec'), loadMonthData('gas')]);
       }
       renderFuelPanel('elec');
       renderFuelPanel('gas');
+    });
+  });
+
+  // Tap a bar to see that day's breakdown — event delegation so it works
+  // regardless of how many bars get re-rendered (week vs month view).
+  ['elec', 'gas'].forEach(fuel => {
+    $(`${fuel}-week`).addEventListener('click', (e) => {
+      const bar = e.target.closest('.col-stack');
+      if (!bar) return;
+      const index = parseInt(bar.dataset.index, 10);
+      if (Number.isNaN(index)) return;
+      selectedDay[fuel] = index;
+      renderFuelPanel(fuel);
     });
   });
 

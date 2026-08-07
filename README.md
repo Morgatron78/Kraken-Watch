@@ -11,8 +11,8 @@ one screen, with your own API credentials stored only on your device.
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
 | Live usage | Current draw (W), £/hr estimate, color-coded by level | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
 | EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled | **Live**, via Kraken GraphQL |
-| Consumption (electricity + gas) | Latest available day, last 7 days, month to date, predicted month, stacked Week/Month chart (standing charge / off-peak / peak) | **Live** |
-| Billing | Account balance, projected balance, Direct Debit (estimated) with a trend indicator, month-to-date/predicted both fuels, last bill link | **Live**, Direct Debit is an estimate (see below) |
+| Consumption (electricity + gas) | Latest available day, last 7 days, month to date, predicted month, stacked Week/Month chart (standing charge / off-peak / peak) — tap any bar for that day's full breakdown | **Live** |
+| Billing | Account balance and projected balance as two side-by-side boxes with a CREDIT/DEBIT pill, Direct Debit (estimated) with a trend indicator, month-to-date/predicted both fuels, last bill link | **Live**, Direct Debit is an estimate (see below) |
 
 If a live call fails, that section shows "Unavailable" rather than a fake
 number. Demo data is available for testing but is **off by default** —
@@ -144,7 +144,7 @@ If a change still doesn't appear after confirming the version bump:
    find the site, and remove it — clears both the HTTP cache and the
    service worker registration.
 
-## EV push notifications (optional, not fully deployed yet)
+## EV push notifications
 
 Silent push notifications when EV charging starts or finishes. A GitHub
 Actions workflow checks EV status every 5 minutes and pushes a notification
@@ -184,24 +184,30 @@ the installed Home Screen app, not a Safari tab.
 Repo → **Actions** tab → **EV dispatch check** workflow → **Run workflow**
 to trigger a manual check without waiting for the schedule. Check the run's
 logs, or Settings in the app, which shows the last checker run and push
-status from `state/ev-status.json`.
+status.
 
 ### How it works
 
 - `.github/workflows/ev-notify.yml` — runs every 5 minutes (best-effort
   timing, not exact)
 - `scripts/ev-check.mjs` — logs into Kraken, checks dispatch status,
-  compares against `state/ev-status.json`, sends a push on a real
-  transition, commits the new state back to the repo (which also keeps the
-  repo "active," preventing GitHub's automatic disabling of scheduled
-  workflows after 60 days of inactivity)
+  compares against the last known state, sends a push on a real transition
+- **State lives on a separate `state` branch, not `main`.** The workflow
+  fetches the previous state from that branch before checking, and commits
+  the new state back to it afterward — never touching `main`, so these
+  automated commits never trigger a Pages rebuild. The branch is created
+  automatically on the first run; nothing to set up by hand. The app reads
+  it via GitHub's raw-content URL
+  (`raw.githubusercontent.com/{owner}/{repo}/state/state/ev-status.json`),
+  derived automatically from the page's own address rather than hardcoded.
+  These commits still keep the repo "active," which prevents GitHub's
+  automatic disabling of scheduled workflows after 60 days of inactivity —
+  that benefit didn't go away, it just moved off `main`.
 - `sw.js` has `push` and `notificationclick` handlers; notifications are
   always sent with `silent: true`
 
 ### Known rough edges
 
-- State commits trigger a Pages rebuild every ~5 minutes — harmless and
-  unmetered, but noisy in the commit history and deployment log.
 - iOS push subscriptions can silently expire (documented WebKit behavior) —
   if notifications go quiet for suspiciously long, check Settings for
   "Subscription expired" and re-enable.

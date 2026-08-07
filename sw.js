@@ -1,9 +1,9 @@
-const CACHE = 'kraken-watch-v52';
+const CACHE = 'kraken-watch-v53';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=52',
-  './app.js?v=52',
+  './styles.css?v=53',
+  './app.js?v=53',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
@@ -24,14 +24,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Never cache API calls — always go to the network so data stays live.
-  if (url.hostname.includes('octopus.energy') || url.hostname.includes('googleapis.com')) {
-    return;
-  }
-
-  // Never cache the EV status file — it's how the app checks when the
-  // notification checker last ran, so a stale cached copy would be misleading.
-  if (url.pathname.endsWith('/state/ev-status.json')) {
+  // Never cache API calls, or the EV status file (now fetched cross-origin
+  // from raw.githubusercontent.com/.../state branch) — always go to the
+  // network so data stays live rather than serving a stale cached copy.
+  if (url.hostname.includes('octopus.energy') || url.hostname.includes('googleapis.com') || url.hostname.includes('raw.githubusercontent.com')) {
     return;
   }
 

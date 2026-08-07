@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=52">
+<link rel="stylesheet" href="styles.css?v=53">
 </head>
 <body>
 <div class="wrap">
@@ -162,6 +162,7 @@
               <span><i style="background:var(--mint)"></i>Off-peak</span>
               <span><i style="background:var(--violet)"></i>Peak</span>
             </div>
+            <div class="breakdown-box" id="elec-breakdown"></div>
           </div>
           <div class="fuel-panel-foot">
             <span>Unit rate now: <b id="elec-unit-rate">—</b></span>
@@ -194,6 +195,7 @@
               <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
               <span><i style="background:var(--amber)"></i>Usage</span>
             </div>
+            <div class="breakdown-box" id="gas-breakdown"></div>
           </div>
           <div class="fuel-panel-foot">
             <span>Unit rate: <b id="gas-unit-rate">—</b></span>
@@ -210,14 +212,20 @@
         <div class="card-tag tag-amber">CURRENT CYCLE</div>
       </div>
 
-      <div class="balance-banner">
-        <div>
-          <div class="stat-label">Account balance now</div>
-          <div class="stat-value" id="balance-now">—<span class="suffix" id="balance-now-suffix"></span></div>
+      <div class="balance-row">
+        <div class="balance-box">
+          <div class="stat-label">Balance now</div>
+          <div class="value-row">
+            <div class="stat-value" id="balance-now">—</div>
+            <span class="status-pill" id="balance-now-pill"></span>
+          </div>
         </div>
-        <div>
-          <div class="stat-label">Projected balance, end of month</div>
-          <div class="stat-value" id="balance-projected">—<span class="suffix" id="balance-projected-suffix"></span></div>
+        <div class="balance-box">
+          <div class="stat-label">End of month</div>
+          <div class="value-row">
+            <div class="stat-value" id="balance-projected">—</div>
+            <span class="status-pill" id="balance-projected-pill"></span>
+          </div>
         </div>
       </div>
       <div class="dd-banner" id="balance-after-dd-row" style="display:none;">
@@ -229,8 +237,11 @@
           </div>
           <div class="dd-arrow">→</div>
           <div class="dd-col">
-            <div class="stat-label">Estimated balance after next payment</div>
-            <div class="dd-value" id="balance-after-dd">—<span class="suffix" id="balance-after-dd-suffix"></span></div>
+            <div class="stat-label">After next payment</div>
+            <div class="value-row">
+              <div class="dd-value" id="balance-after-dd">—</div>
+              <span class="status-pill" id="balance-after-dd-pill"></span>
+            </div>
             <div class="trend-pill" id="balance-trend-pill"></div>
           </div>
         </div>
@@ -335,6 +346,6 @@
   </div>
 </div>
 
-<script src="app.js?v=52"></script>
+<script src="app.js?v=53"></script>
 </body>
 </html>
