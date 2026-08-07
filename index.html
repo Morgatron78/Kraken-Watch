@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=55">
+<link rel="stylesheet" href="styles.css?v=56">
 </head>
 <body>
 <div class="wrap">
@@ -129,8 +129,10 @@
         <div class="card-title">📊 Consumption</div>
         <div class="card-tag tag-dim" id="period-toggle-tag" style="padding:0;background:none;border:none;">
           <div class="unit-toggle" data-role="period">
+            <button type="button" class="unit-toggle-btn" data-period="day">Day</button>
             <button type="button" class="unit-toggle-btn active" data-period="week">Week</button>
             <button type="button" class="unit-toggle-btn" data-period="month">Month</button>
+            <button type="button" class="unit-toggle-btn" data-period="year">Year</button>
           </div>
         </div>
       </div>
@@ -144,25 +146,45 @@
               <button type="button" class="unit-toggle-btn" data-unit="kwh">kWh</button>
             </div>
           </div>
-          <div class="stat-row tight">
+          <div class="stat-row tight" id="elec-stats-wm">
             <div class="stat"><div class="stat-label" id="elec-latest-label">Latest available</div><div class="stat-value-sm" id="elec-latest">—</div></div>
             <div class="stat"><div class="stat-label">Last 7 days</div><div class="stat-value-sm" id="elec-week-total">—</div></div>
           </div>
-          <div class="stat-row tight">
+          <div class="stat-row tight" id="elec-stats-wm2">
             <div class="stat"><div class="stat-label">Month to date</div><div class="stat-value-sm" id="elec-mtd">—</div></div>
             <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="elec-predicted" style="color:var(--violet)">—</div></div>
           </div>
-          <div class="week-bars-wrap">
+          <div class="stat-row tight hidden" id="elec-stats-day">
+            <div class="stat"><div class="stat-label" id="elec-day-label">Latest available day</div><div class="stat-value-sm" id="elec-day-total">—</div></div>
+            <div class="stat"><div class="stat-label">Peak draw</div><div class="stat-value-sm" id="elec-day-peak">—</div></div>
+          </div>
+          <div class="stat-row tight hidden" id="elec-stats-year">
+            <div class="stat"><div class="stat-label">Year to date</div><div class="stat-value-sm" id="elec-ytd">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted full year</div><div class="stat-value-sm" id="elec-year-predicted" style="color:var(--violet)">—</div></div>
+          </div>
+          <div class="week-bars-wrap" id="elec-wmy-chart">
             <div class="chart-row">
               <div class="chart-scale" id="elec-week-scale"></div>
               <div class="week-bars" id="elec-week" style="height:76px;"></div>
             </div>
-            <div class="chart-legend">
+            <div class="chart-legend" id="elec-wmy-legend">
               <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
               <span><i style="background:var(--mint)"></i>Off-peak</span>
               <span><i style="background:var(--violet)"></i>Peak</span>
             </div>
             <div class="breakdown-box hidden" id="elec-breakdown"></div>
+          </div>
+          <div class="day-chart-wrap hidden" id="elec-day-chart">
+            <div class="chart-row">
+              <div class="chart-scale" id="elec-day-scale"></div>
+              <div class="hour-bars" id="elec-day-bars"></div>
+            </div>
+            <div class="time-axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+            <div class="chart-legend">
+              <span><i style="background:var(--mint)"></i>Off-peak</span>
+              <span><i style="background:var(--violet)"></i>Peak</span>
+            </div>
+            <div class="breakdown-box hidden" id="elec-day-breakdown"></div>
           </div>
           <div class="fuel-panel-foot">
             <span>Unit rate now: <b id="elec-unit-rate">—</b></span>
@@ -178,24 +200,32 @@
               <button type="button" class="unit-toggle-btn" data-unit="kwh">kWh</button>
             </div>
           </div>
-          <div class="stat-row tight">
+          <div class="stat-row tight" id="gas-stats-wm">
             <div class="stat"><div class="stat-label" id="gas-latest-label">Latest available</div><div class="stat-value-sm" id="gas-latest">—</div></div>
             <div class="stat"><div class="stat-label">Last 7 days</div><div class="stat-value-sm" id="gas-week-total">—</div></div>
           </div>
-          <div class="stat-row tight">
+          <div class="stat-row tight" id="gas-stats-wm2">
             <div class="stat"><div class="stat-label">Month to date</div><div class="stat-value-sm" id="gas-mtd">—</div></div>
             <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="gas-predicted" style="color:var(--amber)">—</div></div>
           </div>
-          <div class="week-bars-wrap">
+          <div class="stat-row tight hidden" id="gas-stats-year">
+            <div class="stat"><div class="stat-label">Year to date</div><div class="stat-value-sm" id="gas-ytd">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted full year</div><div class="stat-value-sm" id="gas-year-predicted" style="color:var(--amber)">—</div></div>
+          </div>
+          <div class="week-bars-wrap" id="gas-wmy-chart">
             <div class="chart-row">
               <div class="chart-scale" id="gas-week-scale"></div>
               <div class="week-bars" id="gas-week" style="height:76px;"></div>
             </div>
-            <div class="chart-legend">
+            <div class="chart-legend" id="gas-wmy-legend">
               <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
               <span><i style="background:var(--amber)"></i>Usage</span>
             </div>
             <div class="breakdown-box hidden" id="gas-breakdown"></div>
+          </div>
+          <div class="unavailable-box hidden" id="gas-day-unavailable">
+            <div class="icon">🕐</div>
+            <p>Hourly view isn't available for gas — your smart meter only reports gas readings once a day, so there's no finer detail to show. Try Week, Month, or Year instead.</p>
           </div>
           <div class="fuel-panel-foot">
             <span>Unit rate: <b id="gas-unit-rate">—</b></span>
@@ -346,6 +376,6 @@
   </div>
 </div>
 
-<script src="app.js?v=55"></script>
+<script src="app.js?v=56"></script>
 </body>
 </html>

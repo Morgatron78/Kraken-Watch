@@ -204,6 +204,28 @@ svg.rate-curve{display:block;width:100%;height:auto;}
 .breakdown-total{display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;
   border-top:1px solid var(--line);font-size:12.5px;font-weight:600;}
 
+/* Day view (electricity only) — genuine half-hourly chart, single-color
+   slots rather than stacked segments, since a slot is always entirely one
+   rate, never a mix. */
+.day-chart-wrap{margin-top:2px;}
+.hour-bars{display:flex;align-items:flex-end;gap:1px;height:76px;flex:1;}
+.hour-bar{flex:1;height:58px;display:flex;align-items:flex-end;min-width:0;}
+.hour-bar .fill{width:100%;border-radius:1px 1px 0 0;cursor:pointer;}
+.hour-bar .fill.offpeak{background:rgba(61,220,151,0.5);}
+.hour-bar .fill.offpeak.selected{background:linear-gradient(180deg,var(--mint),#2ab87c);outline:1px solid var(--text);}
+.hour-bar .fill.peak{background:rgba(139,107,255,0.6);}
+.hour-bar .fill.peak.selected{background:linear-gradient(180deg,var(--violet),#5b3fd6);outline:1px solid var(--text);}
+.time-axis{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;
+  color:var(--text-dim);padding-left:38px;margin:2px 0 10px;}
+
+/* Year view — single-color monthly bars (kWh only; see fetchYearMonthly for why) */
+.hour-bar.month-bar{height:auto;}
+
+/* Gas Day-view "not available" state */
+.unavailable-box{text-align:center;padding:26px 12px 18px;color:var(--text-dim);}
+.unavailable-box .icon{font-size:22px;margin-bottom:9px;}
+.unavailable-box p{font-size:12px;line-height:1.55;margin:0;}
+
 /* Billing */
 .predict-banner{
   display:flex;align-items:center;gap:16px;flex-wrap:wrap;border-radius:var(--radius-md);padding:14px 18px;

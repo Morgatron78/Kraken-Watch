@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v55';
+const APP_VERSION = 'v56';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -426,6 +426,39 @@ function renderFuelPanel(fuel) {
   const unit = fuelUnit[fuel];
   const fmt = unit === 'cost' ? fmtGBP : fmtKwh;
 
+  const isDay = periodMode === 'day';
+  const isYear = periodMode === 'year';
+  const isGasDay = isDay && fuel === 'gas';
+
+  // Visibility: show/hide the right stat-rows and chart containers for the
+  // current mode. Gas has no day-stats row at all — Day mode for gas shows
+  // only the "not available" explanation, nothing else.
+  $(`${fuel}-stats-wm`).classList.toggle('hidden', isDay || isYear);
+  $(`${fuel}-stats-wm2`).classList.toggle('hidden', isDay || isYear);
+  if (fuel === 'elec') $('elec-stats-day').classList.toggle('hidden', !isDay);
+  $(`${fuel}-stats-year`).classList.toggle('hidden', !isYear);
+
+  if (fuel === 'elec') {
+    $('elec-wmy-chart').classList.toggle('hidden', isDay);
+    $('elec-day-chart').classList.toggle('hidden', !isDay);
+  } else {
+    $('gas-wmy-chart').classList.toggle('hidden', isGasDay);
+    $('gas-day-unavailable').classList.toggle('hidden', !isGasDay);
+  }
+
+  // £/kWh toggle only makes sense where £ is actually available — hidden
+  // for Year, since group_by=month gives exact kWh but not an accurate cost
+  // (see fetchYearMonthly for why).
+  const toggleWrap = document.querySelector(`.unit-toggle[data-fuel="${fuel}"]`);
+  if (toggleWrap) toggleWrap.classList.toggle('hidden', isYear);
+
+  if (isGasDay) return; // nothing else to render for gas in Day mode
+
+  if (isDay && fuel === 'elec') { renderElecDayView(); return; }
+  if (isYear) { renderYearView(fuel, unit, fmt); return; }
+
+  // --- Week / Month (existing behaviour, unchanged) ---
+
   // "Latest available day" instead of a fixed Yesterday/Today pair — smart
   // meter data for both fuels typically lags into the next day (sometimes
   // further), so "Today" was reliably empty and "Yesterday" occasionally
@@ -462,13 +495,143 @@ function renderFuelPanel(fuel) {
     renderBreakdown(fuel, periodData, selectedDay[fuel]);
   }
 
-  const toggleEl = document.querySelector(`.unit-toggle[data-fuel="${fuel}"]`);
-  if (toggleEl) {
-    toggleEl.querySelectorAll('.unit-toggle-btn').forEach(btn => {
+  if (toggleWrap) {
+    toggleWrap.querySelectorAll('.unit-toggle-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.unit === unit);
     });
   }
 }
+
+// --- Day view (electricity only) ---
+
+let selectedDaySlot = { elec: null };
+
+function renderElecDayView() {
+  const day = fuelData.elec?.day;
+  const unit = fuelUnit.elec;
+  const fmt = unit === 'cost' ? fmtGBP : fmtKwh;
+
+  if (!day || !day.slots || !day.slots.length) {
+    $('elec-day-label').textContent = 'Latest available day';
+    $('elec-day-total').textContent = 'No data yet';
+    $('elec-day-peak').textContent = '—';
+    $('elec-day-scale').innerHTML = '';
+    $('elec-day-bars').innerHTML = '';
+    $('elec-day-breakdown').classList.add('hidden');
+    return;
+  }
+
+  const dateLabel = day.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  $('elec-day-label').textContent = dateLabel;
+  const total = day.slots.reduce((s, sl) => s + (unit === 'cost' ? sl.cost : sl.kwh), 0);
+  $('elec-day-total').textContent = fmt(total);
+
+  // Highest half-hour, converted to an average kW over that slot — a real
+  // but approximate figure, not a true instantaneous peak (that's what the
+  // Live Usage card is for, at much finer resolution).
+  let peakSlot = day.slots[0];
+  for (const sl of day.slots) if (sl.kwh > peakSlot.kwh) peakSlot = sl;
+  const peakTime = new Date(peakSlot.start).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  $('elec-day-peak').textContent = `${(peakSlot.kwh * 2).toFixed(2)} kW at ${peakTime}`;
+
+  const values = day.slots.map(sl => unit === 'cost' ? sl.cost : sl.kwh);
+  const max = Math.max(...values, 0.01);
+  renderChartScale('elec-day-scale', max, unit === 'cost' ? fmtGBP : (v => v.toFixed(1)));
+
+  $('elec-day-bars').innerHTML = day.slots.map((sl, i) => {
+    const v = unit === 'cost' ? sl.cost : sl.kwh;
+    const h = Math.max(v > 0 ? 1 : 0, Math.round((v / max) * 58));
+    const cls = sl.isOffpeak ? 'offpeak' : 'peak';
+    const isSelected = i === selectedDaySlot.elec;
+    return `<div class="hour-bar"><div class="fill ${cls}${isSelected ? ' selected' : ''}" style="height:${h}px" data-index="${i}"></div></div>`;
+  }).join('');
+
+  renderElecDaySlotBreakdown(selectedDaySlot.elec);
+}
+
+function renderElecDaySlotBreakdown(index) {
+  const box = $('elec-day-breakdown');
+  const day = fuelData.elec?.day;
+  if (index === null || !day || !day.slots[index]) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  box.classList.remove('hidden');
+  const sl = day.slots[index];
+  const startTime = new Date(sl.start).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const endTime = new Date(+new Date(sl.start) + 30 * 60000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  box.innerHTML = `<div class="breakdown-date">${startTime} – ${endTime}</div>`
+    + `<div class="breakdown-row"><span>${sl.kwh.toFixed(2)} kWh at ${sl.rate.toFixed(2)}p (${sl.isOffpeak ? 'Off-peak' : 'Peak'})</span><span>${fmtGBP(sl.cost)}</span></div>`;
+}
+
+// --- Year view (both fuels, kWh only) ---
+
+function renderYearView(fuel, unit, fmt) {
+  const months = fuelData[fuel]?.year;
+  const monthLabels = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+  const now = new Date();
+  const currentMonthIdx = now.getMonth();
+
+  if (!months) {
+    $(`${fuel}-ytd`).textContent = '—';
+    $(`${fuel}-year-predicted`).textContent = '—';
+    $(`${fuel}-week`).innerHTML = '';
+    $(`${fuel}-week-scale`).innerHTML = '';
+    $(`${fuel}-breakdown`).classList.add('hidden');
+    return;
+  }
+
+  const totalKwh = months.reduce((s, m) => s + m.kwh, 0);
+  $(`${fuel}-ytd`).textContent = fmtKwh(totalKwh);
+
+  // Simple linear projection: average full-year rate based on how much of
+  // the year has actually elapsed so far (fraction of a year, not just
+  // "months so far", so early in a month doesn't understate progress).
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const daysElapsed = Math.max(1, Math.round((now - startOfYear) / 86400000));
+  const daysInYear = (now.getFullYear() % 4 === 0 && (now.getFullYear() % 100 !== 0 || now.getFullYear() % 400 === 0)) ? 366 : 365;
+  const predicted = (totalKwh / daysElapsed) * daysInYear;
+  $(`${fuel}-year-predicted`).textContent = fmtKwh(predicted);
+
+  const max = Math.max(...months.map(m => m.kwh), 0.01);
+  renderChartScale(`${fuel}-week-scale`, max, v => v.toFixed(0));
+
+  const selIdx = selectedDay[fuel];
+  const barColor = fuel === 'elec' ? 'var(--violet)' : 'var(--amber)';
+  const bars = [];
+  for (let m = 0; m <= 11; m++) {
+    const entry = months.find(x => x.month === m);
+    const isFuture = m > currentMonthIdx;
+    const isCurrent = m === currentMonthIdx;
+    const v = entry ? entry.kwh : 0;
+    const h = isFuture ? 4 : Math.max(v > 0 ? 2 : 4, Math.round((v / max) * 58));
+    const fill = isFuture ? 'rgba(255,255,255,0.08)' : (isCurrent ? barColor : barColor);
+    const isSelected = m === selIdx;
+    bars.push(`<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${m}"><div class="col-seg" style="height:${h}px;background:${fill};opacity:${isCurrent ? '1' : (isFuture ? '1' : '0.75')}"></div></div><span class="${isSelected ? 'active-day' : ''}">${monthLabels[m]}</span></div>`);
+  }
+  $(`${fuel}-week`).innerHTML = bars.join('');
+
+  renderYearBreakdown(fuel, months, selIdx);
+}
+
+function renderYearBreakdown(fuel, months, monthIndex) {
+  const box = $(`${fuel}-breakdown`);
+  const now = new Date();
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  if (monthIndex === null) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  const isCurrent = monthIndex === now.getMonth();
+  const isFuture = monthIndex > now.getMonth();
+  const label = `${monthNames[monthIndex]}${isCurrent ? ' (month to date)' : ''} ${now.getFullYear()}`;
+  const entry = months.find(m => m.month === monthIndex);
+  if (isFuture || !entry) {
+    box.innerHTML = `<div class="breakdown-date">${label}</div><div class="breakdown-row"><span>No data yet</span><span>—</span></div>`;
+    return;
+  }
+  box.innerHTML = `<div class="breakdown-date">${label}</div><div class="breakdown-total"><span>Total</span><span>${fmtKwh(entry.kwh)}</span></div>`;
+}
+
 
 // Lazily fetches this-month daily figures the first time "Month" view is
 // selected, so the app doesn't fetch ~30 days of data on every sync by default.
@@ -494,6 +657,71 @@ async function lastNDaysGasSplitWithStanding(n) {
   const days = await lastNDaysCost('gas', n);
   const standing = cachedGasStandingP ? cachedGasStandingP / 100 : 0;
   return days.map(d => ({ ...d, standing }));
+}
+
+// Electricity-only: half-hourly breakdown for a single day, used by Day view.
+// Steps backward from today (same "consumption data lags" reality as
+// everywhere else in the app) until it finds a day with actual readings,
+// giving up after a few tries rather than looping indefinitely.
+async function fetchElecDayHalfHourly() {
+  const { elecMpan, elecSerial } = store.creds;
+  if (!elecMpan || !elecSerial) throw new Error('No elec meter point on file');
+  for (let daysAgo = 0; daysAgo <= 3; daysAgo++) {
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
+    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+    const fromISO = dayStart.toISOString(), toISO = dayEnd.toISOString();
+    const consPath = `/electricity-meter-points/${elecMpan}/meters/${elecSerial}/consumption/?period_from=${fromISO}&period_to=${toISO}&page_size=100`;
+    const [consData, rates] = await Promise.all([octRest(consPath), fetchElecRates(fromISO, toISO)]);
+    const results = consData.results || [];
+    if (!results.length) continue; // no data yet for this day — try further back
+    const threshold = rates.length ? Math.min(...rates.map(r => r.rate)) + 1 : 0;
+    const slots = results
+      .map(r => {
+        const rate = rateAt(rates, +new Date(r.interval_start));
+        if (rate === null) return null;
+        return {
+          start: r.interval_start,
+          kwh: r.consumption,
+          rate,
+          cost: r.consumption * rate / 100,
+          isOffpeak: rate <= threshold
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => +new Date(a.start) - +new Date(b.start));
+    return { date: dayStart, slots };
+  }
+  return { date: null, slots: [] }; // genuinely no data in the last few days
+}
+
+// Monthly kWh totals for the calendar year so far, one API call per fuel via
+// group_by=month. Deliberately kWh-only, not £ — a monthly total can't be
+// converted to an accurate cost without knowing exactly when within the
+// month the energy was used (rates change over time, and for electricity
+// also vary by time of day), which group_by=month doesn't preserve. Getting
+// real £ would mean the same day-by-day rate-matching Month view already
+// does, just for the whole year — far more calls, so deliberately skipped
+// for now in favour of an honest, exact kWh figure over a slow, blended-rate
+// estimate.
+async function fetchYearMonthly(fuel) {
+  const creds = store.creds;
+  const isElec = fuel === 'elec';
+  const mp = isElec ? creds.elecMpan : creds.gasMprn;
+  const serial = isElec ? creds.elecSerial : creds.gasSerial;
+  if (!mp || !serial) throw new Error(`No ${fuel} meter point on file`);
+  const now = new Date();
+  const yearStart = new Date(now.getFullYear(), 0, 1).toISOString();
+  const path = isElec
+    ? `/electricity-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${now.toISOString()}&group_by=month&page_size=100`
+    : `/gas-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${now.toISOString()}&group_by=month&page_size=100`;
+  const data = await octRest(path);
+  const results = (data.results || []).sort((a, b) => +new Date(a.interval_start) - +new Date(b.interval_start));
+  return results.map(r => {
+    let kwh = r.consumption;
+    if (!isElec && results[0]?.consumption < 500) kwh = kwh * 1.02264 * 39.5 / 3.6; // m3 → kWh, same heuristic as costForRange
+    return { month: new Date(r.interval_start).getMonth(), kwh, hasData: true };
+  });
 }
 
 /* ------------------------------ Data loaders ------------------------------ */
@@ -1297,25 +1525,46 @@ function init() {
     });
   });
 
-  // Week / Month toggle — shared across both fuel panels. Month data is
-  // fetched lazily on first use rather than on every sync.
+  // Day / Week / Month / Year toggle — shared across both fuel panels.
+  // Month/Year data is fetched lazily on first use rather than on every
+  // sync; Day is electricity-only, but the fetch is harmless to attempt
+  // unconditionally since renderFuelPanel handles gas's "not available"
+  // state regardless of whether fuelData.elec.day ends up populated.
   document.querySelectorAll('.unit-toggle[data-role="period"] .unit-toggle-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       periodMode = btn.dataset.period;
       document.querySelectorAll('.unit-toggle[data-role="period"] .unit-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
-      selectedDay.elec = null; // reset — old index would point at a different day in the new array
+      selectedDay.elec = null; // reset — old index would point at a different day/month in the new array
       selectedDay.gas = null;
+      selectedDaySlot.elec = null;
       if (periodMode === 'month') {
         await Promise.all([loadMonthData('elec'), loadMonthData('gas')]);
+      } else if (periodMode === 'day') {
+        if (!fuelData.elec) fuelData.elec = {};
+        if (!fuelData.elec.day) {
+          try { fuelData.elec.day = await fetchElecDayHalfHourly(); }
+          catch (err) { logIssue('Day view', err); fuelData.elec.day = { date: null, slots: [] }; }
+        }
+      } else if (periodMode === 'year') {
+        fuelData.elec = fuelData.elec || {};
+        fuelData.gas = fuelData.gas || {};
+        if (!fuelData.elec.year) {
+          try { fuelData.elec.year = await fetchYearMonthly('elec'); }
+          catch (err) { logIssue('Year view (elec)', err); fuelData.elec.year = []; }
+        }
+        if (!fuelData.gas.year) {
+          try { fuelData.gas.year = await fetchYearMonthly('gas'); }
+          catch (err) { logIssue('Year view (gas)', err); fuelData.gas.year = []; }
+        }
       }
       renderFuelPanel('elec');
       renderFuelPanel('gas');
     });
   });
 
-  // Tap a bar to see that day's breakdown; tap the same bar again to close
-  // it. Event delegation so it works regardless of how many bars get
-  // re-rendered (week vs month view).
+  // Tap a bar to see that day's (or month's) breakdown; tap the same bar
+  // again to close it. Event delegation so it works regardless of how many
+  // bars get re-rendered (week/month/year all reuse this).
   ['elec', 'gas'].forEach(fuel => {
     $(`${fuel}-week`).addEventListener('click', (e) => {
       const bar = e.target.closest('.col-stack');
@@ -1326,6 +1575,17 @@ function init() {
       renderFuelPanel(fuel);
     });
   });
+
+  // Same tap-to-reveal pattern for the Day view's half-hourly slots.
+  $('elec-day-bars').addEventListener('click', (e) => {
+    const bar = e.target.closest('.fill');
+    if (!bar) return;
+    const index = parseInt(bar.dataset.index, 10);
+    if (Number.isNaN(index)) return;
+    selectedDaySlot.elec = (selectedDaySlot.elec === index) ? null : index;
+    renderFuelPanel('elec');
+  });
+
 
   $('sync-btn').addEventListener('click', async () => {
     const btn = $('sync-btn');
