@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.47';
+const APP_VERSION = 'v2.48';
 
 const store = {
   get creds() {
@@ -1775,7 +1775,7 @@ async function loadBilling() {
 
         if (monthsData.length >= 2) {
           const max = Math.max(...monthsData.map(m => m.total), 0.01);
-          const maxBarHeight = 90;
+          const maxBarHeight = 78;
           $('bill-year-bars').innerHTML = monthsData.map(m => {
             const seg = `<div class="bt-seg gas" style="height:${Math.max(1, Math.round((m.gas / max) * maxBarHeight))}px"></div><div class="bt-seg elec" style="height:${Math.max(1, Math.round((m.elec / max) * maxBarHeight))}px"></div>`;
             const label = new Date(m.year, m.month, 1).toLocaleDateString('en-GB', spansMultipleYears ? { month: 'short', year: '2-digit' } : { month: 'short' });
