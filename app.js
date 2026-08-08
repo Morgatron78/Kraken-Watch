@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.31';
+const APP_VERSION = 'v2.32';
 
 const store = {
   get creds() {
@@ -96,6 +96,20 @@ async function krakenGQL(query, variables) {
 // the same underlying rate/consumption data instead of each re-fetching it.
 
 const rateCache = {}; // key: `${tariffCode}_${fromISO}_${toISO}` -> [{from,to,rate}]
+// rateCache is never explicitly sized/evicted by key — instead the whole
+// thing gets wiped once a day (see clearRateCacheIfNewDay, called from
+// loadFastTier since that's the most frequent trigger). Without this, a
+// PWA left open for days would accumulate one new set of entries per day
+// forever — modest per-day (roughly 20-30 entries), but genuinely
+// unbounded over a long enough session.
+let rateCacheDay = new Date().toDateString();
+function clearRateCacheIfNewDay() {
+  const today = new Date().toDateString();
+  if (today !== rateCacheDay) {
+    for (const key in rateCache) delete rateCache[key];
+    rateCacheDay = today;
+  }
+}
 let cachedOffPeakRateP = null; // cheapest electricity rate seen today — used as the EV dispatch rate approximation
 let cachedCurrentRateP = null; // right-now electricity rate — used for the live-usage £/hr estimate
 let cachedElecStandingP = null;
@@ -494,7 +508,7 @@ function renderFuelPanel(fuel) {
     legendEl.innerHTML = isYear
       ? `<span><i style="background:${fuel === 'elec' ? 'var(--violet)' : 'var(--amber)'}"></i>Total usage</span>`
       : (fuel === 'elec'
-        ? `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--mint)"></i>Off-peak</span><span><i style="background:var(--violet)"></i>Peak</span>`
+        ? `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--mint)"></i>Off-peak</span><span><i style="background:var(--pink)"></i>Peak</span>`
         : `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--amber)"></i>Usage</span>`);
   }
   const footEl = document.querySelector(`.fuel-panel.${fuel} .fuel-panel-foot`);
@@ -1093,7 +1107,7 @@ async function loadRates() {
     $('elec-unit-rate').textContent = `${current.toFixed(1)}p`;
     const isCheap = current <= threshold;
     $('rate-value').style.color = isCheap ? 'var(--mint)' : 'var(--amber)';
-    $('rate-pill').className = 'card-tag ' + (isCheap ? 'tag-mint' : 'tag-amber');
+    $('rate-pill').className = 'card-tag ' + (isCheap ? 'tag-mint' : 'tag-pink');
     $('rate-pill').textContent = isCheap ? '● Off-peak' : '● Standard';
     $('rate-standard').textContent = fmtP(Math.max(...points));
     $('rate-offpeak').textContent = fmtP(cachedOffPeakRateP);
@@ -1837,6 +1851,7 @@ async function loadAll() {
 // loadAll() above, so opening the app or tapping refresh always gets
 // everything at once regardless of tier timing.
 async function loadFastTier() {
+  clearRateCacheIfNewDay();
   syncIssues = [];
   debugNotes = [];
   if (meterDebugNote) debugNotes.push(`Meter selection: ${meterDebugNote}`);
@@ -1967,9 +1982,35 @@ async function saveSettings() {
   $('connect-card').classList.add('hidden');
   $('app-content').classList.remove('hidden');
   loadAll();
+  startAutoRefresh();
 }
 
 /* --------------------------------- Init ----------------------------------- */
+
+// Two-tier automatic background refresh (see the comment above loadFastTier
+// for the full reasoning): rates + EV are cheap and time-sensitive, so they
+// keep checking every 5 minutes like before. Billing is expensive (~25+
+// requests) and not time-sensitive, so it drops to every 30 minutes —
+// that bundle running as often as everything else was the likely cause
+// of intermittent "Unavailable" flashes on data that genuinely was there.
+//
+// Called both from init() (a returning user who already has saved
+// credentials) and from the end of saveSettings() (first-time setup) —
+// those are the only two ways the app content becomes visible, and this
+// needs to start regardless of which one just happened. autoRefreshStarted
+// guards against ever double-starting these on the rare path where both
+// could theoretically fire in the same session (e.g. saving settings again
+// after an initial successful load).
+let autoRefreshStarted = false;
+function startAutoRefresh() {
+  if (autoRefreshStarted) return;
+  autoRefreshStarted = true;
+  setInterval(loadFastTier, 5 * 60 * 1000);
+  setInterval(loadSlowTier, 30 * 60 * 1000);
+  // Live usage refreshes faster on its own — 30s, matching roughly how
+  // often new telemetry actually shows up, without re-running either tier.
+  setInterval(() => loadLiveUsage().catch(() => {}), 30 * 1000);
+}
 
 function init() {
   $('app-version').textContent = APP_VERSION;
@@ -2080,18 +2121,7 @@ function init() {
     $('connect-card').classList.add('hidden');
     $('app-content').classList.remove('hidden');
     loadAll();
-    // Two-tier automatic background refresh (see the comment above
-    // loadFastTier for the full reasoning): rates + EV are cheap and
-    // time-sensitive, so they keep checking every 5 minutes like before.
-    // Billing is expensive (~25+ requests) and not time-sensitive, so it
-    // drops to every 30 minutes — that bundle running as often as
-    // everything else was the likely cause of intermittent "Unavailable"
-    // flashes on data that genuinely was there.
-    setInterval(loadFastTier, 5 * 60 * 1000);
-    setInterval(loadSlowTier, 30 * 60 * 1000);
-    // Live usage refreshes faster on its own — 30s, matching roughly how
-    // often new telemetry actually shows up, without re-running either tier.
-    setInterval(() => loadLiveUsage().catch(() => {}), 30 * 1000);
+    startAutoRefresh();
   }
 
   if ('serviceWorker' in navigator) {
