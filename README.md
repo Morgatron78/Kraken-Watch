@@ -12,7 +12,7 @@ one screen, with your own API credentials stored only on your device.
 | Live usage | Current draw (W), £/hr estimate, color-coded by level | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
 | EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled | **Live**, via Kraken GraphQL |
 | Consumption (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown | **Live** |
-| Billing | Account balance and projected balance as two side-by-side boxes with a CREDIT/DEBIT pill, Direct Debit (estimated) with a trend indicator, month-to-date/predicted both fuels, last bill link | **Live**, Direct Debit is an estimate (see below) |
+| Billing | Account balance and projected balance as two side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns, each with its own trend/progress detail. Bill history: last 12 bills, most recent always expanded with its breakdown collapsible, older 11 behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill | **Live** |
 | Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, balance runway projection, annual standing charge total | **Live**, lazy-loads a month of data on first expand |
 
 If a live call fails, that section shows "Unavailable" rather than a fake
@@ -35,8 +35,11 @@ you want to see placeholder values instead.
   API, so there's rarely a same-day figure to show. The app shows whichever
   day actually has data, labeled with its real date.
 - **Gas m³→kWh conversion** uses the standard industry approximation
-  (×1.02264 correction factor, calorific value 39.5) — close, but your bill
-  may use a slightly different value for your region/day.
+  (×1.02264 correction factor). **Calorific value is configurable** in
+  Settings → Advanced (defaults to 40.0) — Octopus's own calorific value
+  drifts slightly over time, so if your gas figures look a little off,
+  check your latest bill's usage breakdown for the exact value it used and
+  enter that.
 - **EV dispatch rate** is approximated as today's cheapest electricity rate,
   since dispatches report kWh added but not the exact rate live at that
   moment. Usually accurate since IOG dispatches land in the off-peak window.
@@ -45,14 +48,39 @@ you want to see placeholder values instead.
   seasonal changes in usage.
 - **Standing charge in the consumption charts** is a flat daily estimate
   from the last fetched rate, not re-checked per day.
-- **Last bill** shows the issue date and a PDF link only, not the billed
-  amount — Octopus's documented `BillInterface` fields don't include a
-  total directly.
+- **Bill breakdown total** is computed by summing only the charge-type
+  transactions (electricity, gas) for that billing period — it deliberately
+  excludes Direct Debit payments and Octoplus points-redeemed credits,
+  which are account balance movements rather than part of what the bill
+  itself charged. This matches the bill's own "Total charges for bill"
+  figure exactly, rather than a net cash-movement number.
+- **Per-item kWh/date-range formatting doesn't assume a specific unit
+  enum** — it displays whatever unit string Octopus's API actually returns
+  (mapped to a friendly label like "kWh" where recognised, falls back to a
+  readable version of the raw value otherwise), so it keeps working even if
+  that enum value turns out to differ from what was confirmed during
+  development.
 - **Kraken GraphQL schema is unofficial.** EV dispatch field names are based
   on community reverse-engineering (the
   [Home Assistant Octopus Energy integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy)
   is the best reference), not published docs, since Octopus doesn't
   officially document this API.
+- **Bill transaction schema quirks worth remembering**, found the hard way
+  while building the bill breakdown: `account.transactions.edges.node` is a
+  concrete `TransactionType`, not a union/interface — despite `__typename`
+  reporting values like `BillCharge`/`BillCredit` for display purposes,
+  those aren't valid inline-fragment targets on it. The per-fuel
+  `consumption` field needs `... on Charge { consumption { ... } }`
+  specifically — `Charge`, not `BillCharge`, which is a different,
+  unrelated type elsewhere in the schema. Amount fields on
+  `TransactionAmountType` are named `net`/`tax`/`gross`, not
+  `netAmount`/`taxAmount`/`grossAmount` like similar-looking types
+  elsewhere. When extending this further, introspect first
+  (`__type(name: "X") { fields { name } }`, logged via `logDebug` behind a
+  temporary diagnostic call) rather than guessing field names — a wrong
+  guess fails the *entire* query it's part of, not just that field, and
+  GraphQL error messages here are often specific enough to name the actual
+  fix directly.
 - **Battery %, live charge rate, and smart-charging on/off aren't shown** —
   Octopus's dispatch data genuinely doesn't expose vehicle/charger state,
   only dispatch windows (start/end/kWh).
