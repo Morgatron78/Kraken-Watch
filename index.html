@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.39">
+<link rel="stylesheet" href="styles.css?v=2.41">
 </head>
 <body>
 <div class="wrap">
@@ -114,12 +114,14 @@
           <div class="ev-mini"><div class="ev-mini-label">Avg rate paid</div><div class="ev-mini-value" id="ev-avg-rate">—</div></div>
         </div>
 
-        <div class="stat-label" style="margin:16px 0 8px;">Dispatch windows</div>
-        <div class="slot-list" id="ev-slots"></div>
+        <div class="ev-subpanel">
+          <div class="stat-label" style="margin:0 0 8px;">Dispatch windows</div>
+          <div class="slot-list" id="ev-slots"></div>
 
-        <div class="stat-label" style="margin:16px 0 8px;">This week</div>
-        <div class="week-bars" id="ev-week"></div>
-        <div class="curve-labels" style="margin-top:8px;" id="ev-week-totals"></div>
+          <div class="stat-label" style="margin:16px 0 8px;">This week</div>
+          <div class="week-bars" id="ev-week"></div>
+          <div class="curve-labels" style="margin-top:8px;" id="ev-week-totals"></div>
+        </div>
       </div>
     </div>
 
@@ -516,6 +518,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.39"></script>
+<script src="app.js?v=2.41"></script>
 </body>
 </html>

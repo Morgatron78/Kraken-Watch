@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.39';
+const APP_VERSION = 'v2.41';
 
 const store = {
   get creds() {
@@ -1293,7 +1293,7 @@ async function loadEV() {
     // in the future is upcoming, not active.
     const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
     $('ev-tag').textContent = activeDispatch ? 'CHARGING' : (planned.length ? 'SCHEDULED' : 'IDLE');
-    if (activeDispatch) $('ev-tag').className = 'card-tag tag-mint';
+    if (activeDispatch) $('ev-tag').className = 'card-tag tag-pink';
     else if (planned.length) $('ev-tag').className = 'card-tag tag-amber';
     else $('ev-tag').className = 'card-tag tag-dim';
 
