@@ -266,13 +266,6 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-panel-foot b{color:var(--text);}
 
 .fuel-split{margin-top:18px;margin-bottom:18px;display:flex;flex-direction:column;gap:9px;}
-.fuel-row{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;gap:10px;}
-.fuel-name{display:flex;align-items:center;gap:9px;color:var(--text-dim);}
-.fuel-dot{width:8px;height:8px;border-radius:50%;background:var(--text-dim);flex-shrink:0;}
-.fuel-dot.elec{background:var(--violet);box-shadow:0 0 6px var(--violet);}
-.fuel-dot.gas{background:var(--amber);box-shadow:0 0 6px var(--amber);}
-.fuel-figs{font-family:'IBM Plex Mono',monospace;color:var(--text);text-align:right;}
-.fuel-figs small{color:var(--text-dim);font-weight:400;margin-left:3px;}
 
 .bill-history-toggle{
   display:flex;align-items:center;gap:5px;align-self:flex-start;
