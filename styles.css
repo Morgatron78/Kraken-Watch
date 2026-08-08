@@ -237,10 +237,6 @@ button{font-family:inherit;cursor:pointer;}
 }
 .trend-pill.up{color:var(--mint);background:rgba(61,220,151,0.16);border:1px solid rgba(61,220,151,0.4);}
 .trend-pill.down{color:var(--coral);background:rgba(255,107,91,0.16);border:1px solid rgba(255,107,91,0.4);}
-/* Weekday/weekend "costs more" pill specifically uses amber, not coral —
-   scoped by ID since .trend-pill.down is shared with the unrelated
-   balance-declining warning pill in Billing, which should stay coral. */
-#insights-elec-pattern-headline.down{color:var(--amber);background:rgba(255,184,77,0.16);border:1px solid rgba(255,184,77,0.4);}
 
 .fuel-panels{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 @media(max-width:640px){.fuel-panels{grid-template-columns:1fr;}}
@@ -392,7 +388,7 @@ button{font-family:inherit;cursor:pointer;}
 .split2-label{font-size:10.5px;color:var(--text-dim);display:flex;align-items:center;gap:6px;font-family:'Space Grotesk',sans-serif;}
 .split2-label .dot{width:7px;height:7px;border-radius:2px;}
 .split2-label.weekday .dot{background:var(--mint);}
-.split2-label.weekend .dot{background:var(--amber);}
+.split2-label.weekend .dot{background:var(--coral);}
 .split2-label.offpeak .dot{background:var(--mint);}
 .split2-label.standard .dot{background:var(--pink);}
 .split2-label.standing .dot{background:var(--text-dim);}
@@ -403,7 +399,7 @@ button{font-family:inherit;cursor:pointer;}
 .split2-value.sm{font-size:15px;}
 .split2-bar{display:flex;height:14px;border-radius:100px;overflow:hidden;background:var(--bg-panel);margin-bottom:10px;}
 .split2-seg.weekday{background:linear-gradient(90deg,#2bc987,var(--mint));}
-.split2-seg.weekend{background:linear-gradient(90deg,var(--amber),#ffcf80);}
+.split2-seg.weekend{background:linear-gradient(90deg,var(--coral),#ff8a7a);}
 .split2-seg.offpeak{background:linear-gradient(90deg,#2bc987,var(--mint));}
 .split2-seg.standard{background:linear-gradient(90deg,var(--pink),#ff7ab8);}
 .split2-seg.standing{background:linear-gradient(90deg,#7c7a9e,var(--text-dim));}
@@ -412,7 +408,7 @@ button{font-family:inherit;cursor:pointer;}
 .minmax-row{display:flex;gap:10px;}
 .minmax-col{flex:1;background:rgba(255,255,255,0.03);border-radius:10px;padding:10px 12px;}
 .minmax-tag{font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;}
-.minmax-tag.high{color:var(--amber);}
+.minmax-tag.high{color:var(--coral);}
 .minmax-tag.low{color:var(--mint);}
 .minmax-value{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;}
 .minmax-date{font-size:10.5px;color:var(--text-dim);margin-top:2px;}
