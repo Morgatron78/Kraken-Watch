@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.14';
+const APP_VERSION = 'v2.15';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1552,11 +1552,10 @@ async function loadBilling() {
     logIssue('Daily cost', err);
   }
 
-  // Last bill: real, via Octopus's documented GraphQL schema (account.bills).
-  // The exact billed amount isn't in the publicly documented fields, so this
-  // shows the issue date and a link to the PDF instead — still genuinely useful
-  // for "when was I last billed" and lets you open the real statement. Also
-  // keeps up to 4 more bills behind a collapsed toggle for at-a-glance history.
+  // Last bill: real, via Octopus's documented GraphQL schema (account.bills),
+  // itemized using account.transactions for each bill's date range. The most
+  // recent bill is always shown in full (date, total, itemized lines); up to
+  // 4 older bills are available behind a toggle using the identical row shape.
   try {
     const data = await krakenGQL(`
       query LastBill($accountNumber: String!) {
@@ -1571,64 +1570,62 @@ async function loadBilling() {
     bills.sort((a, b) => new Date(b.issuedDate) - new Date(a.issuedDate));
     const latest = bills[0];
     if (latest) {
-      const issued = new Date(latest.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      const dateHtml = latest.temporaryUrl ? `<a href="${latest.temporaryUrl}" target="_blank">issued ${issued}</a>` : `issued ${issued}`;
-      $('last-bill').innerHTML = dateHtml;
+      // Itemized per-transaction breakdown, one fetch covering every listed
+      // bill's date range. Best-effort: if this fails for any reason, every
+      // row still falls back to date + link only, never blocking that base view.
+      let txnsByBill = null;
+      try {
+        const earliest = bills.reduce((min, b) => b.fromDate < min ? b.fromDate : min, bills[0].fromDate);
+        const spanEnd = bills.reduce((max, b) => b.toDate > max ? b.toDate : max, bills[0].toDate);
+        const txnData = await krakenGQL(`
+          query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+            account(accountNumber: $accountNumber) {
+              transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
+                edges { node { __typename postedDate title amounts { gross } } }
+              }
+            }
+          }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
+        const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
+        txnsByBill = bills.map(b => ({
+          bill: b,
+          items: txns.filter(t => t.postedDate >= b.fromDate && t.postedDate <= b.toDate)
+        }));
+      } catch (err) { logIssue('Bill transactions', err); }
+
+      function isCharge(t) { return (t.__typename || '').includes('Charge'); }
+
+      function billItemsHtml(items) {
+        if (!items || !items.length) return '';
+        const rows = items.map(t => {
+          const charge = isCharge(t);
+          const signed = (charge ? -t.amounts.gross : t.amounts.gross) / 100;
+          const cls = charge ? 'v' : 'v credit';
+          return `<div class="bh-item"><span class="l">${t.title}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
+        }).join('');
+        return `<div class="bh-items">${rows}</div>`;
+      }
+      // Total matches the bill's own "Total charges for bill" — sums only the
+      // charge-type transactions (electricity, gas), excluding Direct Debit
+      // payments and points-redeemed credits, which are account balance
+      // movements rather than part of what the bill actually charged.
+      function billTotalHtml(items) {
+        if (!items || !items.length) return '';
+        const chargePence = items.filter(isCharge).reduce((sum, t) => sum + t.amounts.gross, 0);
+        return `<div class="bh-total">£${(chargePence / 100).toFixed(2)}</div>`;
+      }
+      function billRowHtml(b) {
+        const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
+        const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank">View Bill</a>` : '<span class="bh-link" style="opacity:0.4">View Bill</span>';
+        return `<div class="bh-row"><div class="bh-top"><div class="bh-date">${date}</div>${linkHtml}</div>${billTotalHtml(items)}${billItemsHtml(items)}</div>`;
+      }
+
+      $('last-bill-row').innerHTML = billRowHtml(latest);
 
       const rest = bills.slice(1);
       const toggle = $('bill-history-toggle');
       if (rest.length) {
-        // Itemized per-transaction breakdown, nested under each bill's date.
-        // Best-effort: transaction amount field names on Octopus's GraphQL
-        // schema aren't fully confirmed, so this whole block degrades
-        // gracefully to date+link only (no breakdown, no period total) if
-        // the query doesn't match — it never blocks the bill history above.
-        let txnsByBill = null;
-        try {
-          const earliest = bills.reduce((min, b) => b.fromDate < min ? b.fromDate : min, bills[0].fromDate);
-          const latest = bills.reduce((max, b) => b.toDate > max ? b.toDate : max, bills[0].toDate);
-          const txnData = await krakenGQL(`
-            query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
-              account(accountNumber: $accountNumber) {
-                transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-                  edges { node { __typename postedDate title amounts { gross } } }
-                }
-              }
-            }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: latest });
-          const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
-          txnsByBill = bills.map(b => ({
-            bill: b,
-            items: txns.filter(t => t.postedDate >= b.fromDate && t.postedDate <= b.toDate)
-          }));
-        } catch (err) { logIssue('Bill transactions', err); }
-
-        function billItemsHtml(items) {
-          if (!items || !items.length) return '';
-          const rows = items.map(t => {
-            const isCredit = (t.__typename || '').includes('Credit') || (t.__typename || '').includes('Payment');
-            const pence = t.amounts.gross || 0;
-            const signed = (isCredit ? pence : -pence) / 100;
-            const cls = signed < 0 ? 'v' : 'v credit';
-            return `<div class="bh-item"><span class="l">${t.title}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
-          }).join('');
-          return `<div class="bh-items">${rows}</div>`;
-        }
-        function billTotalHtml(items) {
-          if (!items || !items.length) return '';
-          const totalPence = items.reduce((sum, t) => {
-            const isCredit = (t.__typename || '').includes('Credit') || (t.__typename || '').includes('Payment');
-            return sum + (isCredit ? t.amounts.gross : -t.amounts.gross);
-          }, 0);
-          const total = totalPence / 100;
-          return `<span class="bh-total">${total < 0 ? '−' : ''}£${Math.abs(total).toFixed(2)}</span>`;
-        }
-
-        $('bill-history').innerHTML = rest.map(b => {
-          const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-          const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
-          const linkHtml = b.temporaryUrl ? `<a class="bill-history-link" href="${b.temporaryUrl}" target="_blank">View Bill</a>` : '<span class="bill-history-link" style="opacity:0.4">View Bill</span>';
-          return `<div class="bh-row"><div class="bh-top"><div class="bh-date">${date} ${billTotalHtml(items)}</div>${linkHtml}</div>${billItemsHtml(items)}</div>`;
-        }).join('');
+        $('bill-history').innerHTML = rest.map(billRowHtml).join('');
         $('bill-history-toggle-label').textContent = `${rest.length} more`;
         toggle.classList.remove('hidden');
         toggle.onclick = () => {
@@ -1686,7 +1683,7 @@ function populateDemoBilling() {
     $('gas-unit-rate').textContent = '6.24p'; $('gas-standing').textContent = '£0.35/day';
     renderWeekBars('elec-week', [2.2, 1.9, 1.5, 2.4, 1.4, 1.7, 2.1], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [1.4, 1.8, 1.2, 2.0, 1.6, 1.3, 1.5], 'gas-col', fmtGBP, 58, 'gas-week-scale');
-    $('last-bill').innerHTML = `issued 1 Jul (demo data)`;
+    $('last-bill-row').innerHTML = `<div class="bh-top"><div class="bh-date">1 Jul 2026</div><span class="bh-link" style="opacity:0.4">View Bill</span></div><div class="bh-total">£54.20 (demo data)</div>`;
 }
 
 function clearBillingUnavailable() {
@@ -1715,7 +1712,9 @@ function clearBillingUnavailable() {
     $('gas-unit-rate').textContent = '—'; $('gas-standing').textContent = '—';
     renderWeekBars('elec-week', [0, 0, 0, 0, 0, 0, 0], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [0, 0, 0, 0, 0, 0, 0], 'gas-col', fmtGBP, 58, 'gas-week-scale');
-    $('last-bill').textContent = 'Unavailable';
+    $('last-bill-row').textContent = 'Unavailable';
+    $('bill-history-toggle').classList.add('hidden');
+    $('bill-history').classList.add('hidden');
 }
 
 async function loadAll() {
