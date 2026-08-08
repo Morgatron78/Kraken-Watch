@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.16';
+const APP_VERSION = 'v2.17';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1554,8 +1554,10 @@ async function loadBilling() {
 
   // Last bill: real, via Octopus's documented GraphQL schema (account.bills),
   // itemized using account.transactions for each bill's date range. The most
-  // recent bill is always shown in full (date, total, itemized lines); up to
-  // 4 older bills are available behind a toggle using the identical row shape.
+  // recent bill is always shown in full (date, billing period, total); up to
+  // 4 older bills are available behind the outer toggle using the identical
+  // row shape. Each row's own itemized breakdown collapses independently to
+  // save vertical space, defaulting closed.
   try {
     const data = await krakenGQL(`
       query LastBill($accountNumber: String!) {
@@ -1592,6 +1594,23 @@ async function loadBilling() {
         }));
       } catch (err) { logIssue('Bill transactions', err); }
 
+      // One-off: check whether BillCharge/BillCredit expose extra fields
+      // (consumption/kWh, their own sub-period) beyond what's already used.
+      // Logged to diagnostics only — doesn't change what's rendered yet.
+      // Once confirmed, the real field names can be added to the query above
+      // the same safe way "gross" was, instead of guessing.
+      try {
+        const introspect = await krakenGQL(`
+          query IntrospectBillTransactionTypes {
+            charge: __type(name: "BillCharge") { fields { name } }
+            credit: __type(name: "BillCredit") { fields { name } }
+          }`, {});
+        const chargeFields = (introspect?.charge?.fields || []).map(f => f.name).join(', ');
+        const creditFields = (introspect?.credit?.fields || []).map(f => f.name).join(', ');
+        logDebug('BillCharge fields', chargeFields || '(none returned)');
+        logDebug('BillCredit fields', creditFields || '(none returned)');
+      } catch (err) { logIssue('Bill transaction type introspection', err); }
+
       function isCharge(t) { return (t.__typename || '').includes('Charge'); }
 
       function billItemsHtml(items) {
@@ -1602,22 +1621,38 @@ async function loadBilling() {
           const cls = charge ? 'v' : 'v credit';
           return `<div class="bh-item"><span class="l">${t.title}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
         }).join('');
-        return `<div class="bh-items">${rows}</div>`;
+        return rows;
       }
       // Total matches the bill's own "Total charges for bill" — sums only the
       // charge-type transactions (electricity, gas), excluding Direct Debit
       // payments and points-redeemed credits, which are account balance
       // movements rather than part of what the bill actually charged.
-      function billTotalHtml(items) {
-        if (!items || !items.length) return '';
+      function billTotal(items) {
+        if (!items || !items.length) return null;
         const chargePence = items.filter(isCharge).reduce((sum, t) => sum + t.amounts.gross, 0);
-        return `<div class="bh-total">£${(chargePence / 100).toFixed(2)}</div>`;
+        return (chargePence / 100).toFixed(2);
+      }
+      function billPeriod(b) {
+        const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        return `${fmt(b.fromDate)} – ${fmt(b.toDate)}`;
       }
       function billRowHtml(b) {
         const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
         const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill PDF">PDF</a>` : '<span class="bh-link" style="opacity:0.4">PDF</span>';
-        return `<div class="bh-row"><div class="bh-top"><div class="bh-date">${date}</div>${linkHtml}</div>${billTotalHtml(items)}${billItemsHtml(items)}</div>`;
+        const total = billTotal(items);
+        const itemsHtml = billItemsHtml(items);
+        const toggleHtml = itemsHtml
+          ? `<button type="button" class="bh-breakdown-toggle" data-bill-id="${b.id}" aria-expanded="false"><span>Show breakdown</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`
+          : '<span></span>';
+        return `<div class="bh-row">
+          <div class="bh-top">
+            <div><div class="bh-date">${date}</div><div class="bh-period"><b>Billing period:</b> ${billPeriod(b)}</div></div>
+            ${linkHtml}
+          </div>
+          <div class="bh-total-row">${toggleHtml}<div class="bh-total">${total !== null ? '£' + total : '—'}</div></div>
+          ${itemsHtml ? `<div class="bh-items hidden" data-bill-id="${b.id}">${itemsHtml}</div>` : ''}
+        </div>`;
       }
 
       $('last-bill-row').innerHTML = billRowHtml(latest);
@@ -1637,6 +1672,22 @@ async function loadBilling() {
       } else {
         toggle.classList.add('hidden');
       }
+
+      // Per-row breakdown toggles, delegated across both containers since
+      // rows in bill-history are rebuilt each sync.
+      [$('last-bill-row'), $('bill-history')].forEach(container => {
+        container.querySelectorAll('.bh-breakdown-toggle').forEach(btn => {
+          btn.onclick = () => {
+            const id = btn.dataset.billId;
+            const itemsEl = container.querySelector(`.bh-items[data-bill-id="${id}"]`);
+            const open = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', String(!open));
+            btn.querySelector('span').textContent = open ? 'Show breakdown' : 'Hide breakdown';
+            itemsEl.classList.toggle('hidden', open);
+          };
+        });
+      });
+
       anyLive = true;
     }
   } catch (err) {
@@ -1683,7 +1734,7 @@ function populateDemoBilling() {
     $('gas-unit-rate').textContent = '6.24p'; $('gas-standing').textContent = '£0.35/day';
     renderWeekBars('elec-week', [2.2, 1.9, 1.5, 2.4, 1.4, 1.7, 2.1], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [1.4, 1.8, 1.2, 2.0, 1.6, 1.3, 1.5], 'gas-col', fmtGBP, 58, 'gas-week-scale');
-    $('last-bill-row').innerHTML = `<div class="bh-top"><div class="bh-date">1 Jul 2026</div><span class="bh-link" style="opacity:0.4">PDF</span></div><div class="bh-total">£54.20 (demo data)</div>`;
+    $('last-bill-row').innerHTML = `<div class="bh-top"><div><div class="bh-date">1 Jul 2026</div><div class="bh-period"><b>Billing period:</b> 3 Jun – 1 Jul</div></div><span class="bh-link" style="opacity:0.4">PDF</span></div><div class="bh-total-row"><span></span><div class="bh-total">£54.20 (demo data)</div></div>`;
 }
 
 function clearBillingUnavailable() {
