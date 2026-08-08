@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.4">
+<link rel="stylesheet" href="styles.css?v=2.6">
 </head>
 <body>
 <div class="wrap">
@@ -336,11 +336,15 @@
 
           <div class="insight-block" id="insights-elec-weekday-block">
             <div class="insight-label">Weekday vs weekend, this month</div>
-            <div class="compare-row">
-              <div class="compare-col"><div class="compare-value" id="insights-elec-weekday-value">—</div><div class="compare-bar weekday" id="insights-elec-weekday-bar" style="height:2px;"></div><div class="compare-label">Weekday</div></div>
-              <div class="compare-col"><div class="compare-value" id="insights-elec-weekend-value">—</div><div class="compare-bar weekend" id="insights-elec-weekend-bar" style="height:2px;"></div><div class="compare-label">Weekend</div></div>
+            <div class="split-cmp-legend">
+              <span><span class="dot weekday-dot"></span>Weekday <span id="insights-elec-weekday-value">—</span></span>
+              <span><span class="dot weekend-dot"></span>Weekend <span id="insights-elec-weekend-value">—</span></span>
             </div>
-            <div class="pattern-headline" id="insights-elec-pattern-headline">—</div>
+            <div class="split-cmp-bar">
+              <div class="split-cmp-seg weekday" id="insights-elec-weekday-bar"></div>
+              <div class="split-cmp-seg weekend" id="insights-elec-weekend-bar"></div>
+            </div>
+            <div class="trend-pill" id="insights-elec-pattern-headline"></div>
           </div>
 
           <div class="insight-block" id="insights-elec-extremes-block">
@@ -501,6 +505,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.4"></script>
+<script src="app.js?v=2.6"></script>
 </body>
 </html>

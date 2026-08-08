@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.4';
+const APP_VERSION = 'v2.6';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -278,8 +278,8 @@ async function lastNDaysElecSplit(n) {
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
     try {
-      out.push(await elecCostSplit(dayStart.toISOString(), dayEnd.toISOString()));
-    } catch { out.push({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false }); }
+      out.push({ ...(await elecCostSplit(dayStart.toISOString(), dayEnd.toISOString())), date: dayStart });
+    } catch { out.push({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false, date: dayStart }); }
   }
   return out;
 }
@@ -728,7 +728,8 @@ function renderInsightsElec() {
     const avg = week.reduce((s, d) => s + dayTotal('elec', d, 'cost'), 0) / week.length;
     if (found) {
       const val = dayTotal('elec', found, 'cost');
-      const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : 'Latest available day';
+      const dateStr = found.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `Latest available day (${dateStr})`;
       $('insights-elec-trend-label').textContent = label;
       $('insights-elec-trend-value').textContent = fmtGBP(val);
       const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
@@ -782,16 +783,22 @@ function renderInsightsElec() {
 
     if (weekdayCount > 0 && weekendCount > 0) {
       const weekdayAvg = weekdayTotal / weekdayCount, weekendAvg = weekendTotal / weekendCount;
-      const maxAvg = Math.max(weekdayAvg, weekendAvg, 0.01);
+      const total = weekdayAvg + weekendAvg || 1;
+      const weekdayPct = Math.min(88, Math.max(12, Math.round((weekdayAvg / total) * 100)));
       $('insights-elec-weekday-value').textContent = fmtGBP(weekdayAvg);
       $('insights-elec-weekend-value').textContent = fmtGBP(weekendAvg);
-      $('insights-elec-weekday-bar').style.height = Math.max(2, Math.round((weekdayAvg / maxAvg) * 56)) + 'px';
-      $('insights-elec-weekend-bar').style.height = Math.max(2, Math.round((weekendAvg / maxAvg) * 56)) + 'px';
-      const diffPct = weekdayAvg > 0 ? Math.abs((weekendAvg - weekdayAvg) / weekdayAvg) * 100 : 0;
-      const pricier = weekendAvg > weekdayAvg ? 'Weekends' : 'Weekdays';
-      const headline = $('insights-elec-pattern-headline');
-      headline.classList.toggle('mint', diffPct < 5);
-      headline.textContent = diffPct < 5 ? 'No significant weekday/weekend difference' : `${pricier} cost ${diffPct.toFixed(0)}% more on average`;
+      $('insights-elec-weekday-bar').style.width = weekdayPct + '%';
+      $('insights-elec-weekend-bar').style.width = (100 - weekdayPct) + '%';
+      const diffPct = weekdayAvg > 0 ? ((weekendAvg - weekdayAvg) / weekdayAvg) * 100 : 0;
+      const pill = $('insights-elec-pattern-headline');
+      if (Math.abs(diffPct) < 5) {
+        pill.className = 'trend-pill up';
+        pill.textContent = '≈ No significant weekday/weekend difference';
+      } else {
+        const pricier = diffPct > 0 ? 'Weekends' : 'Weekdays';
+        pill.className = 'trend-pill down';
+        pill.textContent = `↑ ${pricier} cost ${Math.abs(diffPct).toFixed(0)}% more on average`;
+      }
       $('insights-elec-weekday-block').classList.remove('hidden');
     } else {
       $('insights-elec-weekday-block').classList.add('hidden'); // not enough of both kinds yet this month
@@ -838,7 +845,8 @@ function renderInsightsGas() {
     const avg = week.reduce((s, d) => s + dayTotal('gas', d, 'cost'), 0) / week.length;
     if (found) {
       const val = dayTotal('gas', found, 'cost');
-      const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : 'Latest available day';
+      const dateStr = found.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `Latest available day (${dateStr})`;
       $('insights-gas-trend-label').textContent = label;
       $('insights-gas-trend-value').textContent = fmtGBP(val);
       const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
@@ -1576,8 +1584,8 @@ async function lastNDaysCost(fuel, n) {
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
     try {
       const { cost, kwh, hasData } = await costForRange(fuel, dayStart.toISOString(), dayEnd.toISOString());
-      out.push({ cost, kwh, hasData });
-    } catch { out.push({ cost: 0, kwh: 0, hasData: false }); }
+      out.push({ cost, kwh, hasData, date: dayStart });
+    } catch { out.push({ cost: 0, kwh: 0, hasData: false, date: dayStart }); }
   }
   return out;
 }
