@@ -282,7 +282,7 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-figs small{color:var(--text-dim);font-weight:400;margin-left:3px;}
 
 .bill-history-toggle{
-  display:flex;align-items:center;gap:5px;
+  display:flex;align-items:center;gap:5px;align-self:flex-start;
   background:none;border:1px solid var(--line);border-radius:100px;
   padding:4px 9px;font-size:10.5px;color:var(--text-dim);
   font-family:'IBM Plex Mono',monospace;flex-shrink:0;margin-top:12px;

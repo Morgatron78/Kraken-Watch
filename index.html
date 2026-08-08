@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.17">
+<link rel="stylesheet" href="styles.css?v=2.18">
 </head>
 <body>
 <div class="wrap">
@@ -258,6 +258,16 @@
           </div>
         </div>
       </div>
+
+      <div class="fuel-split">
+        <div id="last-bill-row">—</div>
+        <button type="button" class="bill-history-toggle hidden" id="bill-history-toggle" aria-expanded="false">
+          <span id="bill-history-toggle-label"></span>
+          <svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+        <div class="bill-history hidden" id="bill-history"></div>
+      </div>
+
       <div class="dd-banner" id="balance-after-dd-row" style="display:none;">
         <div class="dd-row">
           <div class="dd-col">
@@ -288,15 +298,6 @@
         </div>
         <div class="bar-track" style="flex:1;min-width:80px;align-self:center;"><div class="bar-fill" id="cycle-bar" style="width:0%"></div></div>
         <div class="predict-day" id="cycle-day">—</div>
-      </div>
-
-      <div class="fuel-split">
-        <div id="last-bill-row">—</div>
-        <button type="button" class="bill-history-toggle hidden" id="bill-history-toggle" aria-expanded="false">
-          <span id="bill-history-toggle-label"></span>
-          <svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        </button>
-        <div class="bill-history hidden" id="bill-history"></div>
       </div>
 
     </div>
@@ -514,6 +515,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.17"></script>
+<script src="app.js?v=2.18"></script>
 </body>
 </html>
