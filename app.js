@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.13';
+const APP_VERSION = 'v2.14';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1585,23 +1585,13 @@ async function loadBilling() {
         // the query doesn't match — it never blocks the bill history above.
         let txnsByBill = null;
         try {
-          const introspect = await krakenGQL(`
-            query IntrospectTransactionAmount {
-              __type(name: "TransactionAmountType") {
-                fields { name type { name kind ofType { name kind } } }
-              }
-            }`, {});
-          const fieldNames = (introspect?.__type?.fields || []).map(f => f.name).join(', ');
-          logDebug('TransactionAmountType fields', fieldNames || '(introspection returned nothing — may be disabled)');
-        } catch (err) { logIssue('TransactionAmountType introspection', err); }
-        try {
           const earliest = bills.reduce((min, b) => b.fromDate < min ? b.fromDate : min, bills[0].fromDate);
           const latest = bills.reduce((max, b) => b.toDate > max ? b.toDate : max, bills[0].toDate);
           const txnData = await krakenGQL(`
             query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
               account(accountNumber: $accountNumber) {
                 transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-                  edges { node { __typename postedDate title amounts { grossAmount } } }
+                  edges { node { __typename postedDate title amounts { gross } } }
                 }
               }
             }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: latest });
@@ -1616,7 +1606,7 @@ async function loadBilling() {
           if (!items || !items.length) return '';
           const rows = items.map(t => {
             const isCredit = (t.__typename || '').includes('Credit') || (t.__typename || '').includes('Payment');
-            const pence = t.amounts.grossAmount || 0;
+            const pence = t.amounts.gross || 0;
             const signed = (isCredit ? pence : -pence) / 100;
             const cls = signed < 0 ? 'v' : 'v credit';
             return `<div class="bh-item"><span class="l">${t.title}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
@@ -1627,7 +1617,7 @@ async function loadBilling() {
           if (!items || !items.length) return '';
           const totalPence = items.reduce((sum, t) => {
             const isCredit = (t.__typename || '').includes('Credit') || (t.__typename || '').includes('Payment');
-            return sum + (isCredit ? t.amounts.grossAmount : -t.amounts.grossAmount);
+            return sum + (isCredit ? t.amounts.gross : -t.amounts.gross);
           }, 0);
           const total = totalPence / 100;
           return `<span class="bh-total">${total < 0 ? '−' : ''}£${Math.abs(total).toFixed(2)}</span>`;
