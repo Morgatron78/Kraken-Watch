@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.28">
+<link rel="stylesheet" href="styles.css?v=2.29">
 </head>
 <body>
 <div class="wrap">
@@ -321,13 +321,19 @@
 
           <div class="insight-block">
             <div class="insight-label">This month's spend — off-peak vs standard rate</div>
-            <div class="split-bar">
-              <div id="insights-elec-split-offpeak" style="width:0%;background:var(--mint);"></div>
-              <div id="insights-elec-split-standard" style="width:0%;background:var(--violet);"></div>
+            <div class="split2-legend">
+              <div class="split2-side">
+                <div class="split2-label offpeak"><span class="dot"></span>Off-peak</div>
+                <div class="split2-value sm" id="insights-elec-split-offpeak-pct">—</div>
+              </div>
+              <div class="split2-side right">
+                <div class="split2-label standard">Standard<span class="dot"></span></div>
+                <div class="split2-value sm" id="insights-elec-split-standard-pct">—</div>
+              </div>
             </div>
-            <div class="split-legend">
-              <span><span class="dot" style="background:var(--mint)"></span>Off-peak <span id="insights-elec-split-offpeak-pct">—</span></span>
-              <span><span class="dot" style="background:var(--violet)"></span>Standard <span id="insights-elec-split-standard-pct">—</span></span>
+            <div class="split2-bar">
+              <div class="split2-seg offpeak" id="insights-elec-split-offpeak" style="width:0%;"></div>
+              <div class="split2-seg standard" id="insights-elec-split-standard" style="width:0%;"></div>
             </div>
             <div class="split-note" id="insights-elec-split-note">—</div>
           </div>
@@ -381,13 +387,19 @@
 
           <div class="insight-block">
             <div class="insight-label">This month's bill — standing charge vs usage</div>
-            <div class="split-bar">
-              <div id="insights-gas-split-standing" style="width:0%;background:var(--text-dim);"></div>
-              <div id="insights-gas-split-usage" style="width:0%;background:var(--amber);"></div>
+            <div class="split2-legend">
+              <div class="split2-side">
+                <div class="split2-label standing"><span class="dot"></span>Standing charge</div>
+                <div class="split2-value sm" id="insights-gas-split-standing-pct">—</div>
+              </div>
+              <div class="split2-side right">
+                <div class="split2-label usage">Usage<span class="dot"></span></div>
+                <div class="split2-value sm" id="insights-gas-split-usage-pct">—</div>
+              </div>
             </div>
-            <div class="split-legend">
-              <span><span class="dot" style="background:var(--text-dim)"></span>Standing charge <span id="insights-gas-split-standing-pct">—</span></span>
-              <span><span class="dot" style="background:var(--amber)"></span>Usage <span id="insights-gas-split-usage-pct">—</span></span>
+            <div class="split2-bar">
+              <div class="split2-seg standing" id="insights-gas-split-standing" style="width:0%;"></div>
+              <div class="split2-seg usage" id="insights-gas-split-usage" style="width:0%;"></div>
             </div>
             <div class="seasonal-note hidden" id="insights-gas-seasonal-note"><span class="icon">📉</span><span id="insights-gas-seasonal-text"></span></div>
           </div>
@@ -504,6 +516,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.28"></script>
+<script src="app.js?v=2.29"></script>
 </body>
 </html>
