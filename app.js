@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.48';
+const APP_VERSION = 'v2.50';
 
 const store = {
   get creds() {
@@ -371,7 +371,7 @@ const fmtKwh = (v) => `${v.toFixed(1)} kWh`;
 // Stacked variant: each day is [{value, cssClass}, ...] segments stacked
 // bottom-to-top (e.g. standing charge, then off-peak, then peak). Segment
 // order in the array is bottom-to-top.
-function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44, scaleId = null, selectedIndex = null) {
+function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44, scaleId = null, selectedIndex = null, isMonthMode = false) {
   const el = $(containerId);
   const totals = dayStacks.map(day => day.reduce((s, seg) => s + seg.value, 0));
   const max = Math.max(...totals, 0.01);
@@ -387,7 +387,14 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
       const h = Math.max(seg.value > 0 ? 1 : 0, Math.round((seg.value / max) * maxBarHeight));
       return `<div class="col-seg ${seg.cssClass}${isToday ? ' today' : ''}" style="height:${h}px"></div>`;
     }).join('');
-    const label = showLabels ? `<span class="${isSelected ? 'active-day' : ''}">${labels[(today - (dayStacks.length - 1 - i) + 7) % 7]}</span>` : '';
+    // Month view: real day-of-month number (index+1, matching
+    // dateForPeriodIndex's own month-mode logic) — the day-of-week formula
+    // below only correctly handles up to a 7-bar span (a single +7
+    // wraparound correction), so a longer month array pushed it negative
+    // and printed literal "undefined". Numbers are also just more legible
+    // for a month's worth of bars than cycling weekday letters anyway.
+    const labelText = isMonthMode ? String(i + 1) : labels[(today - (dayStacks.length - 1 - i) + 7) % 7];
+    const label = showLabels ? `<span class="${isSelected ? 'active-day' : ''}">${labelText}</span>` : '';
     return `<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${i}">${segHtml}</div>${label}</div>`;
   }).join('');
 }
@@ -401,6 +408,12 @@ let periodMode = 'week';
 // Week/Month period changes, since the old index would point at a
 // completely different day in the new array.
 let selectedDay = { elec: null, gas: null };
+// Tap-to-breakdown state for the bill-total-over-time chart. billMonthsData
+// is repopulated on every loadBilling() run so the click handler always has
+// the current grouped-by-month figures to hand, without needing to
+// recompute or re-fetch anything.
+let selectedBillMonth = null;
+let billMonthsData = [];
 
 // Maps an index in the current period array back to a real calendar date —
 // week view counts backward from today, month view counts forward from the
@@ -413,6 +426,32 @@ function dateForPeriodIndex(index, arrayLength) {
 
 function breakdownRow(label, cssClass, costStr, kwhStr) {
   return `<div class="breakdown-row"><span class="label"><span class="dot ${cssClass}"></span>${label}${kwhStr ? ` (${kwhStr})` : ''}</span><span class="val">${costStr}</span></div>`;
+}
+
+// Bill-year chart's tap-to-breakdown — same pattern as renderBreakdown
+// above, reusing the same .breakdown-box/.breakdown-row markup and CSS.
+// Reads from billMonthsData (populated whenever the chart itself renders)
+// rather than needing its own fetch or access to loadBilling's internals.
+function renderBillYearBreakdown(index) {
+  const box = $('bill-year-breakdown');
+  if (!box) return;
+  if (index === null || !billMonthsData[index]) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  box.classList.remove('hidden');
+  const m = billMonthsData[index];
+  const monthLabel = new Date(m.year, m.month, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const billNote = m.bills.length > 1 ? ` · ${m.bills.length} bills` : '';
+  const linkHtml = m.bills.length === 1 && m.bills[0].temporaryUrl
+    ? `<div style="margin-top:10px;"><a class="bh-link" href="${m.bills[0].temporaryUrl}" target="_blank" aria-label="View bill">View Bill</a></div>`
+    : '';
+  box.innerHTML = `<div class="breakdown-date">${monthLabel}${billNote}</div>`
+    + breakdownRow('Gas', 'seg-gas-usage', fmtGBP(m.gas), null)
+    + breakdownRow('Electricity', 'seg-peak', fmtGBP(m.elec), null)
+    + `<div class="breakdown-total"><span>Total</span><span>${fmtGBP(m.total)}</span></div>`
+    + linkHtml;
 }
 
 function renderBreakdown(fuel, periodData, index) {
@@ -568,7 +607,7 @@ function renderFuelPanel(fuel) {
   const periodData = periodMode === 'month' ? d.month : d.week;
   if (periodData) {
     const dayStacks = periodData.map(day => buildDaySegments(fuel, day, unit));
-    renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel]);
+    renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel], periodMode === 'month');
     renderBreakdown(fuel, periodData, selectedDay[fuel]);
   }
 }
@@ -1755,7 +1794,7 @@ async function loadBilling() {
       // (see .slice(-12) below), so it stays a consistent width regardless
       // of how many bills that took.
       try {
-        const grouped = new Map(); // key 'YYYY-M' -> { year, month, gas, elec, total }
+        const grouped = new Map(); // key 'YYYY-M' -> { year, month, gas, elec, total, bills: [{issuedDate, temporaryUrl}] }
         (txnsByBill || []).forEach(({ bill, items }) => {
           const issued = new Date(bill.issuedDate);
           const key = `${issued.getFullYear()}-${issued.getMonth()}`;
@@ -1764,8 +1803,9 @@ async function loadBilling() {
           if (grouped.has(key)) {
             const g = grouped.get(key);
             g.gas += gas; g.elec += elec; g.total += gas + elec;
+            g.bills.push({ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl });
           } else {
-            grouped.set(key, { year: issued.getFullYear(), month: issued.getMonth(), gas, elec, total: gas + elec });
+            grouped.set(key, { year: issued.getFullYear(), month: issued.getMonth(), gas, elec, total: gas + elec, bills: [{ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl }] });
           }
         });
         const monthsData = Array.from(grouped.values())
@@ -1774,15 +1814,21 @@ async function loadBilling() {
         const spansMultipleYears = monthsData.length > 0 && monthsData[0].year !== monthsData[monthsData.length - 1].year;
 
         if (monthsData.length >= 2) {
+          billMonthsData = monthsData;
+          if (selectedBillMonth !== null && selectedBillMonth >= monthsData.length) selectedBillMonth = null;
           const max = Math.max(...monthsData.map(m => m.total), 0.01);
           const maxBarHeight = 78;
-          $('bill-year-bars').innerHTML = monthsData.map(m => {
+          $('bill-year-bars').innerHTML = monthsData.map((m, i) => {
             const seg = `<div class="bt-seg gas" style="height:${Math.max(1, Math.round((m.gas / max) * maxBarHeight))}px"></div><div class="bt-seg elec" style="height:${Math.max(1, Math.round((m.elec / max) * maxBarHeight))}px"></div>`;
             const label = new Date(m.year, m.month, 1).toLocaleDateString('en-GB', spansMultipleYears ? { month: 'short', year: '2-digit' } : { month: 'short' });
-            return `<div class="bt-bar"><div class="bt-stack">${seg}</div><span>${label}</span></div>`;
+            const selected = i === selectedBillMonth ? ' selected' : '';
+            return `<div class="bt-bar"><div class="bt-stack${selected}" data-index="${i}">${seg}</div><span>${label}</span></div>`;
           }).join('');
+          renderBillYearBreakdown(selectedBillMonth);
           $('bill-year-block').style.display = '';
         } else {
+          billMonthsData = [];
+          selectedBillMonth = null;
           $('bill-year-block').style.display = 'none';
         }
       } catch (err) { logIssue('Bill year chart', err); }
@@ -1792,6 +1838,8 @@ async function loadBilling() {
   } catch (err) {
     logIssue('Last bill', err);
     $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Last bill unavailable — check connection or Settings</div>';
+    billMonthsData = [];
+    selectedBillMonth = null;
     $('bill-year-block').style.display = 'none';
   }
 
@@ -1868,6 +1916,8 @@ function clearBillingUnavailable() {
     renderWeekBars('gas-week', [0, 0, 0, 0, 0, 0, 0], 'gas-col', fmtGBP, 58, 'gas-week-scale');
     $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Loading last bill…</div>';
     $('bill-history-toggle').classList.add('hidden');
+    billMonthsData = [];
+    selectedBillMonth = null;
     $('bill-year-block').style.display = 'none';
     $('bill-history').classList.add('hidden');
 }
@@ -2161,6 +2211,23 @@ function init() {
       selectedDay[fuel] = (selectedDay[fuel] === index) ? null : index;
       renderFuelPanel(fuel);
     });
+  });
+
+  // Same tap-to-reveal pattern for the bill-total-over-time chart — tap a
+  // month's bar to see its gas/electricity split underneath (and a note +
+  // link if that month combined more than one bill). Re-renders just the
+  // selection/breakdown, not the whole chart, since the bar heights
+  // themselves don't change on tap.
+  $('bill-year-bars').addEventListener('click', (e) => {
+    const bar = e.target.closest('.bt-stack');
+    if (!bar) return;
+    const index = parseInt(bar.dataset.index, 10);
+    if (Number.isNaN(index)) return;
+    selectedBillMonth = (selectedBillMonth === index) ? null : index;
+    document.querySelectorAll('#bill-year-bars .bt-stack').forEach(el => {
+      el.classList.toggle('selected', parseInt(el.dataset.index, 10) === selectedBillMonth);
+    });
+    renderBillYearBreakdown(selectedBillMonth);
   });
 
   // Same tap-to-reveal pattern for the Day view's half-hourly slots.
