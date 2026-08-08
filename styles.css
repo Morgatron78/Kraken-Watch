@@ -293,8 +293,8 @@ button{font-family:inherit;cursor:pointer;}
 .bh-period{color:var(--text-dim);font-size:11px;margin-top:2px;}
 .bh-period b{color:var(--text-dim);font-weight:600;}
 .bh-link{
-  font-family:'IBM Plex Mono',monospace;color:var(--mint);font-size:10.5px;font-weight:600;
-  border:1px solid rgba(61,220,151,0.4);border-radius:6px;padding:3px 8px;
+  font-family:'IBM Plex Mono',monospace;color:var(--text-dim);font-size:10.5px;font-weight:600;
+  border:1px solid var(--line);border-radius:6px;padding:3px 8px;
   text-decoration:none;flex-shrink:0;
 }
 .bh-total-row{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
