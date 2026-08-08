@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.15';
+const APP_VERSION = 'v2.16';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1616,7 +1616,7 @@ async function loadBilling() {
       function billRowHtml(b) {
         const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
-        const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank">View Bill</a>` : '<span class="bh-link" style="opacity:0.4">View Bill</span>';
+        const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill PDF">PDF</a>` : '<span class="bh-link" style="opacity:0.4">PDF</span>';
         return `<div class="bh-row"><div class="bh-top"><div class="bh-date">${date}</div>${linkHtml}</div>${billTotalHtml(items)}${billItemsHtml(items)}</div>`;
       }
 
@@ -1683,7 +1683,7 @@ function populateDemoBilling() {
     $('gas-unit-rate').textContent = '6.24p'; $('gas-standing').textContent = '£0.35/day';
     renderWeekBars('elec-week', [2.2, 1.9, 1.5, 2.4, 1.4, 1.7, 2.1], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [1.4, 1.8, 1.2, 2.0, 1.6, 1.3, 1.5], 'gas-col', fmtGBP, 58, 'gas-week-scale');
-    $('last-bill-row').innerHTML = `<div class="bh-top"><div class="bh-date">1 Jul 2026</div><span class="bh-link" style="opacity:0.4">View Bill</span></div><div class="bh-total">£54.20 (demo data)</div>`;
+    $('last-bill-row').innerHTML = `<div class="bh-top"><div class="bh-date">1 Jul 2026</div><span class="bh-link" style="opacity:0.4">PDF</span></div><div class="bh-total">£54.20 (demo data)</div>`;
 }
 
 function clearBillingUnavailable() {
