@@ -355,7 +355,7 @@ button{font-family:inherit;cursor:pointer;}
 /* Insights */
 .collapsed-hint{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
 #insights-body{margin-top:16px;}
-.fuel-panel.billing{border-top:2px solid var(--mint);}
+.fuel-panel.billing{border-top:2px solid var(--text-dim);}
 .fuel-panel.general{border-top:2px solid var(--text-dim);}
 #insights-body .fuel-panel{margin-bottom:12px;}
 #insights-body .fuel-panel:last-child{margin-bottom:0;}
