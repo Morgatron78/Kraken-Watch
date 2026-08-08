@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.21';
+const APP_VERSION = 'v2.22';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1502,11 +1502,7 @@ async function loadBilling() {
 
       if (nextPayment) {
         const afterDD = projected + (nextPayment.amount / 100);
-        const dateStr = new Date(nextPayment.paymentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
         $('next-dd-amount').textContent = fmtGBP(nextPayment.amount / 100);
-        $('next-dd-due').textContent = nextPayment.isEstimate
-          ? `Est. from last payment (${dateStr})`
-          : `Due ${dateStr}`;
         $('next-dd-label').textContent = nextPayment.isEstimate ? 'Direct Debit (est.)' : 'Next Direct Debit';
         renderBalanceFigure('balance-after-dd', 'balance-after-dd-pill', afterDD);
 
@@ -1583,7 +1579,14 @@ async function loadBilling() {
           query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
             account(accountNumber: $accountNumber) {
               transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-                edges { node { __typename postedDate title amounts { gross } } }
+                edges {
+                  node {
+                    __typename postedDate title amounts { gross }
+                    ... on BillCharge {
+                      consumption { quantity unit startDate endDate }
+                    }
+                  }
+                }
               }
             }
           }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
@@ -1594,72 +1597,19 @@ async function loadBilling() {
         }));
       } catch (err) { logIssue('Bill transactions', err); }
 
-      // One-off: check whether BillCharge/BillCredit expose extra fields
-      // (consumption/kWh, their own sub-period) beyond what's already used.
-      // Logged to diagnostics only — doesn't change what's rendered yet.
-      // Once confirmed, the real field names can be added to the query above
-      // the same safe way "gross" was, instead of guessing.
-      try {
-        const introspect = await krakenGQL(`
-          query IntrospectBillTransactionTypes {
-            charge: __type(name: "BillCharge") { fields { name } }
-            credit: __type(name: "BillCredit") { fields { name } }
-          }`, {});
-        const chargeFields = (introspect?.charge?.fields || []).map(f => f.name).join(', ');
-        const creditFields = (introspect?.credit?.fields || []).map(f => f.name).join(', ');
-        logDebug('BillCharge fields', chargeFields || '(none returned)');
-        logDebug('BillCredit fields', creditFields || '(none returned)');
-      } catch (err) { logIssue('Bill transaction type introspection', err); }
-
-      // One-off: check the actual TYPE of consumption/detail on BillCharge
-      // (found via the field-name introspection above) — a plain scalar can
-      // be queried directly, but a nested object type needs its own
-      // subfields, the same way `amounts { gross }` needed `gross` rather
-      // than a bare `amounts`. Logged to diagnostics only — doesn't change
-      // what's rendered yet.
-      try {
-        const introspect = await krakenGQL(`
-          query IntrospectBillChargeFieldTypes {
-            __type(name: "BillCharge") {
-              fields {
-                name
-                type { name kind ofType { name kind ofType { name kind } } }
-              }
-            }
-          }`, {});
-        const fields = introspect?.__type?.fields || [];
-        const describe = t => {
-          if (!t) return 'unknown';
-          const inner = t.ofType ? (t.ofType.name || t.ofType.kind) : null;
-          return `${t.kind}${t.name ? ':' + t.name : ''}${inner ? ' of ' + inner : ''}`;
-        };
-        const target = fields.filter(f => f.name === 'consumption' || f.name === 'detail');
-        logDebug('BillCharge consumption/detail types', target.map(f => `${f.name} = ${describe(f.type)}`).join(' | ') || '(not found)');
-      } catch (err) { logIssue('BillCharge field type introspection', err); }
-
-      // One-off: consumption is an object type, detail is a union — need
-      // their internals before either can be queried. Logged to diagnostics
-      // only, no visible change yet.
-      try {
-        const introspect = await krakenGQL(`
-          query IntrospectConsumptionAndChargeDetail {
-            consumption: __type(name: "Consumption") {
-              fields { name type { name kind ofType { name kind } } }
-            }
-            chargeDetail: __type(name: "ChargeDetail") {
-              possibleTypes { name }
-            }
-          }`, {});
-        const consFields = (introspect?.consumption?.fields || [])
-          .map(f => `${f.name}:${f.type?.name || f.type?.kind}${f.type?.ofType ? '(' + (f.type.ofType.name || f.type.ofType.kind) + ')' : ''}`)
-          .join(', ');
-        const detailTypes = (introspect?.chargeDetail?.possibleTypes || []).map(t => t.name).join(', ');
-        logDebug('Consumption fields', consFields || '(none returned)');
-        logDebug('ChargeDetail possible types', detailTypes || '(none returned)');
-      } catch (err) { logIssue('Consumption/ChargeDetail introspection', err); }
-
-
       function isCharge(t) { return (t.__typename || '').includes('Charge'); }
+      function itemDateRange(t) {
+        if (!t.consumption?.startDate || !t.consumption?.endDate) return '';
+        const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        return `<span class="bh-item-sub">${fmt(t.consumption.startDate)} – ${fmt(t.consumption.endDate)}</span>`;
+      }
+      function itemKwh(t) {
+        if (!t.consumption?.quantity) return '';
+        const unitMap = { KILOWATT_HOUR: 'kWh', CUBIC_METERS: 'm³', CUBIC_METRE: 'm³', CUBIC_FEET: 'ft³' };
+        const unit = unitMap[t.consumption.unit] || (t.consumption.unit || '').toLowerCase().replace(/_/g, ' ');
+        const qty = parseFloat(t.consumption.quantity);
+        return ` · ${qty.toFixed(1)}${unit ? ' ' + unit : ''}`;
+      }
 
       function billItemsHtml(items) {
         if (!items || !items.length) return '';
@@ -1667,7 +1617,7 @@ async function loadBilling() {
           const charge = isCharge(t);
           const signed = (charge ? -t.amounts.gross : t.amounts.gross) / 100;
           const cls = charge ? 'v' : 'v credit';
-          return `<div class="bh-item"><span class="l">${t.title}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
+          return `<div class="bh-item"><span class="l">${t.title}${itemKwh(t)}${itemDateRange(t)}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
         }).join('');
         return rows;
       }
@@ -1767,7 +1717,6 @@ function populateDemoBilling() {
     renderBalanceFigure('balance-now', 'balance-now-pill', 42.10);
     renderBalanceFigure('balance-projected', 'balance-projected-pill', 35.70);
     $('next-dd-amount').textContent = '£95.00';
-    $('next-dd-due').textContent = 'Due 1 Sep (demo)';
     renderBalanceFigure('balance-after-dd', 'balance-after-dd-pill', 130.70);
     $('balance-trend-pill').className = 'trend-pill up';
     $('balance-trend-pill').textContent = '↑ £95.00/mo';
@@ -1795,7 +1744,6 @@ function clearBillingUnavailable() {
     $('balance-projected').textContent = 'Unavailable';
     $('balance-projected-pill').textContent = '';
     $('next-dd-amount').textContent = '—';
-    $('next-dd-due').textContent = '—';
     $('balance-after-dd').textContent = '—';
     $('balance-after-dd-pill').textContent = '';
     $('balance-trend-pill').textContent = '';

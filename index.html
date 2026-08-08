@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.21">
+<link rel="stylesheet" href="styles.css?v=2.22">
 </head>
 <body>
 <div class="wrap">
@@ -238,8 +238,8 @@
     <!-- BILLING -->
     <div class="card" id="billing-card">
       <div class="card-head">
-        <div class="card-title">💷 Billing <span id="billing-account-number" style="color:var(--text-dim);font-weight:500;font-size:11px;font-family:'IBM Plex Mono',monospace;"></span></div>
-        <div class="card-tag tag-amber">CURRENT CYCLE</div>
+        <div class="card-title">💷 Billing</div>
+        <div class="card-tag tag-amber" id="billing-account-number">—</div>
       </div>
 
       <div class="balance-row">
@@ -268,36 +268,29 @@
         <div class="bill-history hidden" id="bill-history"></div>
       </div>
 
-      <div class="dd-banner" id="balance-after-dd-row" style="display:none;">
-        <div class="dd-row">
-          <div class="dd-col">
-            <div class="stat-label" id="next-dd-label">Next Direct Debit</div>
-            <div class="dd-value" id="next-dd-amount" style="color:var(--amber)">—</div>
-            <div class="dd-due" id="next-dd-due">—</div>
-          </div>
-          <div class="dd-arrow">→</div>
-          <div class="dd-col">
+      <div class="col-row" id="balance-after-dd-row" style="display:none;">
+        <div class="col-box amber">
+          <div class="stat-label" id="next-dd-label">Next Direct Debit</div>
+          <div class="stat-value" id="next-dd-amount" style="color:var(--amber)">—</div>
+          <div class="col-divider">
             <div class="stat-label">After next payment</div>
             <div class="value-row">
-              <div class="dd-value" id="balance-after-dd">—</div>
+              <div class="stat-value" id="balance-after-dd">—</div>
               <span class="status-pill" id="balance-after-dd-pill"></span>
             </div>
             <div class="trend-pill" id="balance-trend-pill"></div>
           </div>
         </div>
-      </div>
-
-      <div class="predict-banner">
-        <div>
-          <div class="stat-label">Month to date (both fuels)</div>
+        <div class="col-box mint">
+          <div class="stat-label">Spend this month</div>
           <div class="stat-value" id="cost-mtd">—</div>
+          <div class="col-divider">
+            <div class="stat-label">Predicted this month</div>
+            <div class="stat-value" id="cost-predicted" style="color:var(--mint)">—</div>
+            <div class="bar-track"><div class="bar-fill" id="cycle-bar" style="width:0%"></div></div>
+            <div class="predict-day" id="cycle-day">—</div>
+          </div>
         </div>
-        <div>
-          <div class="stat-label">Predicted this month</div>
-          <div class="stat-value" id="cost-predicted" style="color:var(--mint)">—</div>
-        </div>
-        <div class="bar-track" style="flex:1;min-width:80px;align-self:center;"><div class="bar-fill" id="cycle-bar" style="width:0%"></div></div>
-        <div class="predict-day" id="cycle-day">—</div>
       </div>
 
     </div>
@@ -515,6 +508,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.21"></script>
+<script src="app.js?v=2.22"></script>
 </body>
 </html>

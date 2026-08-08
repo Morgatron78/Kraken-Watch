@@ -205,11 +205,13 @@ button{font-family:inherit;cursor:pointer;}
 .unavailable-box p{font-size:12px;line-height:1.55;margin:0;}
 
 /* Billing */
-.predict-banner{
-  display:flex;align-items:center;gap:16px;flex-wrap:wrap;border-radius:var(--radius-md);padding:14px 18px;
-  background:var(--mint-soft);border:1px solid rgba(61,220,151,0.3);
-}
-.predict-day{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim);}
+.predict-day{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:4px;}
+
+.col-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;}
+.col-box{border-radius:var(--radius-md);padding:14px;}
+.col-box.amber{background:rgba(255,184,77,0.08);border:1px solid rgba(255,184,77,0.3);}
+.col-box.mint{background:var(--mint-soft);border:1px solid rgba(61,220,151,0.3);}
+.col-divider{border-top:1px solid var(--line);margin-top:10px;padding-top:10px;}
 
 .balance-row{display:flex;gap:10px;margin-bottom:10px;}
 .balance-box{
@@ -226,16 +228,6 @@ button{font-family:inherit;cursor:pointer;}
 .status-pill.credit{color:var(--mint);background:rgba(61,220,151,0.16);border:1px solid rgba(61,220,151,0.4);}
 .status-pill.debit{color:var(--coral);background:rgba(255,107,91,0.16);border:1px solid rgba(255,107,91,0.4);}
 
-.dd-banner{
-  background:rgba(255,184,77,0.08);border:1px solid rgba(255,184,77,0.3);
-  border-radius:var(--radius-md);padding:14px 18px;margin-bottom:14px;
-}
-.dd-row{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;}
-.dd-col{flex:1;min-width:130px;}
-.dd-arrow{color:var(--text-dim);font-size:16px;margin-top:20px;}
-.dd-value{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;margin-top:6px;}
-.dd-value.owed{color:var(--coral);}
-.dd-due{font-size:10.5px;color:var(--text-dim);margin-top:4px;}
 .trend-pill{
   display:inline-flex;align-items:center;gap:5px;margin-top:8px;
   font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
@@ -320,6 +312,7 @@ button{font-family:inherit;cursor:pointer;}
 .bh-item .l{color:var(--text-dim);}
 .bh-item .v{color:var(--coral);}
 .bh-item .v.credit{color:var(--mint);}
+.bh-item-sub{display:block;font-size:10px;opacity:0.7;margin-top:1px;}
 
 .foot{margin-top:8px;text-align:center;}
 .foot-version{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim);font-weight:600;}
