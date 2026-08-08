@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.22';
+const APP_VERSION = 'v2.23';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1558,7 +1558,7 @@ async function loadBilling() {
     const data = await krakenGQL(`
       query LastBill($accountNumber: String!) {
         account(accountNumber: $accountNumber) {
-          bills(first: 5) {
+          bills(first: 12) {
             edges { node { id issuedDate fromDate toDate temporaryUrl } }
           }
         }
@@ -1579,18 +1579,42 @@ async function loadBilling() {
           query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
             account(accountNumber: $accountNumber) {
               transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-                edges {
-                  node {
-                    __typename postedDate title amounts { gross }
-                    ... on BillCharge {
-                      consumption { quantity unit startDate endDate }
-                    }
-                  }
-                }
+                edges { node { __typename id postedDate title amounts { gross } } }
               }
             }
           }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
         const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
+
+        // Consumption (kWh + sub-period) fetched separately, on its own risk —
+        // an inline fragment on BillCharge broke the whole transactions query
+        // last release (totals/breakdowns vanished entirely), so this is now
+        // fully decoupled: if it fails, items just render without kWh rather
+        // than taking down everything else again.
+        try {
+          const consData = await krakenGQL(`
+            query BillChargeConsumption($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+              account(accountNumber: $accountNumber) {
+                transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
+                  edges {
+                    node {
+                      ... on BillCharge {
+                        id
+                        consumption { quantity unit startDate endDate }
+                      }
+                    }
+                  }
+                }
+              }
+            }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
+          const consByCharge = new Map(
+            (consData?.account?.transactions?.edges || [])
+              .map(e => e.node)
+              .filter(n => n?.id && n?.consumption)
+              .map(n => [n.id, n.consumption])
+          );
+          txns.forEach(t => { if (consByCharge.has(t.id)) t.consumption = consByCharge.get(t.id); });
+        } catch (err) { logIssue('Bill charge consumption', err); }
+
         txnsByBill = bills.map(b => ({
           bill: b,
           items: txns.filter(t => t.postedDate >= b.fromDate && t.postedDate <= b.toDate)

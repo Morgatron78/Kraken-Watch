@@ -207,7 +207,7 @@ button{font-family:inherit;cursor:pointer;}
 /* Billing */
 .predict-day{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:4px;}
 
-.col-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;}
+.col-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .col-box{border-radius:var(--radius-md);padding:14px;}
 .col-box.amber{background:rgba(255,184,77,0.08);border:1px solid rgba(255,184,77,0.3);}
 .col-box.mint{background:var(--mint-soft);border:1px solid rgba(61,220,151,0.3);}
