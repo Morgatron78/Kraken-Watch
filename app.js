@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.25';
+const APP_VERSION = 'v2.26';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1586,12 +1586,14 @@ async function loadBilling() {
         const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
 
         // Consumption (kWh + sub-period) fetched separately, on its own risk.
-        // Confirmed via a real error message: transactions.edges.node is a
-        // concrete TransactionType, not a union/interface — `... on BillCharge`
-        // was invalid regardless of BillCharge having a consumption field, so
-        // this queries `consumption` directly on the node instead. Kept
-        // decoupled from the main query either way, so a future failure here
-        // only drops kWh rather than the whole breakdown again.
+        // Two rounds of real API errors got us here: first confirmed
+        // transactions.edges.node is a concrete TransactionType (no bare
+        // `consumption` field, no inline fragment needed there); the API's
+        // own error then named the correct fragment target directly —
+        // `... on Charge`, not `BillCharge` (that name only existed on a
+        // different, unrelated type from earlier introspection). Kept
+        // decoupled from the main query either way, so a future failure
+        // here only drops kWh rather than the whole breakdown again.
         try {
           const consData = await krakenGQL(`
             query BillChargeConsumption($accountNumber: String!, $fromDate: Date, $toDate: Date) {
@@ -1599,8 +1601,10 @@ async function loadBilling() {
                 transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
                   edges {
                     node {
-                      id
-                      consumption { quantity unit startDate endDate }
+                      ... on Charge {
+                        id
+                        consumption { quantity unit startDate endDate }
+                      }
                     }
                   }
                 }
