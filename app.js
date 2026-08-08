@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.29';
+const APP_VERSION = 'v2.31';
 
 const store = {
   get creds() {
@@ -1816,6 +1816,52 @@ async function loadAll() {
   renderDiagnostics();
 }
 
+// Automatic background refresh runs in two tiers rather than one flat
+// interval, since "how often does this need re-checking" varies wildly:
+//
+// - Fast tier (this function): rates + EV, ~2 requests total. Both are
+//   genuinely time-sensitive — a tariff rate changes at a fixed boundary,
+//   and EV charging can start/stop — and both are cheap, so there's no
+//   real cost to checking them often.
+// - Slow tier (loadSlowTier below): billing, which alone fires ~25+
+//   requests every run (7-day elec/gas consumption bars, MTD, bill
+//   history, itemized breakdown). None of that changes meaningfully
+//   within minutes — smart meter consumption already lags 24-48h — so
+//   running that whole bundle as often as the fast tier was very likely
+//   tripping Octopus's rate limits intermittently, showing up as real,
+//   available data occasionally flaking to "Unavailable" for no visible
+//   reason.
+//
+// Both tiers update sync status/diagnostics independently on completion;
+// the initial load and the manual refresh button still call the full
+// loadAll() above, so opening the app or tapping refresh always gets
+// everything at once regardless of tier timing.
+async function loadFastTier() {
+  syncIssues = [];
+  debugNotes = [];
+  if (meterDebugNote) debugNotes.push(`Meter selection: ${meterDebugNote}`);
+  const ratesResult = await loadRates().catch(() => false);
+  const [evSettled] = await Promise.allSettled([loadEV()]);
+  const allResults = [ratesResult, evSettled.status === 'fulfilled' ? evSettled.value : false];
+  const allReal = allResults.every(v => v === true);
+  const anyReal = allResults.some(v => v === true);
+  if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  else if (anyReal) setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
+  else setSyncStatus('error', demoFallbackEnabled() ? 'Using demo data — check settings' : 'Data unavailable — check settings');
+  renderDiagnostics();
+}
+
+// Deliberately doesn't clear syncIssues/debugNotes — the fast tier does
+// that (it runs more often, so it's the natural baseline-reset point). If
+// this also cleared them, anything logged here would just get wiped by
+// the next fast-tier run 5 minutes later, making billing issues
+// effectively invisible in diagnostics.
+async function loadSlowTier() {
+  const billingSettled = await loadBilling().catch(() => false);
+  if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
+  renderDiagnostics();
+}
 /* ------------------------------ Settings UI ------------------------------- */
 
 function openSettings() {
@@ -2034,10 +2080,17 @@ function init() {
     $('connect-card').classList.add('hidden');
     $('app-content').classList.remove('hidden');
     loadAll();
-    // Refresh every 5 minutes while the app is open
-    setInterval(loadAll, 5 * 60 * 1000);
+    // Two-tier automatic background refresh (see the comment above
+    // loadFastTier for the full reasoning): rates + EV are cheap and
+    // time-sensitive, so they keep checking every 5 minutes like before.
+    // Billing is expensive (~25+ requests) and not time-sensitive, so it
+    // drops to every 30 minutes — that bundle running as often as
+    // everything else was the likely cause of intermittent "Unavailable"
+    // flashes on data that genuinely was there.
+    setInterval(loadFastTier, 5 * 60 * 1000);
+    setInterval(loadSlowTier, 30 * 60 * 1000);
     // Live usage refreshes faster on its own — 30s, matching roughly how
-    // often new telemetry actually shows up, without re-running the full sync.
+    // often new telemetry actually shows up, without re-running either tier.
     setInterval(() => loadLiveUsage().catch(() => {}), 30 * 1000);
   }
 
