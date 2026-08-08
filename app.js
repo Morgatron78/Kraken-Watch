@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.19';
+const APP_VERSION = 'v2.20';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1611,6 +1611,33 @@ async function loadBilling() {
         logDebug('BillCredit fields', creditFields || '(none returned)');
       } catch (err) { logIssue('Bill transaction type introspection', err); }
 
+      // One-off: check the actual TYPE of consumption/detail on BillCharge
+      // (found via the field-name introspection above) — a plain scalar can
+      // be queried directly, but a nested object type needs its own
+      // subfields, the same way `amounts { gross }` needed `gross` rather
+      // than a bare `amounts`. Logged to diagnostics only — doesn't change
+      // what's rendered yet.
+      try {
+        const introspect = await krakenGQL(`
+          query IntrospectBillChargeFieldTypes {
+            __type(name: "BillCharge") {
+              fields {
+                name
+                type { name kind ofType { name kind ofType { name kind } } }
+              }
+            }
+          }`, {});
+        const fields = introspect?.__type?.fields || [];
+        const describe = t => {
+          if (!t) return 'unknown';
+          const inner = t.ofType ? (t.ofType.name || t.ofType.kind) : null;
+          return `${t.kind}${t.name ? ':' + t.name : ''}${inner ? ' of ' + inner : ''}`;
+        };
+        const target = fields.filter(f => f.name === 'consumption' || f.name === 'detail');
+        logDebug('BillCharge consumption/detail types', target.map(f => `${f.name} = ${describe(f.type)}`).join(' | ') || '(not found)');
+      } catch (err) { logIssue('BillCharge field type introspection', err); }
+
+
       function isCharge(t) { return (t.__typename || '').includes('Charge'); }
 
       function billItemsHtml(items) {
@@ -1639,11 +1666,11 @@ async function loadBilling() {
       function billRowHtml(b, collapsible) {
         const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
-        const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill PDF">PDF</a>` : '<span class="bh-link" style="opacity:0.4">PDF</span>';
+        const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill">View Bill</a>` : '<span class="bh-link" style="opacity:0.4">View Bill</span>';
         const total = billTotal(items);
         const itemsHtml = billItemsHtml(items);
         const toggleHtml = (itemsHtml && collapsible)
-          ? `<button type="button" class="bh-breakdown-toggle" data-bill-id="${b.id}" aria-expanded="false"><span>Show breakdown</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`
+          ? `<div class="bh-pill-group" id="bh-pill-group"><button type="button" class="bh-breakdown-toggle" data-bill-id="${b.id}" aria-expanded="false"><span>Show breakdown</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`
           : '<span></span>';
         const itemsClass = collapsible ? 'bh-items hidden' : 'bh-items';
         return `<div class="bh-row">
@@ -1660,6 +1687,8 @@ async function loadBilling() {
 
       const rest = bills.slice(1);
       const toggle = $('bill-history-toggle');
+      const pillGroup = document.getElementById('bh-pill-group');
+      if (pillGroup) pillGroup.appendChild(toggle);
       if (rest.length) {
         $('bill-history').innerHTML = rest.map(b => billRowHtml(b, false)).join('');
         $('bill-history-toggle-label').textContent = `${rest.length} more`;
@@ -1736,7 +1765,7 @@ function populateDemoBilling() {
     $('gas-unit-rate').textContent = '6.24p'; $('gas-standing').textContent = '£0.35/day';
     renderWeekBars('elec-week', [2.2, 1.9, 1.5, 2.4, 1.4, 1.7, 2.1], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [1.4, 1.8, 1.2, 2.0, 1.6, 1.3, 1.5], 'gas-col', fmtGBP, 58, 'gas-week-scale');
-    $('last-bill-row').innerHTML = `<div class="bh-top"><div><div class="bh-date">1 Jul 2026</div><div class="bh-period"><b>Billing period:</b> 3 Jun – 1 Jul</div></div><span class="bh-link" style="opacity:0.4">PDF</span></div><div class="bh-total-row"><span></span><div class="bh-total">£54.20 (demo data)</div></div>`;
+    $('last-bill-row').innerHTML = `<div class="bh-top"><div><div class="bh-date">1 Jul 2026</div><div class="bh-period"><b>Billing period:</b> 3 Jun – 1 Jul</div></div><span class="bh-link" style="opacity:0.4">View Bill</span></div><div class="bh-total-row"><span></span><div class="bh-total">£54.20 (demo data)</div></div>`;
 }
 
 function clearBillingUnavailable() {

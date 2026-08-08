@@ -3,6 +3,7 @@
   --bg-panel: #1b1a35;
   --bg-panel-2: #201f3f;
   --line: #33325c;
+  --line-strong: #4a4980;
   --text: #eae8ff;
   --text-dim: #9c9ac2;
   --violet: #8b6bff;
@@ -285,15 +286,16 @@ button{font-family:inherit;cursor:pointer;}
   display:flex;align-items:center;gap:5px;align-self:flex-start;
   background:none;border:1px solid var(--line);border-radius:100px;
   padding:4px 9px;font-size:10.5px;color:var(--text-dim);
-  font-family:'IBM Plex Mono',monospace;flex-shrink:0;margin-top:12px;
+  font-family:'IBM Plex Mono',monospace;flex-shrink:0;
 }
 .bill-history-toggle svg{transition:transform 0.15s ease;}
+.bh-pill-group{display:flex;gap:8px;align-items:center;}
 .bill-history-toggle[aria-expanded="true"] svg{transform:rotate(180deg);}
 .bill-history{
   margin-top:10px;border-top:1px solid var(--line);padding-top:8px;
 }
 
-.bh-row{padding:9px 0;border-bottom:1px solid rgba(51,50,92,0.5);}
+.bh-row{padding:9px 0;border-bottom:1.5px solid var(--line-strong, #4a4980);}
 .bh-row:last-child{border-bottom:none;}
 .bh-top{display:flex;justify-content:space-between;align-items:center;font-size:14px;}
 .bh-date{color:var(--text);}
