@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.24';
+const APP_VERSION = 'v2.25';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1585,11 +1585,13 @@ async function loadBilling() {
           }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
         const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
 
-        // Consumption (kWh + sub-period) fetched separately, on its own risk —
-        // an inline fragment on BillCharge broke the whole transactions query
-        // last release (totals/breakdowns vanished entirely), so this is now
-        // fully decoupled: if it fails, items just render without kWh rather
-        // than taking down everything else again.
+        // Consumption (kWh + sub-period) fetched separately, on its own risk.
+        // Confirmed via a real error message: transactions.edges.node is a
+        // concrete TransactionType, not a union/interface — `... on BillCharge`
+        // was invalid regardless of BillCharge having a consumption field, so
+        // this queries `consumption` directly on the node instead. Kept
+        // decoupled from the main query either way, so a future failure here
+        // only drops kWh rather than the whole breakdown again.
         try {
           const consData = await krakenGQL(`
             query BillChargeConsumption($accountNumber: String!, $fromDate: Date, $toDate: Date) {
@@ -1597,10 +1599,8 @@ async function loadBilling() {
                 transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
                   edges {
                     node {
-                      ... on BillCharge {
-                        id
-                        consumption { quantity unit startDate endDate }
-                      }
+                      id
+                      consumption { quantity unit startDate endDate }
                     }
                   }
                 }
