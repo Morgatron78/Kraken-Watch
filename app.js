@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.11';
+const APP_VERSION = 'v2.12';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -180,6 +180,12 @@ function rateAt(rows, timestamp) {
 // from smart meters are usually in m3, not kWh — this applies the standard
 // industry conversion (volume correction 1.02264 × calorific value ÷ 3.6) when
 // the units look like m3. If your meter already reports kWh, remove that step.
+// Calorific value drifts slightly over time and Octopus states the exact
+// figure used on each bill — configurable in Settings → Advanced, defaulting
+// to 40.0 (a typical current UK value) rather than an older hardcoded figure.
+function gasCalorificValue() {
+  return store.creds?.calorificValue || 40.0;
+}
 async function costForRange(fuel, fromISO, toISO, debugLabel) {
   const creds = store.creds;
   const isElec = fuel === 'elec';
@@ -202,7 +208,7 @@ async function costForRange(fuel, fromISO, toISO, debugLabel) {
     let consumption = r.consumption;
     if (!isElec && consData.results[0]?.consumption < 50) {
       // heuristic: small numbers with m3 units — convert to kWh
-      consumption = consumption * 1.02264 * 39.5 / 3.6;
+      consumption = consumption * 1.02264 * gasCalorificValue() / 3.6;
     }
     const rate = rateAt(rates, +new Date(r.interval_start));
     if (rate === null) { missed++; continue; }
@@ -1056,7 +1062,7 @@ async function fetchYearMonthly(fuel) {
   const results = (data.results || []).sort((a, b) => +new Date(a.interval_start) - +new Date(b.interval_start));
   return results.map(r => {
     let kwh = r.consumption;
-    if (!isElec && results[0]?.consumption < 500) kwh = kwh * 1.02264 * 39.5 / 3.6; // m3 → kWh, same heuristic as costForRange
+    if (!isElec && results[0]?.consumption < 500) kwh = kwh * 1.02264 * gasCalorificValue() / 3.6; // m3 → kWh, same heuristic as costForRange
     return { month: new Date(r.interval_start).getMonth(), kwh, hasData: true };
   });
 }
@@ -1572,10 +1578,56 @@ async function loadBilling() {
       const rest = bills.slice(1);
       const toggle = $('bill-history-toggle');
       if (rest.length) {
+        // Itemized per-transaction breakdown, nested under each bill's date.
+        // Best-effort: transaction amount field names on Octopus's GraphQL
+        // schema aren't fully confirmed, so this whole block degrades
+        // gracefully to date+link only (no breakdown, no period total) if
+        // the query doesn't match — it never blocks the bill history above.
+        let txnsByBill = null;
+        try {
+          const earliest = bills.reduce((min, b) => b.fromDate < min ? b.fromDate : min, bills[0].fromDate);
+          const latest = bills.reduce((max, b) => b.toDate > max ? b.toDate : max, bills[0].toDate);
+          const txnData = await krakenGQL(`
+            query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+              account(accountNumber: $accountNumber) {
+                transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
+                  edges { node { __typename postedDate title amounts { grossAmount } } }
+                }
+              }
+            }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: latest });
+          const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
+          txnsByBill = bills.map(b => ({
+            bill: b,
+            items: txns.filter(t => t.postedDate >= b.fromDate && t.postedDate <= b.toDate)
+          }));
+        } catch (err) { logIssue('Bill transactions', err); }
+
+        function billItemsHtml(items) {
+          if (!items || !items.length) return '';
+          const rows = items.map(t => {
+            const isCredit = (t.__typename || '').includes('Credit') || (t.__typename || '').includes('Payment');
+            const pence = t.amounts.grossAmount || 0;
+            const signed = (isCredit ? pence : -pence) / 100;
+            const cls = signed < 0 ? 'v' : 'v credit';
+            return `<div class="bh-item"><span class="l">${t.title}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
+          }).join('');
+          return `<div class="bh-items">${rows}</div>`;
+        }
+        function billTotalHtml(items) {
+          if (!items || !items.length) return '';
+          const totalPence = items.reduce((sum, t) => {
+            const isCredit = (t.__typename || '').includes('Credit') || (t.__typename || '').includes('Payment');
+            return sum + (isCredit ? t.amounts.grossAmount : -t.amounts.grossAmount);
+          }, 0);
+          const total = totalPence / 100;
+          return `<span class="bh-total">${total < 0 ? '−' : ''}£${Math.abs(total).toFixed(2)}</span>`;
+        }
+
         $('bill-history').innerHTML = rest.map(b => {
           const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-          const pdf = b.temporaryUrl ? `<a class="bill-history-link" href="${b.temporaryUrl}" target="_blank">PDF</a>` : '<span class="bill-history-link" style="opacity:0.4">PDF</span>';
-          return `<div class="bill-history-row"><div class="bill-history-date">${date}</div>${pdf}</div>`;
+          const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
+          const linkHtml = b.temporaryUrl ? `<a class="bill-history-link" href="${b.temporaryUrl}" target="_blank">View Bill</a>` : '<span class="bill-history-link" style="opacity:0.4">View Bill</span>';
+          return `<div class="bh-row"><div class="bh-top"><div class="bh-date">${date} ${billTotalHtml(items)}</div>${linkHtml}</div>${billItemsHtml(items)}</div>`;
         }).join('');
         $('bill-history-toggle-label').textContent = `${rest.length} more`;
         toggle.classList.remove('hidden');
@@ -1699,6 +1751,7 @@ function openSettings() {
   $('input-elec-serial').value = c.manualElecSerial || '';
   $('input-gas-mprn').value = c.manualGasMprn || '';
   $('input-gas-serial').value = c.manualGasSerial || '';
+  $('input-calorific-value').value = c.calorificValue || '';
   if (c.manualElecMpan || c.manualGasMprn) $('advanced-fields').classList.remove('hidden');
   $('input-show-diagnostics').checked = c.showDiagnostics !== false;
   $('input-use-demo-fallback').checked = c.useDemoFallback === true;
@@ -1786,11 +1839,16 @@ async function saveSettings() {
   const manualElecSerial = $('input-elec-serial').value.trim();
   const manualGasMprn = $('input-gas-mprn').value.trim();
   const manualGasSerial = $('input-gas-serial').value.trim();
+  const calorificValueRaw = $('input-calorific-value').value.trim();
+  const calorificValue = calorificValueRaw ? parseFloat(calorificValueRaw) : null;
+  if (calorificValueRaw && (!Number.isFinite(calorificValue) || calorificValue <= 0)) {
+    alert('Gas calorific value must be a positive number.'); return;
+  }
   const showDiagnostics = $('input-show-diagnostics').checked;
   const useDemoFallback = $('input-use-demo-fallback').checked;
   if (!apiKey || !accountNumber) { alert('API key and account number are required.'); return; }
 
-  store.creds = { apiKey, accountNumber, email, password, manualElecMpan, manualElecSerial, manualGasMprn, manualGasSerial, showDiagnostics, useDemoFallback };
+  store.creds = { apiKey, accountNumber, email, password, manualElecMpan, manualElecSerial, manualGasMprn, manualGasSerial, calorificValue, showDiagnostics, useDemoFallback };
   krakenToken = null;
 
   // Best-effort: look up meter points + tariff codes automatically from the account.

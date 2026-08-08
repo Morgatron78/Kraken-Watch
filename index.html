@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.11">
+<link rel="stylesheet" href="styles.css?v=2.12">
 </head>
 <body>
 <div class="wrap">
@@ -483,6 +483,11 @@
         <label for="input-gas-serial">Gas meter serial</label>
         <input id="input-gas-serial" type="text" placeholder="e.g. E6S12345678901">
       </div>
+      <div class="field">
+        <label for="input-calorific-value">Gas calorific value <span style="opacity:.6">(from your latest bill)</span></label>
+        <input id="input-calorific-value" type="number" step="0.1" placeholder="e.g. 40.0">
+        <div class="hint">Used to convert m³ to kWh. Octopus updates this periodically — check your latest bill's usage breakdown if your gas figures look slightly off. Defaults to 40.0 if left blank.</div>
+      </div>
     </div>
 
     <div class="field" style="display:flex;align-items:center;gap:10px;">
@@ -511,6 +516,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.11"></script>
+<script src="app.js?v=2.12"></script>
 </body>
 </html>
