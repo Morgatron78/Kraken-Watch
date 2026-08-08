@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.18';
+const APP_VERSION = 'v2.19';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1636,31 +1636,32 @@ async function loadBilling() {
         const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
         return `${fmt(b.fromDate)} – ${fmt(b.toDate)}`;
       }
-      function billRowHtml(b) {
+      function billRowHtml(b, collapsible) {
         const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
         const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill PDF">PDF</a>` : '<span class="bh-link" style="opacity:0.4">PDF</span>';
         const total = billTotal(items);
         const itemsHtml = billItemsHtml(items);
-        const toggleHtml = itemsHtml
+        const toggleHtml = (itemsHtml && collapsible)
           ? `<button type="button" class="bh-breakdown-toggle" data-bill-id="${b.id}" aria-expanded="false"><span>Show breakdown</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`
           : '<span></span>';
+        const itemsClass = collapsible ? 'bh-items hidden' : 'bh-items';
         return `<div class="bh-row">
           <div class="bh-top">
             <div><div class="bh-date">${date}</div><div class="bh-period"><b>Billing period:</b> ${billPeriod(b)}</div></div>
             ${linkHtml}
           </div>
           <div class="bh-total-row">${toggleHtml}<div class="bh-total">${total !== null ? '£' + total : '—'}</div></div>
-          ${itemsHtml ? `<div class="bh-items hidden" data-bill-id="${b.id}">${itemsHtml}</div>` : ''}
+          ${itemsHtml ? `<div class="${itemsClass}" data-bill-id="${b.id}">${itemsHtml}</div>` : ''}
         </div>`;
       }
 
-      $('last-bill-row').innerHTML = billRowHtml(latest);
+      $('last-bill-row').innerHTML = billRowHtml(latest, true);
 
       const rest = bills.slice(1);
       const toggle = $('bill-history-toggle');
       if (rest.length) {
-        $('bill-history').innerHTML = rest.map(billRowHtml).join('');
+        $('bill-history').innerHTML = rest.map(b => billRowHtml(b, false)).join('');
         $('bill-history-toggle-label').textContent = `${rest.length} more`;
         toggle.classList.remove('hidden');
         toggle.onclick = () => {
@@ -1692,6 +1693,7 @@ async function loadBilling() {
     }
   } catch (err) {
     logIssue('Last bill', err);
+    $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Last bill unavailable — check connection or Settings</div>';
   }
 
   return anyLive;
@@ -1763,7 +1765,7 @@ function clearBillingUnavailable() {
     $('gas-unit-rate').textContent = '—'; $('gas-standing').textContent = '—';
     renderWeekBars('elec-week', [0, 0, 0, 0, 0, 0, 0], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [0, 0, 0, 0, 0, 0, 0], 'gas-col', fmtGBP, 58, 'gas-week-scale');
-    $('last-bill-row').textContent = 'Unavailable';
+    $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Loading last bill…</div>';
     $('bill-history-toggle').classList.add('hidden');
     $('bill-history').classList.add('hidden');
 }
