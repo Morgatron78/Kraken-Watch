@@ -282,7 +282,9 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-figs small{color:var(--text-dim);font-weight:400;margin-left:3px;}
 
 .bill-top-row{display:flex;justify-content:space-between;align-items:center;}
-.bill-stmt-line{text-align:left;margin-top:6px;font-size:12.5px;}
+.bill-top-row .fuel-name{min-width:0;}
+#last-bill{color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;}
+#last-bill a{color:var(--mint);text-decoration:underline;}
 .bill-history-toggle{
   display:flex;align-items:center;gap:5px;
   background:none;border:1px solid var(--line);border-radius:100px;
