@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.20';
+const APP_VERSION = 'v2.21';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1636,6 +1636,27 @@ async function loadBilling() {
         const target = fields.filter(f => f.name === 'consumption' || f.name === 'detail');
         logDebug('BillCharge consumption/detail types', target.map(f => `${f.name} = ${describe(f.type)}`).join(' | ') || '(not found)');
       } catch (err) { logIssue('BillCharge field type introspection', err); }
+
+      // One-off: consumption is an object type, detail is a union — need
+      // their internals before either can be queried. Logged to diagnostics
+      // only, no visible change yet.
+      try {
+        const introspect = await krakenGQL(`
+          query IntrospectConsumptionAndChargeDetail {
+            consumption: __type(name: "Consumption") {
+              fields { name type { name kind ofType { name kind } } }
+            }
+            chargeDetail: __type(name: "ChargeDetail") {
+              possibleTypes { name }
+            }
+          }`, {});
+        const consFields = (introspect?.consumption?.fields || [])
+          .map(f => `${f.name}:${f.type?.name || f.type?.kind}${f.type?.ofType ? '(' + (f.type.ofType.name || f.type.ofType.kind) + ')' : ''}`)
+          .join(', ');
+        const detailTypes = (introspect?.chargeDetail?.possibleTypes || []).map(t => t.name).join(', ');
+        logDebug('Consumption fields', consFields || '(none returned)');
+        logDebug('ChargeDetail possible types', detailTypes || '(none returned)');
+      } catch (err) { logIssue('Consumption/ChargeDetail introspection', err); }
 
 
       function isCharge(t) { return (t.__typename || '').includes('Charge'); }
