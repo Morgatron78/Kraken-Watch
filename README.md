@@ -10,15 +10,75 @@ one screen, with your own API credentials stored only on your device.
 |---|---|---|
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
 | Live usage | Current draw (W), £/hr estimate, color-coded by level | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
-| EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled | **Live**, via Kraken GraphQL |
+| EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled. Dispatch windows and week chart sit in their own pink sub-panel (electricity's color); the active "Dispatching now" slot and header status badge both go pink while charging | **Live**, via Kraken GraphQL |
 | Consumption (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown | **Live** |
-| Billing | Account balance and projected balance as two side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns, each with its own trend/progress detail. Bill history: last 12 bills, most recent always expanded with its breakdown collapsible, older 11 behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill | **Live** |
+| Billing | Account balance and projected balance as two neutral side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns. Bill history: last 12 bills, most recent always expanded with its breakdown collapsible, older 11 behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill. Below that, a bill-total-over-time chart: rolling window of the same 12 bills, stacked gas (blue)/electricity (pink) per bill, with a trend pill comparing the latest bill to the average over that period | **Live** |
 | Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, balance runway projection, annual standing charge total | **Live**, lazy-loads a month of data on first expand |
 
 If a live call fails, that section shows "Unavailable" rather than a fake
 number. Demo data is available for testing but is **off by default** —
 turn it on in Settings ("Show demo data when something fails to load") if
 you want to see placeholder values instead.
+
+## Color language
+
+Each color means one specific thing, consistently, everywhere it appears —
+this took several rounds of back-and-forth to land, so worth preserving
+rather than re-litigating from scratch:
+
+- **Pink** — electricity's identity. Panel border, current-rate figure and
+  badge, predicted month/year, peak-rate chart segments (day/week/hourly),
+  the EV sub-panel border, active dispatch slot/badge.
+- **Blue** — gas's identity, the same way pink is electricity's. Panel
+  border, predicted figures, usage chart segments, Year view totals.
+- **Mint** — "this is the cheaper one," never fuel-specific. Off-peak rate,
+  CREDIT balance status, cheapest-day extremes, the weekday side of
+  weekday/weekend.
+- **Coral** — genuine financial warnings only: DEBIT balance, a declining
+  balance runway, sync errors. Deliberately *not* reused for "priciest
+  day"/weekend-costs-more (see amber) or peak rate (see pink), even though
+  early attempts tried both — keeping it scoped to "something's wrong"
+  avoids diluting that meaning.
+- **Amber** — "this is the more expensive one," fuel-agnostic, parallel to
+  mint's "cheaper" role: the Priciest tag in extremes cards, the weekend
+  side of weekday/weekend. Also independently used for "pending/caution"
+  states elsewhere (EV's "planned" tag and scheduled slots, the live-usage
+  medium-draw tier, the "stale" sync dot) — these aren't the same concept,
+  but don't currently clash.
+- **Violet** — general UI chrome only (buttons, focus rings, the generic
+  progress bar), no longer used for anything fuel- or rate-specific.
+  Retired from that role deliberately, since it used to mean both
+  "electricity" and "peak rate" at once and never quite signaled either
+  reliably.
+
+One recurring bug worth remembering if extending any "vs average"
+indicator: the color needs to follow whether the direction is *good or bad
+news*, not the raw arithmetic sign. Spending above average is bad (coral),
+spending below is good (mint) — the opposite of the balance-trend pill
+nearby, where "up" genuinely is good (balance growing). Two separate
+instances of this exact bug shipped and were caught by the user, not code
+review — worth double-checking by hand whenever a new comparison like this
+gets added.
+
+## Performance
+
+Automatic background refresh runs in two tiers, not one flat interval:
+
+- **Fast tier** (rates + EV status, ~2 requests): every 5 minutes.
+- **Slow tier** (billing — week/month consumption bars, MTD, bill history,
+  itemized breakdown, the bill-total chart; ~25+ requests): every 30
+  minutes.
+- **Live usage**: its own 30-second poll, independent of both tiers.
+
+The billing bundle alone fires ~25 requests per run; running that as often
+as the cheap stuff was very likely tripping Octopus's rate limits
+intermittently, showing up as real, available data occasionally flashing
+"Unavailable" for no visible reason. Manual refresh (🔄) and the initial
+app load still trigger everything at once regardless of tier timing.
+
+`rateCache` is wiped once a day (checked from the fast tier) rather than
+left to grow — otherwise a long-running session would accumulate a new set
+of entries every calendar day indefinitely.
 
 ## Approximations worth knowing about
 
