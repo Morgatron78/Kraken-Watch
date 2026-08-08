@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.36';
+const APP_VERSION = 'v2.37';
 
 const store = {
   get creds() {
@@ -750,7 +750,12 @@ function renderInsightsElec() {
       $('insights-elec-trend-value').textContent = fmtGBP(val);
       const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
       const pill = $('insights-elec-trend-pill');
-      pill.className = 'trend-pill ' + (diff <= 0 ? 'down' : 'up');
+      // Arrow/text follow the raw numeric direction, but the color needs to
+      // be inverted from it: spending MORE than average is bad news (coral),
+      // spending LESS is good news (mint) — opposite of what the shared
+      // trend-pill up/down classes assume (where "up" always means mint,
+      // correct for the balance trend elsewhere, but wrong here).
+      pill.className = 'trend-pill ' + (diff <= 0 ? 'up' : 'down');
       pill.textContent = `${diff <= 0 ? '↓' : '↑'} ${Math.abs(diff).toFixed(0)}% ${diff <= 0 ? 'below' : 'above'} your 7-day average`;
       $('insights-elec-trend-caption').textContent = `Your average: ${fmtGBP(avg)}/day`;
     }
@@ -867,7 +872,7 @@ function renderInsightsGas() {
       $('insights-gas-trend-value').textContent = fmtGBP(val);
       const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
       const pill = $('insights-gas-trend-pill');
-      pill.className = 'trend-pill ' + (diff <= 0 ? 'down' : 'up');
+      pill.className = 'trend-pill ' + (diff <= 0 ? 'up' : 'down');
       pill.textContent = `${diff <= 0 ? '↓' : '↑'} ${Math.abs(diff).toFixed(0)}% ${diff <= 0 ? 'below' : 'above'} your 7-day average`;
       $('insights-gas-trend-caption').textContent = `Your average: ${fmtGBP(avg)}/day`;
     }
