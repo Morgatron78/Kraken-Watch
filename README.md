@@ -12,7 +12,7 @@ one screen, with your own API credentials stored only on your device.
 | Live usage | Current draw (W), £/hr estimate, color-coded by level | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
 | EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled. Dispatch windows and week chart sit in their own pink sub-panel (electricity's color); the active "Dispatching now" slot and header status badge both go pink while charging | **Live**, via Kraken GraphQL |
 | Consumption (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown | **Live** |
-| Billing | Account balance and projected balance as two neutral side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns. Bill history: last 12 bills, most recent always expanded with its breakdown collapsible, older 11 behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill. Below that, a bill-total-over-time chart: rolling window of the same 12 bills, stacked gas (blue)/electricity (pink) per bill, with a trend pill comparing the latest bill to the average over that period | **Live** |
+| Billing | Account balance and projected balance as two neutral side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns. Bill history: fetches the last 15 bills (see below for why), most recent always expanded with its breakdown collapsible, the rest behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill. Below that, a bill-total-over-time chart grouped by calendar month (not one bar per bill — see below), stacked gas (blue)/electricity (pink), capped to the most recent 12 distinct months | **Live** |
 | Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, balance runway projection, annual standing charge total | **Live**, lazy-loads a month of data on first expand |
 
 If a live call fails, that section shows "Unavailable" rather than a fake
@@ -108,6 +108,13 @@ of entries every calendar day indefinitely.
   seasonal changes in usage.
 - **Standing charge in the consumption charts** is a flat daily estimate
   from the last fetched rate, not re-checked per day.
+- **Bill total chart can show fewer than 12 months** if any month has more
+  than one bill (a tariff switch mid-billing-cycle, for example) — grouping
+  by calendar month means a second bill in the same month uses up a fetch
+  slot without adding a new month. 15 bills are fetched instead of a flat
+  12 to buffer against this, which covers a single tariff switch, but
+  someone who switches several times in a year could still see fewer than
+  12 months.
 - **Bill breakdown total** is computed by summing only the charge-type
   transactions (electricity, gas) for that billing period — it deliberately
   excludes Direct Debit payments and Octoplus points-redeemed credits,

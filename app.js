@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.45';
+const APP_VERSION = 'v2.47';
 
 const store = {
   get creds() {
@@ -1573,7 +1573,7 @@ async function loadBilling() {
     const data = await krakenGQL(`
       query LastBill($accountNumber: String!) {
         account(accountNumber: $accountNumber) {
-          bills(first: 12) {
+          bills(first: 15) {
             edges { node { id issuedDate fromDate toDate temporaryUrl } }
           }
         }
@@ -1735,43 +1735,52 @@ async function loadBilling() {
         });
       });
 
-      // Bill total over time, rolling last 12 bills, stacked by fuel.
-      // Reuses txnsByBill (already fetched above) rather than a new query.
+      // Bill total over time, grouped by calendar month (not one bar per
+      // bill) — some months genuinely have more than one bill (a tariff
+      // switch mid-month, for example), and showing those as two separate
+      // bars with the same month label reads as a mistake even though the
+      // data's correct. Grouping gives a true "spend per month" picture.
       // Deliberately a rolling window, not a Jan–Dec calendar year — that
       // would drop any bill from before January (thrown away for no good
       // reason) and pad the second half of the year with empty
-      // not-happened-yet placeholders. This uses every bill that's
-      // actually fetched, oldest to newest.
+      // not-happened-yet placeholders.
+      //
+      // Fetches 15 bills, not 12 — a month with 2+ bills "eats" one fetch
+      // slot without adding a new distinct month, so 12 bills alone can
+      // undershoot a genuine 12-month picture whenever that happens (which
+      // it will, on any tariff switch). 15 is a buffer, not a guarantee —
+      // someone who switches tariffs several times in a year could still
+      // come up short — but it covers the common case. The chart itself
+      // is capped to the most recent 12 distinct months after grouping
+      // (see .slice(-12) below), so it stays a consistent width regardless
+      // of how many bills that took.
       try {
-        const monthsData = (txnsByBill || [])
-          .map(({ bill, items }) => {
-            const issued = new Date(bill.issuedDate);
-            const gas = (items || []).filter(t => isCharge(t) && /gas/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
-            const elec = (items || []).filter(t => isCharge(t) && /electric/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
-            return { issued, gas, elec, total: gas + elec };
-          })
-          .sort((a, b) => a.issued - b.issued);
+        const grouped = new Map(); // key 'YYYY-M' -> { year, month, gas, elec, total }
+        (txnsByBill || []).forEach(({ bill, items }) => {
+          const issued = new Date(bill.issuedDate);
+          const key = `${issued.getFullYear()}-${issued.getMonth()}`;
+          const gas = (items || []).filter(t => isCharge(t) && /gas/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
+          const elec = (items || []).filter(t => isCharge(t) && /electric/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
+          if (grouped.has(key)) {
+            const g = grouped.get(key);
+            g.gas += gas; g.elec += elec; g.total += gas + elec;
+          } else {
+            grouped.set(key, { year: issued.getFullYear(), month: issued.getMonth(), gas, elec, total: gas + elec });
+          }
+        });
+        const monthsData = Array.from(grouped.values())
+          .sort((a, b) => a.year - b.year || a.month - b.month)
+          .slice(-12); // most recent 12 distinct months, regardless of how many bills that took
+        const spansMultipleYears = monthsData.length > 0 && monthsData[0].year !== monthsData[monthsData.length - 1].year;
 
         if (monthsData.length >= 2) {
           const max = Math.max(...monthsData.map(m => m.total), 0.01);
           const maxBarHeight = 90;
           $('bill-year-bars').innerHTML = monthsData.map(m => {
             const seg = `<div class="bt-seg gas" style="height:${Math.max(1, Math.round((m.gas / max) * maxBarHeight))}px"></div><div class="bt-seg elec" style="height:${Math.max(1, Math.round((m.elec / max) * maxBarHeight))}px"></div>`;
-            const label = m.issued.toLocaleDateString('en-GB', { month: 'short' });
+            const label = new Date(m.year, m.month, 1).toLocaleDateString('en-GB', spansMultipleYears ? { month: 'short', year: '2-digit' } : { month: 'short' });
             return `<div class="bt-bar"><div class="bt-stack">${seg}</div><span>${label}</span></div>`;
           }).join('');
-
-          const avg = monthsData.reduce((s, m) => s + m.total, 0) / monthsData.length;
-          const latest = monthsData[monthsData.length - 1];
-          const diffPct = avg > 0 ? ((latest.total - avg) / avg) * 100 : 0;
-          const trendPill = $('bill-year-trend');
-          if (Math.abs(diffPct) < 5) {
-            trendPill.className = 'trend-pill up';
-            trendPill.textContent = '≈ In line with your average over this period';
-          } else {
-            trendPill.className = 'trend-pill ' + (diffPct <= 0 ? 'up' : 'down');
-            trendPill.textContent = `${diffPct <= 0 ? '↓' : '↑'} This bill is ${Math.abs(diffPct).toFixed(0)}% ${diffPct <= 0 ? 'below' : 'above'} your average over this period`;
-          }
           $('bill-year-block').style.display = '';
         } else {
           $('bill-year-block').style.display = 'none';
@@ -1829,8 +1838,6 @@ function populateDemoBilling() {
     $('bill-year-bars').innerHTML = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']
       .map((m, i) => `<div class="bt-bar"><div class="bt-stack"><div class="bt-seg gas" style="height:${[68,56,40,24,16,8,3,2][i]}px"></div><div class="bt-seg elec" style="height:${[22,22,20,22,22,20,17,12][i]}px"></div></div><span>${m}</span></div>`)
       .join('');
-    $('bill-year-trend').className = 'trend-pill up';
-    $('bill-year-trend').textContent = '↓ This bill is 18% below your average over this period (demo data)';
     $('bill-year-block').style.display = '';
 }
 
