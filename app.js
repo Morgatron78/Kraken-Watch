@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.9';
+const APP_VERSION = 'v2.10';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1567,7 +1567,7 @@ async function loadBilling() {
     if (latest) {
       const issued = new Date(latest.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
       const link = latest.temporaryUrl ? `<a href="${latest.temporaryUrl}" target="_blank" style="color:var(--mint)">view PDF</a>` : '';
-      $('last-bill').innerHTML = `<b>Statement</b> <small>issued ${issued}${link ? ' · ' + link : ''}</small>`;
+      $('last-bill').innerHTML = `Issued ${issued}${link ? ' · ' + link : ''}`;
 
       const rest = bills.slice(1);
       const toggle = $('bill-history-toggle');
@@ -1634,7 +1634,7 @@ function populateDemoBilling() {
     $('gas-unit-rate').textContent = '6.24p'; $('gas-standing').textContent = '£0.35/day';
     renderWeekBars('elec-week', [2.2, 1.9, 1.5, 2.4, 1.4, 1.7, 2.1], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [1.4, 1.8, 1.2, 2.0, 1.6, 1.3, 1.5], 'gas-col', fmtGBP, 58, 'gas-week-scale');
-    $('last-bill').innerHTML = `<b>Statement</b> <small>issued 1 Jul (demo data)</small>`;
+    $('last-bill').innerHTML = `Issued 1 Jul (demo data)`;
 }
 
 function clearBillingUnavailable() {
