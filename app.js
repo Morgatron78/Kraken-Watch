@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.12';
+const APP_VERSION = 'v2.13';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1584,6 +1584,16 @@ async function loadBilling() {
         // gracefully to date+link only (no breakdown, no period total) if
         // the query doesn't match — it never blocks the bill history above.
         let txnsByBill = null;
+        try {
+          const introspect = await krakenGQL(`
+            query IntrospectTransactionAmount {
+              __type(name: "TransactionAmountType") {
+                fields { name type { name kind ofType { name kind } } }
+              }
+            }`, {});
+          const fieldNames = (introspect?.__type?.fields || []).map(f => f.name).join(', ');
+          logDebug('TransactionAmountType fields', fieldNames || '(introspection returned nothing — may be disabled)');
+        } catch (err) { logIssue('TransactionAmountType introspection', err); }
         try {
           const earliest = bills.reduce((min, b) => b.fromDate < min ? b.fromDate : min, bills[0].fromDate);
           const latest = bills.reduce((max, b) => b.toDate > max ? b.toDate : max, bills[0].toDate);
