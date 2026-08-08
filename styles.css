@@ -162,8 +162,8 @@ button{font-family:inherit;cursor:pointer;}
 .col-stack.selected{outline:2px solid var(--text);outline-offset:2px;}
 .col-seg{width:100%;}
 .seg-standing{background:repeating-linear-gradient(135deg,rgba(234,232,255,0.4) 0 3px,rgba(234,232,255,0.15) 3px 6px);}
-.seg-offpeak{background:rgba(61,220,151,0.5);}
-.seg-offpeak.today{background:linear-gradient(180deg,var(--mint),#2ab87c);}
+.seg-offpeak{background:var(--mint);opacity:0.85;}
+.seg-offpeak.today{background:linear-gradient(180deg,#6ee8b0,var(--mint));}
 .seg-peak{background:var(--pink);opacity:0.85;}
 .seg-peak.today{background:linear-gradient(180deg,#ff7ab8,var(--pink));}
 .seg-gas-standing{background:repeating-linear-gradient(135deg,rgba(234,232,255,0.4) 0 3px,rgba(234,232,255,0.15) 3px 6px);}
@@ -196,8 +196,8 @@ button{font-family:inherit;cursor:pointer;}
 .hour-bars{display:flex;align-items:flex-end;gap:1px;height:76px;flex:1;}
 .hour-bar{flex:1;height:58px;display:flex;align-items:flex-end;min-width:0;}
 .hour-bar .fill{width:100%;border-radius:1px 1px 0 0;cursor:pointer;}
-.hour-bar .fill.offpeak{background:rgba(61,220,151,0.5);}
-.hour-bar .fill.offpeak.selected{background:linear-gradient(180deg,var(--mint),#2ab87c);outline:1px solid var(--text);}
+.hour-bar .fill.offpeak{background:var(--mint);opacity:0.85;}
+.hour-bar .fill.offpeak.selected{background:linear-gradient(180deg,#6ee8b0,var(--mint));outline:1px solid var(--text);}
 .hour-bar .fill.peak{background:var(--pink);opacity:0.85;}
 .hour-bar .fill.peak.selected{background:linear-gradient(180deg,#ff7ab8,var(--pink));outline:1px solid var(--text);}
 .time-axis{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;
