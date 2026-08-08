@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.32';
+const APP_VERSION = 'v2.33';
 
 const store = {
   get creds() {
@@ -506,10 +506,10 @@ function renderFuelPanel(fuel) {
   const legendEl = $(`${fuel}-wmy-legend`);
   if (legendEl) {
     legendEl.innerHTML = isYear
-      ? `<span><i style="background:${fuel === 'elec' ? 'var(--violet)' : 'var(--amber)'}"></i>Total usage</span>`
+      ? `<span><i style="background:${fuel === 'elec' ? 'var(--pink)' : 'var(--gas-blue)'}"></i>Total usage</span>`
       : (fuel === 'elec'
         ? `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--mint)"></i>Off-peak</span><span><i style="background:var(--pink)"></i>Peak</span>`
-        : `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--amber)"></i>Usage</span>`);
+        : `<span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span><span><i style="background:var(--gas-blue)"></i>Usage</span>`);
   }
   const footEl = document.querySelector(`.fuel-panel.${fuel} .fuel-panel-foot`);
   if (footEl) footEl.classList.toggle('hidden', isYear);
@@ -670,7 +670,7 @@ function renderYearView(fuel, unit, fmt) {
   renderChartScale(`${fuel}-week-scale`, max, v => v.toFixed(0));
 
   const selIdx = selectedDay[fuel];
-  const barColor = fuel === 'elec' ? 'var(--violet)' : 'var(--amber)';
+  const barColor = fuel === 'elec' ? 'var(--pink)' : 'var(--gas-blue)';
   const bars = [];
   for (let m = 0; m <= 11; m++) {
     const entry = months.find(x => x.month === m);
@@ -1106,7 +1106,7 @@ async function loadRates() {
     $('rate-value').innerHTML = `${Math.round(current)}<span>p/kWh</span>`;
     $('elec-unit-rate').textContent = `${current.toFixed(1)}p`;
     const isCheap = current <= threshold;
-    $('rate-value').style.color = isCheap ? 'var(--mint)' : 'var(--amber)';
+    $('rate-value').style.color = isCheap ? 'var(--mint)' : 'var(--pink)';
     $('rate-pill').className = 'card-tag ' + (isCheap ? 'tag-mint' : 'tag-pink');
     $('rate-pill').textContent = isCheap ? '● Off-peak' : '● Standard';
     $('rate-standard').textContent = fmtP(Math.max(...points));

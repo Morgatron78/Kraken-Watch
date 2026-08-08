@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.32">
+<link rel="stylesheet" href="styles.css?v=2.33">
 </head>
 <body>
 <div class="wrap">
@@ -152,7 +152,7 @@
           </div>
           <div class="stat-row tight" id="elec-stats-wm2">
             <div class="stat"><div class="stat-label">Month to date</div><div class="stat-value-sm" id="elec-mtd">—</div></div>
-            <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="elec-predicted" style="color:var(--violet)">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="elec-predicted" style="color:var(--pink)">—</div></div>
           </div>
           <div class="stat-row tight hidden" id="elec-stats-day">
             <div class="stat"><div class="stat-label" id="elec-day-label">Latest available day</div><div class="stat-value-sm" id="elec-day-total">—</div></div>
@@ -160,7 +160,7 @@
           </div>
           <div class="stat-row tight hidden" id="elec-stats-year">
             <div class="stat"><div class="stat-label">Year to date</div><div class="stat-value-sm" id="elec-ytd">—</div></div>
-            <div class="stat"><div class="stat-label">Predicted full year</div><div class="stat-value-sm" id="elec-year-predicted" style="color:var(--violet)">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted full year</div><div class="stat-value-sm" id="elec-year-predicted" style="color:var(--pink)">—</div></div>
           </div>
           <div class="week-bars-wrap" id="elec-wmy-chart">
             <div class="chart-row">
@@ -206,11 +206,11 @@
           </div>
           <div class="stat-row tight" id="gas-stats-wm2">
             <div class="stat"><div class="stat-label">Month to date</div><div class="stat-value-sm" id="gas-mtd">—</div></div>
-            <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="gas-predicted" style="color:var(--amber)">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted month</div><div class="stat-value-sm" id="gas-predicted" style="color:var(--gas-blue)">—</div></div>
           </div>
           <div class="stat-row tight hidden" id="gas-stats-year">
             <div class="stat"><div class="stat-label">Year to date</div><div class="stat-value-sm" id="gas-ytd">—</div></div>
-            <div class="stat"><div class="stat-label">Predicted full year</div><div class="stat-value-sm" id="gas-year-predicted" style="color:var(--amber)">—</div></div>
+            <div class="stat"><div class="stat-label">Predicted full year</div><div class="stat-value-sm" id="gas-year-predicted" style="color:var(--gas-blue)">—</div></div>
           </div>
           <div class="week-bars-wrap" id="gas-wmy-chart">
             <div class="chart-row">
@@ -219,7 +219,7 @@
             </div>
             <div class="chart-legend" id="gas-wmy-legend">
               <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
-              <span><i style="background:var(--amber)"></i>Usage</span>
+              <span><i style="background:var(--gas-blue)"></i>Usage</span>
             </div>
             <div class="breakdown-box hidden" id="gas-breakdown"></div>
           </div>
@@ -516,6 +516,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.32"></script>
+<script src="app.js?v=2.33"></script>
 </body>
 </html>
