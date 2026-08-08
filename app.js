@@ -16,11 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.27';
-// Public half of a VAPID key pair generated for this deployment — safe to be
-// public, it's how the browser verifies a push actually came from our EV
-// checker. The private half lives only in a GitHub Actions secret, never here.
-const VAPID_PUBLIC_KEY = 'BHGWakjQv2_jirzApA8FrA1S1Zp6PVXB29Qy1KHtbVPwKYH1Hzh5oFqiuxIDByEFIQpiJvTVrb7s0Y1_vUs-yt8';
+const APP_VERSION = 'v2.28';
 
 const store = {
   get creds() {
@@ -1836,80 +1832,9 @@ function openSettings() {
   if (c.manualElecMpan || c.manualGasMprn) $('advanced-fields').classList.remove('hidden');
   $('input-show-diagnostics').checked = c.showDiagnostics !== false;
   $('input-use-demo-fallback').checked = c.useDemoFallback === true;
-  refreshEvPushStatus();
   $('settings-modal').classList.remove('hidden');
 }
 function closeSettings() { $('settings-modal').classList.add('hidden'); }
-
-/* --------------------------- EV push notifications ------------------------ */
-
-function urlBase64ToUint8Array(base64) {
-  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-  const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(base64Safe);
-  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
-}
-
-// State now lives on a separate "state" branch (see ev-notify.yml), not
-// main, so Pages never rebuilds from the checker's automated commits.
-// Derives the raw-content URL from the page's own GitHub Pages address
-// (https://{owner}.github.io/{repo}/) rather than hardcoding a repo name,
-// since this project has already been recreated under a new repo once.
-function stateFileUrl() {
-  try {
-    const owner = location.hostname.split('.')[0];
-    const repo = location.pathname.split('/').filter(Boolean)[0];
-    if (owner && repo) return `https://raw.githubusercontent.com/${owner}/${repo}/state/state/ev-status.json`;
-  } catch { /* fall through to relative path below */ }
-  return './state/ev-status.json'; // unlikely to have fresh data, but won't crash
-}
-
-async function refreshEvPushStatus() {
-  const el = $('ev-push-last-check');
-  try {
-    const res = await fetch(stateFileUrl(), { cache: 'no-store' });
-    if (!res.ok) throw new Error('No status file yet');
-    const state = await res.json();
-    const parts = [];
-    if (state.lastChecked) parts.push(`Last checker run: ${new Date(state.lastChecked).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}`);
-    if (state.lastPushSent) parts.push(`Last push sent: ${new Date(state.lastPushSent).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}`);
-    if (state.lastPushOk === false) parts.push(`⚠ Last push failed: ${state.lastPushError || 'unknown error'}`);
-    if (state.pushSubscriptionExpired) parts.push('⚠ Subscription expired — tap "Enable EV notifications" again');
-    el.textContent = parts.length ? parts.join(' · ') : 'Checker hasn\'t run yet — see README to set up the GitHub Actions secrets.';
-  } catch {
-    el.textContent = 'No status yet — the GitHub Actions checker either hasn\'t run, or isn\'t set up yet (see README).';
-  }
-}
-
-async function enableEvPush() {
-  const statusEl = $('ev-push-status');
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    statusEl.textContent = 'Push notifications aren\'t supported in this browser. On iPhone, make sure the app was opened from the Home Screen icon, not a Safari tab.';
-    return;
-  }
-  try {
-    statusEl.textContent = 'Requesting permission…';
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      statusEl.textContent = 'Permission not granted — notifications can\'t work without it. You can try again any time.';
-      return;
-    }
-    const reg = await navigator.serviceWorker.ready;
-    let subscription = await reg.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-      });
-    }
-    const json = JSON.stringify(subscription.toJSON());
-    $('ev-push-subscription').value = json;
-    $('ev-push-subscription').classList.remove('hidden');
-    statusEl.textContent = 'Subscribed! Copy the text below into a GitHub secret named PUSH_SUBSCRIPTION (repo → Settings → Secrets and variables → Actions) — see the README for the full list of secrets needed.';
-  } catch (err) {
-    statusEl.textContent = `Couldn't subscribe: ${err.message || err}`;
-  }
-}
 
 async function saveSettings() {
   const apiKey = $('input-api-key').value.trim();
@@ -2014,7 +1939,6 @@ function init() {
     $('ev-chevron').textContent = evManualOverride ? '▾' : '▸';
     $('ev-header').setAttribute('aria-expanded', String(evManualOverride));
   });
-  $('ev-push-enable').addEventListener('click', enableEvPush);
 
   // Insights — collapsed by default; data is lazy-loaded on the first
   // expand only, since it needs a full month's data (~30 calls) that

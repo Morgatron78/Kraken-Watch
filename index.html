@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.27">
+<link rel="stylesheet" href="styles.css?v=2.28">
 </head>
 <body>
 <div class="wrap">
@@ -334,13 +334,19 @@
 
           <div class="insight-block" id="insights-elec-weekday-block">
             <div class="insight-label">Weekday vs weekend, this month</div>
-            <div class="split-cmp-legend">
-              <span><span class="dot weekday-dot"></span>Weekday <span id="insights-elec-weekday-value">—</span></span>
-              <span><span class="dot weekend-dot"></span>Weekend <span id="insights-elec-weekend-value">—</span></span>
+            <div class="split2-legend">
+              <div class="split2-side weekday">
+                <div class="split2-label weekday"><span class="dot"></span>Weekday</div>
+                <div class="split2-value" id="insights-elec-weekday-value">—</div>
+              </div>
+              <div class="split2-side weekend">
+                <div class="split2-label weekend">Weekend<span class="dot"></span></div>
+                <div class="split2-value" id="insights-elec-weekend-value">—</div>
+              </div>
             </div>
-            <div class="split-cmp-bar">
-              <div class="split-cmp-seg weekday" id="insights-elec-weekday-bar"></div>
-              <div class="split-cmp-seg weekend" id="insights-elec-weekend-bar"></div>
+            <div class="split2-bar">
+              <div class="split2-seg weekday" id="insights-elec-weekday-bar"></div>
+              <div class="split2-seg weekend" id="insights-elec-weekend-bar"></div>
             </div>
             <div class="trend-pill" id="insights-elec-pattern-headline"></div>
           </div>
@@ -396,7 +402,7 @@
         </div>
 
         <div class="fuel-panel billing">
-          <div class="fuel-panel-title">📈 Balance runway</div>
+          <div class="fuel-panel-title">⛽ Balance runway</div>
           <div class="insight-block">
             <div class="runway-row">
               <div class="runway-icon" id="insights-runway-icon">—</div>
@@ -491,16 +497,6 @@
       <label for="input-use-demo-fallback" style="margin:0;text-transform:none;font-size:13px;color:var(--text);letter-spacing:0;">Show demo data when something fails to load (off by default — shows "Unavailable" instead)</label>
     </div>
 
-    <hr style="border:none;border-top:1px solid var(--line);margin:18px 0;">
-
-    <h2 style="font-size:14px;">EV notifications</h2>
-    <p class="desc">Silent push when charging starts or finishes. Needs a one-time setup: this button subscribes your phone, then you paste the result into a GitHub secret so the checker (running separately on a schedule) knows where to send pushes. See the README for the full setup, including the other secrets it needs.</p>
-
-    <button type="button" class="btn btn-ghost" id="ev-push-enable" style="width:100%;margin-bottom:10px;">Enable EV notifications</button>
-    <div id="ev-push-status" class="hint" style="margin-bottom:10px;"></div>
-    <textarea id="ev-push-subscription" readonly class="hidden" style="width:100%;min-height:90px;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:10.5px;"></textarea>
-    <div id="ev-push-last-check" class="hint"></div>
-
     <div class="modal-actions">
       <button class="btn btn-ghost" id="settings-cancel">Cancel</button>
       <button class="btn" id="settings-save">Save &amp; connect</button>
@@ -508,6 +504,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.27"></script>
+<script src="app.js?v=2.28"></script>
 </body>
 </html>
