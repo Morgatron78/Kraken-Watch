@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.41';
+const APP_VERSION = 'v2.45';
 
 const store = {
   get creds() {
@@ -845,7 +845,7 @@ function renderInsightsElec() {
       $('insights-elec-trajectory-icon').textContent = diffPct >= 0 ? '📈' : '📉';
       $('insights-elec-trajectory-text').innerHTML = Math.abs(diffPct) < 5
         ? 'Fairly steady so far this month — no clear upward or downward trend'
-        : `Second half of the month running <b>${Math.abs(diffPct).toFixed(0)}% ${diffPct >= 0 ? 'higher' : 'lower'}</b> than the first half so far`;
+        : `More recent days running <b>${Math.abs(diffPct).toFixed(0)}% ${diffPct >= 0 ? 'higher' : 'lower'}</b> than earlier this month`;
       $('insights-elec-trajectory-block').classList.remove('hidden');
     } else {
       $('insights-elec-trajectory-block').classList.add('hidden'); // too early in the month for this to mean much
@@ -1346,7 +1346,7 @@ async function loadEV() {
     });
     renderWeekBars('ev-week', dayTotals, '', v => `${v.toFixed(1)} kWh`);
     const weekKwh = dayTotals.reduce((a, b) => a + b, 0);
-    $('ev-week-totals').innerHTML = `<span>${weekKwh.toFixed(1)} kWh added</span><span>${fmtGBP(weekKwh * rateP / 100)} total</span><span>${rateP.toFixed(1)}p avg</span>`;
+    $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added</span><span><b>${fmtGBP(weekKwh * rateP / 100)}</b> total</span><span><b>${rateP.toFixed(1)}p</b> avg</span>`;
 
     return true;
   } catch (err) {
@@ -1380,7 +1380,7 @@ function populateDemoEV() {
       <div class="slot active"><span>● 04:00 – 05:30</span><b>Dispatching now · 7.4kW</b></div>
       <div class="slot"><span>Planned tonight</span><b>23:30 – 05:30</b></div>`;
     renderWeekBars('ev-week', [3.0, 2.2, 4.8, 0.1, 3.6, 2.6, 4.4], '');
-    $('ev-week-totals').innerHTML = `<span>62.4 kWh added</span><span>£4.68 total</span><span>7.5p avg</span>`;
+    $('ev-week-totals').innerHTML = `<span><b>62.4 kWh</b> added</span><span><b>£4.68</b> total</span><span><b>7.5p</b> avg</span>`;
 }
 
 async function loadBilling() {
@@ -1735,11 +1735,55 @@ async function loadBilling() {
         });
       });
 
+      // Bill total over time, rolling last 12 bills, stacked by fuel.
+      // Reuses txnsByBill (already fetched above) rather than a new query.
+      // Deliberately a rolling window, not a Jan–Dec calendar year — that
+      // would drop any bill from before January (thrown away for no good
+      // reason) and pad the second half of the year with empty
+      // not-happened-yet placeholders. This uses every bill that's
+      // actually fetched, oldest to newest.
+      try {
+        const monthsData = (txnsByBill || [])
+          .map(({ bill, items }) => {
+            const issued = new Date(bill.issuedDate);
+            const gas = (items || []).filter(t => isCharge(t) && /gas/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
+            const elec = (items || []).filter(t => isCharge(t) && /electric/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
+            return { issued, gas, elec, total: gas + elec };
+          })
+          .sort((a, b) => a.issued - b.issued);
+
+        if (monthsData.length >= 2) {
+          const max = Math.max(...monthsData.map(m => m.total), 0.01);
+          const maxBarHeight = 90;
+          $('bill-year-bars').innerHTML = monthsData.map(m => {
+            const seg = `<div class="bt-seg gas" style="height:${Math.max(1, Math.round((m.gas / max) * maxBarHeight))}px"></div><div class="bt-seg elec" style="height:${Math.max(1, Math.round((m.elec / max) * maxBarHeight))}px"></div>`;
+            const label = m.issued.toLocaleDateString('en-GB', { month: 'short' });
+            return `<div class="bt-bar"><div class="bt-stack">${seg}</div><span>${label}</span></div>`;
+          }).join('');
+
+          const avg = monthsData.reduce((s, m) => s + m.total, 0) / monthsData.length;
+          const latest = monthsData[monthsData.length - 1];
+          const diffPct = avg > 0 ? ((latest.total - avg) / avg) * 100 : 0;
+          const trendPill = $('bill-year-trend');
+          if (Math.abs(diffPct) < 5) {
+            trendPill.className = 'trend-pill up';
+            trendPill.textContent = '≈ In line with your average over this period';
+          } else {
+            trendPill.className = 'trend-pill ' + (diffPct <= 0 ? 'up' : 'down');
+            trendPill.textContent = `${diffPct <= 0 ? '↓' : '↑'} This bill is ${Math.abs(diffPct).toFixed(0)}% ${diffPct <= 0 ? 'below' : 'above'} your average over this period`;
+          }
+          $('bill-year-block').style.display = '';
+        } else {
+          $('bill-year-block').style.display = 'none';
+        }
+      } catch (err) { logIssue('Bill year chart', err); }
+
       anyLive = true;
     }
   } catch (err) {
     logIssue('Last bill', err);
     $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Last bill unavailable — check connection or Settings</div>';
+    $('bill-year-block').style.display = 'none';
   }
 
   return anyLive;
@@ -1782,6 +1826,12 @@ function populateDemoBilling() {
     renderWeekBars('elec-week', [2.2, 1.9, 1.5, 2.4, 1.4, 1.7, 2.1], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [1.4, 1.8, 1.2, 2.0, 1.6, 1.3, 1.5], 'gas-col', fmtGBP, 58, 'gas-week-scale');
     $('last-bill-row').innerHTML = `<div class="bh-top"><div><div class="bh-date">1 Jul 2026</div><div class="bh-period"><b>Billing period:</b> 3 Jun – 1 Jul</div></div><span class="bh-link" style="opacity:0.4">View Bill</span></div><div class="bh-total-row"><span></span><div class="bh-total">£54.20 (demo data)</div></div>`;
+    $('bill-year-bars').innerHTML = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']
+      .map((m, i) => `<div class="bt-bar"><div class="bt-stack"><div class="bt-seg gas" style="height:${[68,56,40,24,16,8,3,2][i]}px"></div><div class="bt-seg elec" style="height:${[22,22,20,22,22,20,17,12][i]}px"></div></div><span>${m}</span></div>`)
+      .join('');
+    $('bill-year-trend').className = 'trend-pill up';
+    $('bill-year-trend').textContent = '↓ This bill is 18% below your average over this period (demo data)';
+    $('bill-year-block').style.display = '';
 }
 
 function clearBillingUnavailable() {
@@ -1811,6 +1861,7 @@ function clearBillingUnavailable() {
     renderWeekBars('gas-week', [0, 0, 0, 0, 0, 0, 0], 'gas-col', fmtGBP, 58, 'gas-week-scale');
     $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Loading last bill…</div>';
     $('bill-history-toggle').classList.add('hidden');
+    $('bill-year-block').style.display = 'none';
     $('bill-history').classList.add('hidden');
 }
 

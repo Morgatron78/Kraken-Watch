@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.41">
+<link rel="stylesheet" href="styles.css?v=2.45">
 </head>
 <body>
 <div class="wrap">
@@ -270,6 +270,16 @@
         <div class="bill-history hidden" id="bill-history"></div>
       </div>
 
+      <div class="fuel-split" id="bill-year-block" style="display:none;">
+        <div class="insight-label">Bill total, last 12 bills</div>
+        <div class="bt-bars" id="bill-year-bars"></div>
+        <div class="chart-legend">
+          <span><i style="background:var(--gas-blue)"></i>Gas</span>
+          <span><i style="background:var(--pink)"></i>Electricity</span>
+        </div>
+        <div class="trend-pill" id="bill-year-trend"></div>
+      </div>
+
       <div class="col-row" id="balance-after-dd-row" style="display:none;">
         <div class="col-box">
           <div class="stat-label" id="next-dd-label">Next Direct Debit</div>
@@ -518,6 +528,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.41"></script>
+<script src="app.js?v=2.45"></script>
 </body>
 </html>
