@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.7';
+const APP_VERSION = 'v2.9';
 // Public half of a VAPID key pair generated for this deployment — safe to be
 // public, it's how the browser verifies a push actually came from our EV
 // checker. The private half lives only in a GitHub Actions secret, never here.
@@ -1549,7 +1549,8 @@ async function loadBilling() {
   // Last bill: real, via Octopus's documented GraphQL schema (account.bills).
   // The exact billed amount isn't in the publicly documented fields, so this
   // shows the issue date and a link to the PDF instead — still genuinely useful
-  // for "when was I last billed" and lets you open the real statement.
+  // for "when was I last billed" and lets you open the real statement. Also
+  // keeps up to 4 more bills behind a collapsed toggle for at-a-glance history.
   try {
     const data = await krakenGQL(`
       query LastBill($accountNumber: String!) {
@@ -1567,6 +1568,26 @@ async function loadBilling() {
       const issued = new Date(latest.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
       const link = latest.temporaryUrl ? `<a href="${latest.temporaryUrl}" target="_blank" style="color:var(--mint)">view PDF</a>` : '';
       $('last-bill').innerHTML = `<b>Statement</b> <small>issued ${issued}${link ? ' · ' + link : ''}</small>`;
+
+      const rest = bills.slice(1);
+      const toggle = $('bill-history-toggle');
+      if (rest.length) {
+        $('bill-history').innerHTML = rest.map(b => {
+          const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+          const pdf = b.temporaryUrl ? `<a class="bill-history-link" href="${b.temporaryUrl}" target="_blank">PDF</a>` : '<span class="bill-history-link" style="opacity:0.4">PDF</span>';
+          return `<div class="bill-history-row"><div class="bill-history-date">${date}</div>${pdf}</div>`;
+        }).join('');
+        $('bill-history-toggle-label').textContent = `${rest.length} more`;
+        toggle.classList.remove('hidden');
+        toggle.onclick = () => {
+          const open = toggle.getAttribute('aria-expanded') === 'true';
+          toggle.setAttribute('aria-expanded', String(!open));
+          $('bill-history-toggle-label').textContent = open ? `${rest.length} more` : 'hide';
+          $('bill-history').classList.toggle('hidden', open);
+        };
+      } else {
+        toggle.classList.add('hidden');
+      }
       anyLive = true;
     }
   } catch (err) {

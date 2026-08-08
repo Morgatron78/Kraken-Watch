@@ -1,9 +1,9 @@
-const CACHE = 'kraken-watch-v2.7';
+const CACHE = 'kraken-watch-v2.9';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=2.7',
-  './app.js?v=2.7',
+  './styles.css?v=2.9',
+  './app.js?v=2.9',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
@@ -31,7 +31,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App shell: cache-first, falling back to network.
+  // Navigation requests (index.html) — network-first. index.html has no
+  // cache-busting query string like styles.css/app.js do, so under a pure
+  // cache-first strategy a stale cached copy could keep being served
+  // indefinitely, even after a new service worker version activates and
+  // the JS layer (version footer etc.) has already updated. Falls back to
+  // the cache only when actually offline.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then(res => {
+          caches.open(CACHE).then(cache => cache.put(event.request, res.clone()));
+          return res;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Everything else (static assets): cache-first, falling back to network.
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))
   );
