@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.69';
+const APP_VERSION = 'v2.70';
 
 const store = {
   get creds() {
@@ -1603,7 +1603,32 @@ function populateDemoEV() {
     $('ev-week-totals').innerHTML = `<span><b>62.4 kWh</b> added</span><span><b>£4.68</b> total</span><span><b>7.5p</b> avg</span>`;
 }
 
+// Moves the persistent #bill-history-toggle button back to its safe static
+// position (directly before #bill-history) if it's currently living inside
+// #last-bill-row from a previous sync. This is the fully-diagnosed root
+// cause of billing intermittently failing — nothing to do with the API,
+// rate limits, or credentials. loadBilling() moves this same element INTO
+// last-bill-row's rendered content on a successful render; FOUR separate
+// places in this file reassign last-bill-row's innerHTML on a later call
+// (the real render, the demo-data path, the generic-failure path, and the
+// optimistic per-sync reset) — any one of them, if the toggle is currently
+// parked inside, destroys it outright, and every later reference throws
+// "null is not an object" (or "Argument 1 ('node') ... must be an
+// instance of Node" if a stale null gets passed to appendChild) before any
+// of loadBilling()'s own try/catch blocks even run. An earlier version of
+// this fix only guarded the real-render path and missed the other three —
+// calling this once, unconditionally, at the very top of loadBilling()
+// covers all four regardless of which one runs first.
+function restoreToggleToSafety() {
+  const existingToggle = document.getElementById('bill-history-toggle');
+  const billHistoryEl = document.getElementById('bill-history');
+  if (existingToggle && billHistoryEl && existingToggle.nextSibling !== billHistoryEl) {
+    billHistoryEl.parentElement.insertBefore(existingToggle, billHistoryEl);
+  }
+}
+
 async function loadBilling() {
+  restoreToggleToSafety();
   if (demoFallbackEnabled()) populateDemoBilling();
   else clearBillingUnavailable();
   if (store.creds?.accountNumber) $('billing-account-number').textContent = store.creds.accountNumber;
@@ -1929,24 +1954,8 @@ async function loadBilling() {
         </div>`;
       }
 
-      // Move the toggle back to its safe static position (directly before
-      // #bill-history) before wiping last-bill-row's contents below — this
-      // is the fully-diagnosed root cause of billing intermittently
-      // failing, and it has nothing to do with the API, rate limits, or
-      // credentials at all. The very next block moves this same element
-      // INTO last-bill-row's newly-rendered content; if a previous sync
-      // already did that and this innerHTML reassignment runs again
-      // without first moving it back out, the toggle — currently a
-      // descendant of last-bill-row — gets destroyed outright, and every
-      // later reference to it throws "null is not an object" before any
-      // try/catch in this function even runs. Confirmed via a real
-      // diagnostics capture after the Promise.allSettled fix finally
-      // surfaced the actual error instead of it vanishing silently.
-      const existingToggle = document.getElementById('bill-history-toggle');
-      const billHistoryEl = $('bill-history');
-      if (existingToggle && billHistoryEl && existingToggle.nextSibling !== billHistoryEl) {
-        billHistoryEl.parentElement.insertBefore(existingToggle, billHistoryEl);
-      }
+      // Toggle already guaranteed safe by restoreToggleToSafety() at the
+      // top of this function — see there for the full explanation.
       $('last-bill-row').innerHTML = billRowHtml(latest, true);
 
       const rest = bills.slice(1);
