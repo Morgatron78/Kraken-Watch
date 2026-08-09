@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.53';
+const APP_VERSION = 'v2.55';
 
 const store = {
   get creds() {
@@ -1365,32 +1365,37 @@ async function loadEV() {
   try {
     const data = await krakenGQL(`
       query IOGStatus($accountNumber: String!) {
-        completedDispatches(accountNumber: $accountNumber) { start end delta source }
-        plannedDispatches(accountNumber: $accountNumber) { start end delta source }
+        completedDispatches(accountNumber: $accountNumber) { start end delta }
+        plannedDispatches(accountNumber: $accountNumber) { start end delta }
       }`, { accountNumber: store.creds.accountNumber });
 
     const planned = data.plannedDispatches || [];
     const completed = data.completedDispatches || [];
-    // One-off: check what values `source` actually takes on real dispatch
-    // entries — found via web search rather than introspection this time
-    // (community-documented field, not something we'd guessed blind), but
-    // still unverified against real account data. Might distinguish a
-    // regular scheduled off-peak dispatch from a smart/bonus one, which
-    // would matter for showing accurate charging history. Only produces
-    // real output once there's an actual planned or completed dispatch to
-    // inspect — empty most of the time, and that's expected, not a bug.
-    const allSources = [...planned, ...completed].map(d => d.source);
-    if (allSources.length) {
-      logDebug('Dispatch source values', [...new Set(allSources)].map(s => s === null ? 'null' : `"${s}"`).join(', '));
-    }
+
+    // One-off: yesterday's `source` guess (found via a community GitHub
+    // issue, not official docs) broke the whole query above — a schema
+    // validation error fails the entire request, not just that one field,
+    // confirmed by this account's real diagnostics. The error itself
+    // named the actual concrete type though: UpsideDispatchType. Rather
+    // than guess again, introspect that type directly — same safe pattern
+    // that worked for BillCharge/TransactionAmountType, since introspection
+    // is its own separate query and can't break the real one above.
+    try {
+      const typeData = await krakenGQL(`
+        query IntrospectDispatchType {
+          __type(name: "UpsideDispatchType") { fields { name } }
+        }`, {});
+      const fields = (typeData?.__type?.fields || []).map(f => f.name).join(', ');
+      logDebug('UpsideDispatchType fields', fields || '(none returned — type name may differ from what the error reported)');
+    } catch (err) { logIssue('Dispatch type introspection', err); }
 
     // One-off: check for a registered vehicle (make/model), found via the
     // same web search — a device-registration type with vehicleMake/
     // vehicleModel/provider fields. Query shape is a guess from a
     // community GitHub issue, not official docs, so this is wrapped in its
     // own try/catch — doesn't need a scheduled charge to test, unlike the
-    // source field above, since registration is presumably always present
-    // if a vehicle's set up for smart charging at all.
+    // dispatch fields above, since registration is presumably always
+    // present if a vehicle's set up for smart charging at all.
     try {
       const vehicleData = await krakenGQL(`
         query RegisteredVehicle($accountNumber: String!) {
