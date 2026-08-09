@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.55';
+const APP_VERSION = 'v2.56';
 
 const store = {
   get creds() {
@@ -2084,6 +2084,8 @@ async function loadSlowTier() {
 function openSettings() {
   const c = store.creds || {};
   $('input-api-key').value = c.apiKey || '';
+  $('input-api-key').type = 'password';
+  $('toggle-api-key-visibility').textContent = 'Show';
   $('input-account').value = c.accountNumber || '';
   $('input-email').value = c.email || '';
   $('input-password').value = c.password || '';
@@ -2220,6 +2222,14 @@ function init() {
   $('connect-btn').addEventListener('click', openSettings);
   $('settings-cancel').addEventListener('click', closeSettings);
   $('settings-save').addEventListener('click', saveSettings);
+  $('toggle-api-key-visibility').addEventListener('click', () => {
+    const field = $('input-api-key');
+    const btn = $('toggle-api-key-visibility');
+    const showing = field.type === 'text';
+    field.type = showing ? 'password' : 'text';
+    btn.textContent = showing ? 'Show' : 'Hide';
+    btn.setAttribute('aria-label', showing ? 'Show API key' : 'Hide API key');
+  });
   $('advanced-toggle').addEventListener('click', () => $('advanced-fields').classList.toggle('hidden'));
   $('ev-header').addEventListener('click', () => {
     const currentlyExpanded = !$('ev-body').classList.contains('hidden');

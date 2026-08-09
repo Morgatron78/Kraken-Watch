@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.55">
+<link rel="stylesheet" href="styles.css?v=2.56">
 </head>
 <body>
 <div class="wrap">
@@ -468,7 +468,10 @@
 
     <div class="field">
       <label for="input-api-key">API key</label>
-      <input id="input-api-key" type="password" placeholder="sk_live_...">
+      <div style="position:relative;">
+        <input id="input-api-key" type="password" placeholder="sk_live_...">
+        <button type="button" id="toggle-api-key-visibility" aria-label="Show API key" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-dim);font-size:11px;font-family:'IBM Plex Mono',monospace;padding:4px 6px;cursor:pointer;">Show</button>
+      </div>
       <div class="hint">From your Octopus dashboard → Personal details → API access.</div>
     </div>
     <div class="field">
@@ -529,6 +532,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.55"></script>
+<script src="app.js?v=2.56"></script>
 </body>
 </html>

@@ -366,6 +366,7 @@ button{font-family:inherit;cursor:pointer;}
   padding:11px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;
 }
 .field input:focus{border-color:var(--text);outline:none;}
+#input-api-key{padding-right:52px;}
 .field .hint{font-size:10.5px;color:var(--text-dim);margin-top:5px;line-height:1.4;}
 .modal-actions{display:flex;gap:10px;margin-top:20px;}
 .modal-actions .btn{flex:1;}
