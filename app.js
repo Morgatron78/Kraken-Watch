@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.64';
+const APP_VERSION = 'v2.65';
 
 const store = {
   get creds() {
@@ -227,7 +227,17 @@ async function fetchStandingCharge(fuel) {
       const data = await octRest(`/products/${gasProductCode}/gas-tariffs/${gasTariffCode}/standing-charges/?page_size=1`);
       return data.results?.[0]?.value_inc_vat ?? null;
     }
-  } catch { return null; }
+  } catch (err) {
+    // Previously silent — any failure here (a 401, a network error, a
+    // malformed response) was indistinguishable from the legitimate
+    // "no gas tariff on file" case above, both just returning null with
+    // zero trace anywhere. Now the actual reason gets captured before
+    // falling back to null, so callers keep working exactly as before
+    // (a missing standing charge is still handled gracefully) but a real
+    // failure is no longer invisible.
+    logIssue(`${fuel === 'elec' ? 'Electricity' : 'Gas'} standing charge`, err);
+    return null;
+  }
 }
 
 function rateAt(rows, timestamp) {
@@ -365,7 +375,8 @@ async function lastNDaysElecSplit(n) {
         date: dates[i]
       };
     });
-  } catch {
+  } catch (err) {
+    logIssue('Electricity week breakdown', err);
     return dates.map(date => ({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false, date }));
   }
 }
@@ -1606,6 +1617,15 @@ async function loadBilling() {
       balancePounds = balancePence / 100;
       renderBalanceFigure('balance-now', 'balance-now-pill', balancePounds);
       anyLive = true;
+    } else {
+      // Query succeeded (no GraphQL error, krakenGQL didn't throw) but the
+      // balance field itself came back missing/null — every real account
+      // has one, so this is a genuine anomaly, not a normal empty state.
+      // Previously this was silently skipped: no exception means no catch
+      // block, which meant no logIssue() call at all — exactly the gap
+      // found in testing, where a sync could report "Billing: false" with
+      // zero captured detail because nothing ever technically threw.
+      logIssue('Account balance', new Error(`Query succeeded but balance was ${JSON.stringify(balancePence)} (account: ${JSON.stringify(data?.account)})`));
     }
   } catch (err) { logIssue('Account balance', err); }
 
@@ -2043,7 +2063,8 @@ async function lastNDaysCost(fuel, n) {
       }
       return { cost: costPence / 100, kwh, hasData: readings.length > 0 && kwh > 0.001, date: dates[i] };
     });
-  } catch {
+  } catch (err) {
+    logIssue(`${isElec ? 'Electricity' : 'Gas'} week breakdown`, err);
     return dates.map(date => ({ cost: 0, kwh: 0, hasData: false, date }));
   }
 }
