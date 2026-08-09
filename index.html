@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.65">
+<link rel="stylesheet" href="styles.css?v=2.67">
 </head>
 <body>
 <div class="wrap">
@@ -95,9 +95,11 @@
     <!-- EV CHARGING -->
     <div class="card" id="ev-card">
       <div class="card-head" id="ev-header" style="cursor:pointer;" role="button" aria-expanded="true">
-        <div class="card-title">⚡ EV charging</div>
+        <div>
+          <div class="card-title"><span>⚡ EV charging</span><span id="ev-name"></span></div>
+          <div class="bh-period hidden" id="ev-caption"></div>
+        </div>
         <div style="display:flex;align-items:center;gap:6px;">
-          <span class="card-tag tag-dim hidden" id="ev-name"></span>
           <div class="card-tag tag-mint" id="ev-tag">—</div>
           <span id="ev-chevron" style="font-size:11px;color:var(--text-dim);">▾</span>
         </div>
@@ -533,6 +535,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.65"></script>
+<script src="app.js?v=2.67"></script>
 </body>
 </html>

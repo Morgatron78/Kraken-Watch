@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.65';
+const APP_VERSION = 'v2.67';
 
 const store = {
   get creds() {
@@ -1431,23 +1431,28 @@ function applyEvCollapse(worthSeeing) {
 // community GitHub issue, not official docs — confirmed working against a
 // real account (Polestar 2, provider Jedlix) via diagnostics, but still
 // wrapped defensively in case the field ever comes back differently.
-// Just the make plus the model's leading identifier (e.g. "Polestar 2", not
-// "Polestar 2 Standard Range Single Motor") — full trim/motor detail is real
-// data but too verbose for a glanceable pill; this is a best-effort format
-// based on the one real account we've confirmed this against, so it may not
-// generalise perfectly to every make/model Octopus could return.
+// Splits vehicle info into two pieces for the title-plus-caption layout:
+// the title-line suffix ("— Polestar 2", matching the same em-dash
+// convention already used by "Electricity — Intelligent Go" and
+// "Gas — Flexible Octopus"), and whatever's left of the model string
+// (e.g. "Standard Range Single Motor") for a smaller caption underneath.
+// Best-effort based on the one real account confirmed via diagnostics, so
+// may not generalise perfectly to every make/model Octopus could return.
 function formatVehicleName(make, model) {
-  if (!make) return '';
-  const shortModel = model ? model.split(' ')[0] : '';
-  return `${make} ${shortModel}`.trim();
+  if (!make) return { title: '', caption: '' };
+  const words = model ? model.trim().split(/\s+/) : [];
+  const shortModel = words[0] || '';
+  const caption = words.slice(1).join(' ');
+  return { title: ` — ${make}${shortModel ? ' ' + shortModel : ''}`, caption };
 }
 
 async function loadVehicleInfoOnce() {
   const creds = store.creds || {};
   if (creds.vehicleChecked) {
     if (creds.vehicleMake) {
-      $('ev-name').textContent = formatVehicleName(creds.vehicleMake, creds.vehicleModel);
-      $('ev-name').classList.remove('hidden');
+      const { title, caption } = formatVehicleName(creds.vehicleMake, creds.vehicleModel);
+      $('ev-name').textContent = title;
+      if (caption) { $('ev-caption').textContent = caption; $('ev-caption').classList.remove('hidden'); }
     }
     return;
   }
@@ -1461,8 +1466,9 @@ async function loadVehicleInfoOnce() {
     const v = vehicleData?.registeredKrakenflexDevice;
     store.creds = { ...store.creds, vehicleChecked: true, vehicleMake: v?.vehicleMake || null, vehicleModel: v?.vehicleModel || null };
     if (v?.vehicleMake) {
-      $('ev-name').textContent = formatVehicleName(v.vehicleMake, v.vehicleModel);
-      $('ev-name').classList.remove('hidden');
+      const { title, caption } = formatVehicleName(v.vehicleMake, v.vehicleModel);
+      $('ev-name').textContent = title;
+      if (caption) { $('ev-caption').textContent = caption; $('ev-caption').classList.remove('hidden'); }
     }
     logDebug('Registered vehicle', v ? `provider=${v.provider}, make=${v.vehicleMake}, model=${v.vehicleModel}` : '(none returned)');
   } catch (err) {
@@ -2145,6 +2151,15 @@ async function loadAll(source = 'app-start') {
   const [, evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadEV(), loadBilling()]);
   const results = [evSettled, billingSettled];
   const allResults = [ratesResult, ...results.map(r => r.status === 'fulfilled' ? r.value : false)];
+  // If either promise rejected outright, capture the real reason — this is
+  // the one boundary with no logging at all until now. Every internal path
+  // inside loadBilling/loadEV calls logIssue() on its own failures, but an
+  // uncaught exception that somehow escapes all of those internal
+  // try/catches would land here instead, and previously vanished
+  // completely: we checked .status to get true/false but never touched
+  // .reason, discarding the actual error.
+  if (evSettled.status === 'rejected') logIssue('EV (uncaught)', evSettled.reason);
+  if (billingSettled.status === 'rejected') logIssue('Billing (uncaught)', billingSettled.reason);
   logSyncAttempt(source, {
     Rates: ratesResult,
     EV: evSettled.status === 'fulfilled' ? evSettled.value : false,
@@ -2204,7 +2219,13 @@ async function loadFastTier() {
 // effectively invisible in diagnostics.
 async function loadSlowTier() {
   const apiKeySnapshot = store.creds?.apiKey;
-  const billingSettled = await loadBilling().catch(() => false);
+  let billingSettled;
+  try {
+    billingSettled = await loadBilling();
+  } catch (err) {
+    logIssue('Billing (uncaught)', err);
+    billingSettled = false;
+  }
   logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot, syncIssues);
   if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
   else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
