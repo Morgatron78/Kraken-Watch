@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.67';
+const APP_VERSION = 'v2.69';
 
 const store = {
   get creds() {
@@ -1420,6 +1420,7 @@ function applyEvCollapse(worthSeeing) {
   evPrevWorthSeeing = worthSeeing;
   const expanded = evManualOverride !== null ? evManualOverride : worthSeeing;
   $('ev-body').classList.toggle('hidden', !expanded);
+  $('ev-card').classList.toggle('ev-collapsed', !expanded);
   $('ev-chevron').textContent = expanded ? '▾' : '▸';
   $('ev-header').setAttribute('aria-expanded', String(expanded));
 }
@@ -1928,6 +1929,24 @@ async function loadBilling() {
         </div>`;
       }
 
+      // Move the toggle back to its safe static position (directly before
+      // #bill-history) before wiping last-bill-row's contents below — this
+      // is the fully-diagnosed root cause of billing intermittently
+      // failing, and it has nothing to do with the API, rate limits, or
+      // credentials at all. The very next block moves this same element
+      // INTO last-bill-row's newly-rendered content; if a previous sync
+      // already did that and this innerHTML reassignment runs again
+      // without first moving it back out, the toggle — currently a
+      // descendant of last-bill-row — gets destroyed outright, and every
+      // later reference to it throws "null is not an object" before any
+      // try/catch in this function even runs. Confirmed via a real
+      // diagnostics capture after the Promise.allSettled fix finally
+      // surfaced the actual error instead of it vanishing silently.
+      const existingToggle = document.getElementById('bill-history-toggle');
+      const billHistoryEl = $('bill-history');
+      if (existingToggle && billHistoryEl && existingToggle.nextSibling !== billHistoryEl) {
+        billHistoryEl.parentElement.insertBefore(existingToggle, billHistoryEl);
+      }
       $('last-bill-row').innerHTML = billRowHtml(latest, true);
 
       const rest = bills.slice(1);
@@ -2130,7 +2149,7 @@ function clearBillingUnavailable() {
     renderWeekBars('elec-week', [0, 0, 0, 0, 0, 0, 0], 'elec-col', fmtGBP, 58, 'elec-week-scale');
     renderWeekBars('gas-week', [0, 0, 0, 0, 0, 0, 0], 'gas-col', fmtGBP, 58, 'gas-week-scale');
     $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Loading last bill…</div>';
-    $('bill-history-toggle').classList.add('hidden');
+    document.getElementById('bill-history-toggle')?.classList.add('hidden');
     billMonthsData = [];
     selectedBillMonth = null;
     $('bill-year-block').style.display = 'none';
@@ -2398,6 +2417,7 @@ function init() {
     const currentlyExpanded = !$('ev-body').classList.contains('hidden');
     evManualOverride = !currentlyExpanded;
     $('ev-body').classList.toggle('hidden', !evManualOverride);
+    $('ev-card').classList.toggle('ev-collapsed', !evManualOverride);
     $('ev-chevron').textContent = evManualOverride ? '▾' : '▸';
     $('ev-header').setAttribute('aria-expanded', String(evManualOverride));
   });

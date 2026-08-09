@@ -10,7 +10,7 @@ one screen, with your own API credentials stored only on your device.
 |---|---|---|
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
 | Live usage | Current draw (W), £/hr estimate, color-coded by level | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
-| EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled. Dispatch windows and week chart sit in their own pink sub-panel (electricity's color); the active "Dispatching now" slot and header status badge both go pink while charging | **Live**, via Kraken GraphQL |
+| EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled. Title shows the registered vehicle's make and short model (e.g. "EV charging — Polestar 2"), with the fuller model detail as a smaller caption underneath. Dispatch windows and week chart sit in their own pink sub-panel (electricity's color); the active "Dispatching now" slot and header status badge both go pink while charging | **Live**, via Kraken GraphQL |
 | Consumption (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown | **Live** |
 | Billing | Account balance and projected balance as two neutral side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns. Bill history: fetches the last 15 bills (see below for why), most recent always expanded with its breakdown collapsible, the rest behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill. Below that, a bill-total-over-time chart grouped by calendar month (not one bar per bill — see below), stacked gas (blue)/electricity (pink), capped to the most recent 12 distinct months | **Live** |
 | Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, balance runway projection, annual standing charge total | **Live**, lazy-loads a month of data on first expand |
@@ -62,23 +62,116 @@ gets added.
 
 ## Performance
 
-Automatic background refresh runs in two tiers, not one flat interval:
+Automatic background refresh runs in three tiers, not one flat interval:
 
-- **Fast tier** (rates + EV status, ~2 requests): every 5 minutes.
-- **Slow tier** (billing — week/month consumption bars, MTD, bill history,
-  itemized breakdown, the bill-total chart; ~25+ requests): every 30
-  minutes.
-- **Live usage**: its own 30-second poll, independent of both tiers.
+- **Live usage**: its own 30-second poll, independent of everything else.
+- **Fast tier** (rate + EV status, ~2 requests): every 5 minutes.
+- **Slow tier** (everything in `loadBilling()` — consumption bars, MTD,
+  bills, standing charges, balance/Direct Debit; ~11 requests after the
+  optimisation below): every 6 hours. This data genuinely can't change
+  faster than that regardless of how often it's asked — smart meter
+  consumption has a 24–48h settlement lag, bills land on Octopus's own
+  roughly-monthly schedule, standing charges change over weeks not
+  minutes. 30 minutes (the original interval) was needlessly frequent.
 
-The billing bundle alone fires ~25 requests per run; running that as often
-as the cheap stuff was very likely tripping Octopus's rate limits
-intermittently, showing up as real, available data occasionally flashing
-"Unavailable" for no visible reason. Manual refresh (🔄) and the initial
-app load still trigger everything at once regardless of tier timing.
+Manual refresh (🔄) and the initial app load still trigger everything at
+once regardless of tier timing.
+
+**Vehicle registration info** (make/model) is fetched once per app
+lifetime, not on any recurring tier at all — it doesn't belong on a timer
+since it never changes in normal use. Cached in `store.creds`; every later
+call is a no-op.
+
+**Consumption bars** used to fire one REST call per day (7 calls for a
+week, up to 31 for a month) — now one wide-range call per fuel, with the
+response bucketed into individual days locally in JS afterward
+(`bucketReadingsByDay`). Cold-start REST volume dropped from roughly 30
+calls to about 11. The rate-matching/cost-calculation logic itself didn't
+change at all — same algorithm, just fed by one combined response instead
+of several narrow ones.
 
 `rateCache` is wiped once a day (checked from the fast tier) rather than
 left to grow — otherwise a long-running session would accumulate a new set
 of entries every calendar day indefinitely.
+
+Octopus's documented shared rate limit is 100 REST calls/hour across all
+usage, including direct use of Octopus's own app/website on the same
+account. The diagnostics panel (see below) shows a live rolling count
+against this limit. In practice this turned out not to be what was
+causing the "Unavailable" symptom described in an earlier version of this
+section — see **Diagnostics** for what it actually was.
+
+## Diagnostics
+
+Settings → "Show diagnostics panel when syncing" (on by default) reveals a
+debug panel above the main content whenever there's something worth
+showing. It has two parts:
+
+**Current-moment info** — whatever the most recent sync logged: rate
+periods matched, days with/without data, REST-call-in-the-last-hour count,
+and any `⚠` warnings from that specific run. This resets at the start of
+every sync, so it only ever reflects the most recent one.
+
+**Recent syncs** — a persistent log, unlike the section above. Survives
+app restarts (stored in `localStorage` under `kw_sync_log`, capped at the
+last 60 entries). Each entry records:
+- **Timestamp and trigger**: `app-start` (page load), `button` (manual
+  refresh tap), `fast`, or `slow` (the automatic tiers) — these used to
+  all show as a single undifferentiated "manual", which mattered a lot
+  when tracking down the bug below.
+- **Obfuscated API key** (first 12 characters, same truncation Octopus's
+  own dashboard uses) — captured at the *start* of that sync, not read
+  fresh when displayed, so it genuinely reflects what was in effect for
+  that batch of calls even if the stored key changed later in the
+  session.
+- **Pass/fail per component** (Rates/EV/Billing).
+- **Captured error detail**, for any failed component that has it — the
+  actual response body and headers from a failed REST call (up to 300
+  characters), or the real exception message if something threw instead
+  of a request simply failing. This is the piece that actually solved a
+  real bug (below); before it existed, a failure's pass/fail status was
+  visible in history but *why* it failed was only ever shown for the
+  single most recent sync, gone the moment the next one ran — even an
+  unrelated background one.
+
+If you ever need to debug something new: reproduce it, then screenshot
+this panel. The detail line is usually enough to tell whether it's a real
+API error (shows Octopus's own message) or a client-side bug (shows a
+JavaScript exception like "X is not a function" or "null is not an
+object").
+
+### A real bug this caught, worth knowing about
+
+For a long stretch, billing would intermittently fail with what looked
+exactly like an API-key/auth problem — 401s, "Unavailable" panels,
+seemingly fixed by regenerating the key, only to recur later. It was never
+actually about the key at all.
+
+The real cause: `loadBilling()` moves the "N more" bill-history toggle
+button — a persistent, `id`'d element — from its static home in the page
+into a freshly-rendered container *inside* `#last-bill-row` every time it
+runs. Fine the first time. But the *second* time in the same session,
+`$('last-bill-row').innerHTML = ...` wipes that container's contents —
+and since the toggle is now living inside it from the first run, that
+wipe destroys the toggle outright. Every later reference to it then
+throws `null is not an object`, and critically, this happened right at
+the very start of the function, before any of its own error handling
+even ran — so nothing was ever logged until a separate fix (capturing
+`Promise.allSettled`'s rejection reason, previously checked for
+pass/fail and then discarded) finally surfaced the real error text.
+
+It explains the entire pattern: app-start is always a fresh page load (the
+toggle is safe in its static position), so it always worked; any *second*
+sync in the same session — a button press, or an automatic tier tick —
+always failed, regardless of the API key, rate limits, or anything
+network-related.
+
+**The lesson for extending this further**: never move a persistent,
+`id`-referenced DOM element into content that a later `.innerHTML =`
+assignment might wipe. If something like this needs to happen again,
+either render the moved content fresh from a template each time (like the
+per-bill "Show breakdown" toggles already do) or move the element back to
+a safe position before every risky reassignment, not just once.
 
 ## Approximations worth knowing about
 
