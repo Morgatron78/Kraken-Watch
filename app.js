@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.50';
+const APP_VERSION = 'v2.53';
 
 const store = {
   get creds() {
@@ -26,6 +26,27 @@ const store = {
   set creds(v) { localStorage.setItem('kw_creds', JSON.stringify(v)); },
   clear() { localStorage.removeItem('kw_creds'); }
 };
+
+// Persistent sync-attempt log — survives app closes/reopens, unlike
+// syncIssues/debugNotes below which only ever reflect the current moment.
+// A transient failure that already recovered by the time you next open the
+// app is otherwise invisible; this is specifically for spotting whether
+// failures are a real pattern (same component, clustered in time) or
+// genuinely occasional — i.e. telling "this app has a bug" apart from
+// "Octopus's API had a blip", which is the whole point of keeping it.
+const SYNC_LOG_CAP = 60; // ~5h of fast-tier history at 5min intervals, mixed with slow-tier entries — enough to spot a pattern without bloating localStorage indefinitely
+function logSyncAttempt(tier, results) {
+  try {
+    const log = JSON.parse(localStorage.getItem('kw_sync_log') || '[]');
+    log.push({ t: Date.now(), tier, r: results });
+    while (log.length > SYNC_LOG_CAP) log.shift();
+    localStorage.setItem('kw_sync_log', JSON.stringify(log));
+  } catch { /* non-critical, skip silently if storage is full/unavailable */ }
+}
+function getSyncLog() {
+  try { return JSON.parse(localStorage.getItem('kw_sync_log') || '[]'); }
+  catch { return []; }
+}
 
 const $ = (id) => document.getElementById(id);
 const fmtGBP = (n) => `£${Math.abs(n).toFixed(2)}`;
@@ -331,7 +352,8 @@ const demoFallbackEnabled = () => store.creds?.useDemoFallback === true;
 function renderDiagnostics() {
   const card = $('diagnostics-card');
   const showDiagnostics = store.creds?.showDiagnostics !== false; // default on
-  if (!showDiagnostics || (!syncIssues.length && !debugNotes.length)) { card.style.display = 'none'; return; }
+  const syncLog = getSyncLog();
+  if (!showDiagnostics || (!syncIssues.length && !debugNotes.length && !syncLog.length)) { card.style.display = 'none'; return; }
   card.style.display = 'block';
   $('diagnostics-title').textContent = syncIssues.length ? '⚠ Diagnostics' : 'ℹ Diagnostics (debug info)';
   $('diagnostics-title').style.color = syncIssues.length ? 'var(--coral)' : 'var(--text-dim)';
@@ -340,6 +362,29 @@ function renderDiagnostics() {
     ...debugNotes.map(m => `ℹ ${m}`)
   ];
   $('diagnostics-list').innerHTML = lines.join('<br>');
+
+  // Recent sync history — separate from the lines above, which only ever
+  // reflect the current moment. Shown newest-first, capped to the last 20
+  // even though more may be stored, since this is meant to be scanned at a
+  // glance rather than read in full. A component name only appears when it
+  // failed (✗ + the error) — a clean run just shows "OK" with nothing to
+  // scan past, so a real recurring problem stands out rather than getting
+  // lost in a wall of "Rates✓ EV✓" repeated forty times.
+  const historyBox = $('sync-history');
+  if (historyBox) {
+    if (!syncLog.length) {
+      historyBox.innerHTML = '';
+    } else {
+      const recent = syncLog.slice(-20).reverse();
+      historyBox.innerHTML = '<div class="sync-history-title">Recent syncs</div>' + recent.map(entry => {
+        const time = new Date(entry.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const failed = Object.entries(entry.r).filter(([, ok]) => ok !== true).map(([k]) => k);
+        const summary = failed.length ? `✗ ${failed.join(', ')}` : 'OK';
+        const cls = failed.length ? 'sync-history-row fail' : 'sync-history-row';
+        return `<div class="${cls}"><span>${time} (${entry.tier})</span><span>${summary}</span></div>`;
+      }).join('');
+    }
+  }
 }
 
 function renderChartScale(scaleId, max, formatter) {
@@ -1320,12 +1365,43 @@ async function loadEV() {
   try {
     const data = await krakenGQL(`
       query IOGStatus($accountNumber: String!) {
-        completedDispatches(accountNumber: $accountNumber) { start end delta }
-        plannedDispatches(accountNumber: $accountNumber) { start end delta }
+        completedDispatches(accountNumber: $accountNumber) { start end delta source }
+        plannedDispatches(accountNumber: $accountNumber) { start end delta source }
       }`, { accountNumber: store.creds.accountNumber });
 
     const planned = data.plannedDispatches || [];
     const completed = data.completedDispatches || [];
+    // One-off: check what values `source` actually takes on real dispatch
+    // entries — found via web search rather than introspection this time
+    // (community-documented field, not something we'd guessed blind), but
+    // still unverified against real account data. Might distinguish a
+    // regular scheduled off-peak dispatch from a smart/bonus one, which
+    // would matter for showing accurate charging history. Only produces
+    // real output once there's an actual planned or completed dispatch to
+    // inspect — empty most of the time, and that's expected, not a bug.
+    const allSources = [...planned, ...completed].map(d => d.source);
+    if (allSources.length) {
+      logDebug('Dispatch source values', [...new Set(allSources)].map(s => s === null ? 'null' : `"${s}"`).join(', '));
+    }
+
+    // One-off: check for a registered vehicle (make/model), found via the
+    // same web search — a device-registration type with vehicleMake/
+    // vehicleModel/provider fields. Query shape is a guess from a
+    // community GitHub issue, not official docs, so this is wrapped in its
+    // own try/catch — doesn't need a scheduled charge to test, unlike the
+    // source field above, since registration is presumably always present
+    // if a vehicle's set up for smart charging at all.
+    try {
+      const vehicleData = await krakenGQL(`
+        query RegisteredVehicle($accountNumber: String!) {
+          registeredKrakenflexDevice(accountNumber: $accountNumber) {
+            provider vehicleMake vehicleModel
+          }
+        }`, { accountNumber: store.creds.accountNumber });
+      const v = vehicleData?.registeredKrakenflexDevice;
+      logDebug('Registered vehicle', v ? `provider=${v.provider}, make=${v.vehicleMake}, model=${v.vehicleModel}` : '(none returned)');
+    } catch (err) { logIssue('Registered vehicle check', err); }
+
     const now = new Date();
     // "Charging" means a dispatch window is actually in progress right now —
     // not just that one exists somewhere in the planned list. A window hours
@@ -1935,6 +2011,11 @@ async function loadAll() {
   const [, evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadEV(), loadBilling()]);
   const results = [evSettled, billingSettled];
   const allResults = [ratesResult, ...results.map(r => r.status === 'fulfilled' ? r.value : false)];
+  logSyncAttempt('manual', {
+    Rates: ratesResult,
+    EV: evSettled.status === 'fulfilled' ? evSettled.value : false,
+    Billing: billingSettled.status === 'fulfilled' ? billingSettled.value : false
+  });
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
   if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
@@ -1970,7 +2051,9 @@ async function loadFastTier() {
   if (meterDebugNote) debugNotes.push(`Meter selection: ${meterDebugNote}`);
   const ratesResult = await loadRates().catch(() => false);
   const [evSettled] = await Promise.allSettled([loadEV()]);
-  const allResults = [ratesResult, evSettled.status === 'fulfilled' ? evSettled.value : false];
+  const evResult = evSettled.status === 'fulfilled' ? evSettled.value : false;
+  logSyncAttempt('fast', { Rates: ratesResult, EV: evResult });
+  const allResults = [ratesResult, evResult];
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
   if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
@@ -1986,6 +2069,7 @@ async function loadFastTier() {
 // effectively invisible in diagnostics.
 async function loadSlowTier() {
   const billingSettled = await loadBilling().catch(() => false);
+  logSyncAttempt('slow', { Billing: billingSettled });
   if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
   else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
   renderDiagnostics();
