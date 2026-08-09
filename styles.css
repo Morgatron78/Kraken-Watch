@@ -63,8 +63,9 @@ button{font-family:inherit;cursor:pointer;}
 .dot.error{background:var(--coral);box-shadow:0 0 8px var(--coral);}
 
 .sync-history-title{font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-dim);margin:14px 0 8px;padding-top:10px;border-top:1px solid var(--line);}
-.sync-history-row{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);padding:3px 0;}
+.sync-history-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);padding:3px 0;}
 .sync-history-row.fail{color:var(--coral);}
+.sync-history-detail{font-size:9.5px;color:var(--text-dim);opacity:0.85;padding:0 0 4px;word-break:break-word;}
 .icon-btn{
   width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--bg-panel);
   color:var(--text-dim);display:flex;align-items:center;justify-content:center;font-size:16px;

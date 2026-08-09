@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.61';
+const APP_VERSION = 'v2.63';
 
 const store = {
   get creds() {
@@ -40,10 +40,15 @@ function obfuscateApiKey(key) {
   return key.length > 12 ? `${key.slice(0, 12)}…` : key;
 }
 
-function logSyncAttempt(tier, results, apiKeySnapshot) {
+function logSyncAttempt(tier, results, apiKeySnapshot, detail) {
   try {
     const log = JSON.parse(localStorage.getItem('kw_sync_log') || '[]');
-    log.push({ t: Date.now(), tier, r: results, k: obfuscateApiKey(apiKeySnapshot) });
+    // Cap each detail line's length — these can carry a REST error's full
+    // response body/headers, and 60 entries' worth of long strings would
+    // otherwise bloat localStorage for no real diagnostic benefit beyond
+    // a couple hundred characters.
+    const d = (detail || []).map(s => String(s).slice(0, 300));
+    log.push({ t: Date.now(), tier, r: results, k: obfuscateApiKey(apiKeySnapshot), d });
     while (log.length > SYNC_LOG_CAP) log.shift();
     localStorage.setItem('kw_sync_log', JSON.stringify(log));
   } catch { /* non-critical, skip silently if storage is full/unavailable */ }
@@ -426,7 +431,9 @@ function renderDiagnostics() {
         const failed = Object.entries(entry.r).filter(([, ok]) => ok !== true).map(([k]) => k);
         const summary = failed.length ? `✗ ${failed.join(', ')}` : 'OK';
         const cls = failed.length ? 'sync-history-row fail' : 'sync-history-row';
-        return `<div class="${cls}"><span>${time} (${entry.tier}) · ${entry.k || '—'}</span><span>${summary}</span></div>`;
+        const detailLine = (failed.length && entry.d && entry.d.length)
+          ? `<div class="sync-history-detail">${entry.d.join(' · ')}</div>` : '';
+        return `<div class="${cls}"><span>${time} (${entry.tier}) · ${entry.k || '—'}</span><span>${summary}</span></div>${detailLine}`;
       }).join('');
     }
   }
@@ -1413,10 +1420,24 @@ function applyEvCollapse(worthSeeing) {
 // community GitHub issue, not official docs — confirmed working against a
 // real account (Polestar 2, provider Jedlix) via diagnostics, but still
 // wrapped defensively in case the field ever comes back differently.
+// Just the make plus the model's leading identifier (e.g. "Polestar 2", not
+// "Polestar 2 Standard Range Single Motor") — full trim/motor detail is real
+// data but too verbose for a glanceable pill; this is a best-effort format
+// based on the one real account we've confirmed this against, so it may not
+// generalise perfectly to every make/model Octopus could return.
+function formatVehicleName(make, model) {
+  if (!make) return '';
+  const shortModel = model ? model.split(' ')[0] : '';
+  return `${make} ${shortModel}`.trim();
+}
+
 async function loadVehicleInfoOnce() {
   const creds = store.creds || {};
   if (creds.vehicleChecked) {
-    if (creds.vehicleMake) $('ev-name').textContent = ` — ${creds.vehicleMake} ${creds.vehicleModel || ''}`.trim();
+    if (creds.vehicleMake) {
+      $('ev-name').textContent = formatVehicleName(creds.vehicleMake, creds.vehicleModel);
+      $('ev-name').classList.remove('hidden');
+    }
     return;
   }
   try {
@@ -1428,7 +1449,10 @@ async function loadVehicleInfoOnce() {
       }`, { accountNumber: store.creds.accountNumber });
     const v = vehicleData?.registeredKrakenflexDevice;
     store.creds = { ...store.creds, vehicleChecked: true, vehicleMake: v?.vehicleMake || null, vehicleModel: v?.vehicleModel || null };
-    if (v?.vehicleMake) $('ev-name').textContent = ` — ${v.vehicleMake} ${v.vehicleModel || ''}`.trim();
+    if (v?.vehicleMake) {
+      $('ev-name').textContent = formatVehicleName(v.vehicleMake, v.vehicleModel);
+      $('ev-name').classList.remove('hidden');
+    }
     logDebug('Registered vehicle', v ? `provider=${v.provider}, make=${v.vehicleMake}, model=${v.vehicleModel}` : '(none returned)');
   } catch (err) {
     // Don't mark as checked on failure — a transient error should still
@@ -2104,7 +2128,7 @@ async function loadAll(source = 'app-start') {
     Rates: ratesResult,
     EV: evSettled.status === 'fulfilled' ? evSettled.value : false,
     Billing: billingSettled.status === 'fulfilled' ? billingSettled.value : false
-  }, apiKeySnapshot);
+  }, apiKeySnapshot, syncIssues);
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
   if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
@@ -2142,7 +2166,7 @@ async function loadFastTier() {
   const ratesResult = await loadRates().catch(() => false);
   const [evSettled] = await Promise.allSettled([loadEV()]);
   const evResult = evSettled.status === 'fulfilled' ? evSettled.value : false;
-  logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot);
+  logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot, syncIssues);
   const allResults = [ratesResult, evResult];
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
@@ -2160,7 +2184,7 @@ async function loadFastTier() {
 async function loadSlowTier() {
   const apiKeySnapshot = store.creds?.apiKey;
   const billingSettled = await loadBilling().catch(() => false);
-  logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot);
+  logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot, syncIssues);
   if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
   else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
   renderDiagnostics();
