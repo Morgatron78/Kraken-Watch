@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.56';
+const APP_VERSION = 'v2.58';
 
 const store = {
   get creds() {
@@ -279,46 +279,57 @@ function daysInMonth(now = new Date()) {
 }
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 
-// Electricity-only: splits a range's cost/kWh into off-peak vs standard/peak,
-// using the same "near the day's cheapest rate" threshold the rate curve
-// uses elsewhere. Gas doesn't need this — Flexible Octopus is a flat rate
-// all day, so there's nothing to split there.
-async function elecCostSplit(fromISO, toISO) {
-  const { elecMpan, elecSerial } = store.creds;
-  if (!elecMpan || !elecSerial) throw new Error('No elec meter point on file');
-  const consPath = `/electricity-meter-points/${elecMpan}/meters/${elecSerial}/consumption/?period_from=${fromISO}&period_to=${toISO}&page_size=1500`;
-  const [consData, rates] = await Promise.all([octRest(consPath), fetchElecRates(fromISO, toISO)]);
-  if (!rates.length) throw new Error('No elec rate data');
-
-  const threshold = Math.min(...rates.map(r => r.rate)) + 1;
-  let offPeakKwh = 0, offPeakCostP = 0, peakKwh = 0, peakCostP = 0;
-  for (const r of (consData.results || [])) {
-    const rate = rateAt(rates, +new Date(r.interval_start));
-    if (rate === null) continue;
-    if (rate <= threshold) { offPeakKwh += r.consumption; offPeakCostP += r.consumption * rate; }
-    else { peakKwh += r.consumption; peakCostP += r.consumption * rate; }
+// Splits an array of half-hourly readings into n local-calendar-day buckets,
+// oldest first — same day ordering the old per-day-fetch loop produced, so
+// every caller downstream needs no changes. A reading belongs to the day
+// its own interval_start falls in, in local time (not UTC), matching how
+// day boundaries are computed everywhere else in the app.
+function bucketReadingsByDay(results, n, now = new Date()) {
+  const buckets = Array.from({ length: n }, () => []);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (const r of results) {
+    const readingDay = new Date(+new Date(r.interval_start));
+    const dayStart = new Date(readingDay.getFullYear(), readingDay.getMonth(), readingDay.getDate());
+    const daysAgo = Math.round((+todayStart - +dayStart) / 86400000);
+    const idx = n - 1 - daysAgo; // idx 0 = oldest, idx n-1 = today, matching the old loop's ordering
+    if (idx >= 0 && idx < n) buckets[idx].push(r);
   }
-  return {
-    offPeakKwh, peakKwh,
-    offPeakCost: offPeakCostP / 100, peakCost: peakCostP / 100,
-    // Same reasoning as costForRange: a placeholder reading-period with rows
-    // present but kwh totalling zero is treated as not-yet-settled rather
-    // than a genuine zero-usage day.
-    hasData: (consData.results || []).length > 0 && (offPeakKwh + peakKwh) > 0.001
-  };
+  return buckets;
 }
 
 async function lastNDaysElecSplit(n) {
+  const { elecMpan, elecSerial } = store.creds;
   const now = new Date();
-  const out = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
-    try {
-      out.push({ ...(await elecCostSplit(dayStart.toISOString(), dayEnd.toISOString())), date: dayStart });
-    } catch { out.push({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false, date: dayStart }); }
+  const rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1));
+  const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const dates = Array.from({ length: n }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1 - i)));
+  try {
+    if (!elecMpan || !elecSerial) throw new Error('No elec meter point on file');
+    const consPath = `/electricity-meter-points/${elecMpan}/meters/${elecSerial}/consumption/?period_from=${rangeStart.toISOString()}&period_to=${rangeEnd.toISOString()}&page_size=1500`;
+    const [consData, rates] = await Promise.all([octRest(consPath), fetchElecRates(rangeStart.toISOString(), rangeEnd.toISOString())]);
+    if (!rates.length) throw new Error('No elec rate data');
+    const threshold = Math.min(...rates.map(r => r.rate)) + 1;
+    const buckets = bucketReadingsByDay(consData.results || [], n, now);
+    return buckets.map((readings, i) => {
+      let offPeakKwh = 0, offPeakCostP = 0, peakKwh = 0, peakCostP = 0;
+      for (const r of readings) {
+        const rate = rateAt(rates, +new Date(r.interval_start));
+        if (rate === null) continue;
+        if (rate <= threshold) { offPeakKwh += r.consumption; offPeakCostP += r.consumption * rate; }
+        else { peakKwh += r.consumption; peakCostP += r.consumption * rate; }
+      }
+      return {
+        offPeakKwh, peakKwh, offPeakCost: offPeakCostP / 100, peakCost: peakCostP / 100,
+        // Same reasoning as before: a placeholder reading-period with rows
+        // present but kwh totalling zero is treated as not-yet-settled
+        // rather than a genuine zero-usage day.
+        hasData: readings.length > 0 && (offPeakKwh + peakKwh) > 0.001,
+        date: dates[i]
+      };
+    });
+  } catch {
+    return dates.map(date => ({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false, date }));
   }
-  return out;
 }
 
 /* ------------------------------ Rendering -------------------------------- */
@@ -1361,6 +1372,37 @@ function applyEvCollapse(worthSeeing) {
   $('ev-header').setAttribute('aria-expanded', String(expanded));
 }
 
+// Vehicle registration (make/model) genuinely never changes in normal use —
+// unlike everything else in this app, it doesn't belong on any recurring
+// timer at all. Fetched once, ever, and cached in localStorage alongside
+// credentials; every later call is a no-op. Query shape is a guess from a
+// community GitHub issue, not official docs — confirmed working against a
+// real account (Polestar 2, provider Jedlix) via diagnostics, but still
+// wrapped defensively in case the field ever comes back differently.
+async function loadVehicleInfoOnce() {
+  const creds = store.creds || {};
+  if (creds.vehicleChecked) {
+    if (creds.vehicleMake) $('ev-name').textContent = ` — ${creds.vehicleMake} ${creds.vehicleModel || ''}`.trim();
+    return;
+  }
+  try {
+    const vehicleData = await krakenGQL(`
+      query RegisteredVehicle($accountNumber: String!) {
+        registeredKrakenflexDevice(accountNumber: $accountNumber) {
+          provider vehicleMake vehicleModel
+        }
+      }`, { accountNumber: store.creds.accountNumber });
+    const v = vehicleData?.registeredKrakenflexDevice;
+    store.creds = { ...store.creds, vehicleChecked: true, vehicleMake: v?.vehicleMake || null, vehicleModel: v?.vehicleModel || null };
+    if (v?.vehicleMake) $('ev-name').textContent = ` — ${v.vehicleMake} ${v.vehicleModel || ''}`.trim();
+    logDebug('Registered vehicle', v ? `provider=${v.provider}, make=${v.vehicleMake}, model=${v.vehicleModel}` : '(none returned)');
+  } catch (err) {
+    // Don't mark as checked on failure — a transient error should still
+    // retry on the next app open, unlike a genuine "no vehicle" result.
+    logIssue('Registered vehicle check', err);
+  }
+}
+
 async function loadEV() {
   try {
     const data = await krakenGQL(`
@@ -1388,24 +1430,6 @@ async function loadEV() {
       const fields = (typeData?.__type?.fields || []).map(f => f.name).join(', ');
       logDebug('UpsideDispatchType fields', fields || '(none returned — type name may differ from what the error reported)');
     } catch (err) { logIssue('Dispatch type introspection', err); }
-
-    // One-off: check for a registered vehicle (make/model), found via the
-    // same web search — a device-registration type with vehicleMake/
-    // vehicleModel/provider fields. Query shape is a guess from a
-    // community GitHub issue, not official docs, so this is wrapped in its
-    // own try/catch — doesn't need a scheduled charge to test, unlike the
-    // dispatch fields above, since registration is presumably always
-    // present if a vehicle's set up for smart charging at all.
-    try {
-      const vehicleData = await krakenGQL(`
-        query RegisteredVehicle($accountNumber: String!) {
-          registeredKrakenflexDevice(accountNumber: $accountNumber) {
-            provider vehicleMake vehicleModel
-          }
-        }`, { accountNumber: store.creds.accountNumber });
-      const v = vehicleData?.registeredKrakenflexDevice;
-      logDebug('Registered vehicle', v ? `provider=${v.provider}, make=${v.vehicleMake}, model=${v.vehicleModel}` : '(none returned)');
-    } catch (err) { logIssue('Registered vehicle check', err); }
 
     const now = new Date();
     // "Charging" means a dispatch window is actually in progress right now —
@@ -1928,17 +1952,42 @@ async function loadBilling() {
 }
 
 async function lastNDaysCost(fuel, n) {
+  const creds = store.creds;
+  const isElec = fuel === 'elec';
+  const mp = isElec ? creds.elecMpan : creds.gasMprn;
+  const serial = isElec ? creds.elecSerial : creds.gasSerial;
   const now = new Date();
-  const out = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
-    try {
-      const { cost, kwh, hasData } = await costForRange(fuel, dayStart.toISOString(), dayEnd.toISOString());
-      out.push({ cost, kwh, hasData, date: dayStart });
-    } catch { out.push({ cost: 0, kwh: 0, hasData: false, date: dayStart }); }
+  const rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1));
+  const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const dates = Array.from({ length: n }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1 - i)));
+  try {
+    if (!mp || !serial) throw new Error(`No ${fuel} meter point on file`);
+    const consPath = isElec
+      ? `/electricity-meter-points/${mp}/meters/${serial}/consumption/?period_from=${rangeStart.toISOString()}&period_to=${rangeEnd.toISOString()}&page_size=1500`
+      : `/gas-meter-points/${mp}/meters/${serial}/consumption/?period_from=${rangeStart.toISOString()}&period_to=${rangeEnd.toISOString()}&page_size=1500`;
+    const [consData, rates] = await Promise.all([
+      octRest(consPath),
+      isElec ? fetchElecRates(rangeStart.toISOString(), rangeEnd.toISOString()) : fetchGasRates(rangeStart.toISOString(), rangeEnd.toISOString())
+    ]);
+    if (!rates.length) throw new Error(`No ${fuel} rate data`);
+    const buckets = bucketReadingsByDay(consData.results || [], n, now);
+    return buckets.map((readings, i) => {
+      let kwh = 0, costPence = 0;
+      for (const r of readings) {
+        let consumption = r.consumption;
+        if (!isElec && readings[0]?.consumption < 50) {
+          consumption = consumption * 1.02264 * gasCalorificValue() / 3.6;
+        }
+        const rate = rateAt(rates, +new Date(r.interval_start));
+        if (rate === null) continue;
+        kwh += consumption;
+        costPence += consumption * rate;
+      }
+      return { cost: costPence / 100, kwh, hasData: readings.length > 0 && kwh > 0.001, date: dates[i] };
+    });
+  } catch {
+    return dates.map(date => ({ cost: 0, kwh: 0, hasData: false, date }));
   }
-  return out;
 }
 
 function populateDemoBilling() {
@@ -2119,7 +2168,7 @@ async function saveSettings() {
   const useDemoFallback = $('input-use-demo-fallback').checked;
   if (!apiKey || !accountNumber) { alert('API key and account number are required.'); return; }
 
-  store.creds = { apiKey, accountNumber, email, password, manualElecMpan, manualElecSerial, manualGasMprn, manualGasSerial, calorificValue, showDiagnostics, useDemoFallback };
+  store.creds = { ...store.creds, apiKey, accountNumber, email, password, manualElecMpan, manualElecSerial, manualGasMprn, manualGasSerial, calorificValue, showDiagnostics, useDemoFallback };
   krakenToken = null;
 
   // Best-effort: look up meter points + tariff codes automatically from the account.
@@ -2209,8 +2258,19 @@ let autoRefreshStarted = false;
 function startAutoRefresh() {
   if (autoRefreshStarted) return;
   autoRefreshStarted = true;
+  // Not a timer — vehicle registration never changes in normal use, so this
+  // runs once per app lifetime (the function itself no-ops on every later
+  // call once cached), not on any recurring schedule at all.
+  loadVehicleInfoOnce().catch(() => {});
   setInterval(loadFastTier, 5 * 60 * 1000);
-  setInterval(loadSlowTier, 30 * 60 * 1000);
+  // Consumption bars/MTD, bills, standing charges, balance/DD — everything
+  // in loadBilling() — genuinely can't reveal new information more often
+  // than this. Smart meter consumption lags 24-48h regardless of how often
+  // we ask; bills land on Octopus's own roughly-monthly schedule; standing
+  // charges change over weeks, not minutes. 30 minutes was needlessly
+  // frequent and was very likely the main contributor to hitting Octopus's
+  // documented 100-calls/hour shared rate limit.
+  setInterval(loadSlowTier, 6 * 60 * 60 * 1000);
   // Live usage refreshes faster on its own — 30s, matching roughly how
   // often new telemetry actually shows up, without re-running either tier.
   setInterval(() => loadLiveUsage().catch(() => {}), 30 * 1000);
