@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.70';
+const APP_VERSION = 'v2.71';
 
 const store = {
   get creds() {
@@ -83,11 +83,24 @@ const fmtP = (n) => `${n.toFixed(2)}p`;
 // limiter, just a diagnostic: if a 401 hits, this tells us directly
 // whether we were anywhere near Octopus's documented 100-calls/hour shared
 // limit at that moment, rather than having to infer it after the fact.
-let restCallLog = [];
+// Persisted to localStorage (like kw_sync_log) so the count survives an
+// app-start reload — previously an in-memory-only array meant the visible
+// "N REST calls in the last hour" figure silently reset to 0 on every
+// reload despite the label implying a genuine rolling hour.
+function loadRestCallLog() {
+  try { return JSON.parse(localStorage.getItem('kw_rest_call_log') || '[]'); }
+  catch { return []; }
+}
+let restCallLog = loadRestCallLog();
+function saveRestCallLog() {
+  try { localStorage.setItem('kw_rest_call_log', JSON.stringify(restCallLog)); }
+  catch { /* non-critical, skip silently if storage is full/unavailable */ }
+}
 function recordRestCall() {
   const now = Date.now();
   restCallLog.push(now);
   restCallLog = restCallLog.filter(t => now - t < 60 * 60 * 1000);
+  saveRestCallLog();
 }
 function restCallsInLastHour() {
   const now = Date.now();
