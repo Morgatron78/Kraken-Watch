@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.58';
+const APP_VERSION = 'v2.61';
 
 const store = {
   get creds() {
@@ -35,10 +35,15 @@ const store = {
 // genuinely occasional — i.e. telling "this app has a bug" apart from
 // "Octopus's API had a blip", which is the whole point of keeping it.
 const SYNC_LOG_CAP = 60; // ~5h of fast-tier history at 5min intervals, mixed with slow-tier entries — enough to spot a pattern without bloating localStorage indefinitely
-function logSyncAttempt(tier, results) {
+function obfuscateApiKey(key) {
+  if (!key) return '(none)';
+  return key.length > 12 ? `${key.slice(0, 12)}…` : key;
+}
+
+function logSyncAttempt(tier, results, apiKeySnapshot) {
   try {
     const log = JSON.parse(localStorage.getItem('kw_sync_log') || '[]');
-    log.push({ t: Date.now(), tier, r: results });
+    log.push({ t: Date.now(), tier, r: results, k: obfuscateApiKey(apiKeySnapshot) });
     while (log.length > SYNC_LOG_CAP) log.shift();
     localStorage.setItem('kw_sync_log', JSON.stringify(log));
   } catch { /* non-critical, skip silently if storage is full/unavailable */ }
@@ -69,15 +74,43 @@ const fmtP = (n) => `${n.toFixed(2)}p`;
 
 /* ---------------------------- API helpers -------------------------------- */
 
+// Rolling count of REST calls in the trailing 60 minutes — not a rate
+// limiter, just a diagnostic: if a 401 hits, this tells us directly
+// whether we were anywhere near Octopus's documented 100-calls/hour shared
+// limit at that moment, rather than having to infer it after the fact.
+let restCallLog = [];
+function recordRestCall() {
+  const now = Date.now();
+  restCallLog.push(now);
+  restCallLog = restCallLog.filter(t => now - t < 60 * 60 * 1000);
+}
+function restCallsInLastHour() {
+  const now = Date.now();
+  restCallLog = restCallLog.filter(t => now - t < 60 * 60 * 1000);
+  return restCallLog.length;
+}
+
 async function octRest(path) {
   const { apiKey } = store.creds || {};
+  recordRestCall();
   const res = await fetch(`${REST_BASE}${path}`, {
     headers: { Authorization: 'Basic ' + btoa(`${apiKey}:`) },
     cache: 'no-store' // always hit the network — a browser-cached response for
     // an identical URL (e.g. re-checking the same past day) could otherwise
     // serve stale data even after the underlying logic is fixed elsewhere.
   });
-  if (!res.ok) throw new Error(`REST ${path} → ${res.status}`);
+  if (!res.ok) {
+    // Capture what we can rather than just the status — the body especially
+    // may say something Octopus-specific ("invalid token" reads very
+    // differently from anything rate-limit-shaped), and this call count is
+    // ours, not theirs, but directly checkable against their documented
+    // 100/hour shared limit.
+    let bodyText = '';
+    try { bodyText = (await res.text()).slice(0, 200); } catch { /* body unreadable, proceed without it */ }
+    const rateLimitHeaders = ['x-ratelimit-remaining', 'x-ratelimit-limit', 'retry-after']
+      .map(h => res.headers.get(h)).filter(Boolean).join(', ');
+    throw new Error(`REST ${path} → ${res.status}${bodyText ? ` | body: ${bodyText}` : ''}${rateLimitHeaders ? ` | headers: ${rateLimitHeaders}` : ''} | ${restCallsInLastHour()} REST call(s) in last hour`);
+  }
   return res.json();
 }
 
@@ -369,6 +402,7 @@ function renderDiagnostics() {
   $('diagnostics-title').textContent = syncIssues.length ? '⚠ Diagnostics' : 'ℹ Diagnostics (debug info)';
   $('diagnostics-title').style.color = syncIssues.length ? 'var(--coral)' : 'var(--text-dim)';
   const lines = [
+    `ℹ ${restCallsInLastHour()} REST call(s) in the last hour (Octopus's documented shared limit is 100/hour)`,
     ...syncIssues.map(m => `⚠ ${m}`),
     ...debugNotes.map(m => `ℹ ${m}`)
   ];
@@ -392,7 +426,7 @@ function renderDiagnostics() {
         const failed = Object.entries(entry.r).filter(([, ok]) => ok !== true).map(([k]) => k);
         const summary = failed.length ? `✗ ${failed.join(', ')}` : 'OK';
         const cls = failed.length ? 'sync-history-row fail' : 'sync-history-row';
-        return `<div class="${cls}"><span>${time} (${entry.tier})</span><span>${summary}</span></div>`;
+        return `<div class="${cls}"><span>${time} (${entry.tier}) · ${entry.k || '—'}</span><span>${summary}</span></div>`;
       }).join('');
     }
   }
@@ -2052,7 +2086,8 @@ function clearBillingUnavailable() {
     $('bill-history').classList.add('hidden');
 }
 
-async function loadAll() {
+async function loadAll(source = 'app-start') {
+  const apiKeySnapshot = store.creds?.apiKey;
   setSyncStatus('ok', 'Syncing…');
   syncIssues = [];
   debugNotes = [];
@@ -2065,11 +2100,11 @@ async function loadAll() {
   const [, evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadEV(), loadBilling()]);
   const results = [evSettled, billingSettled];
   const allResults = [ratesResult, ...results.map(r => r.status === 'fulfilled' ? r.value : false)];
-  logSyncAttempt('manual', {
+  logSyncAttempt(source, {
     Rates: ratesResult,
     EV: evSettled.status === 'fulfilled' ? evSettled.value : false,
     Billing: billingSettled.status === 'fulfilled' ? billingSettled.value : false
-  });
+  }, apiKeySnapshot);
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
   if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
@@ -2099,6 +2134,7 @@ async function loadAll() {
 // loadAll() above, so opening the app or tapping refresh always gets
 // everything at once regardless of tier timing.
 async function loadFastTier() {
+  const apiKeySnapshot = store.creds?.apiKey;
   clearRateCacheIfNewDay();
   syncIssues = [];
   debugNotes = [];
@@ -2106,7 +2142,7 @@ async function loadFastTier() {
   const ratesResult = await loadRates().catch(() => false);
   const [evSettled] = await Promise.allSettled([loadEV()]);
   const evResult = evSettled.status === 'fulfilled' ? evSettled.value : false;
-  logSyncAttempt('fast', { Rates: ratesResult, EV: evResult });
+  logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot);
   const allResults = [ratesResult, evResult];
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
@@ -2122,8 +2158,9 @@ async function loadFastTier() {
 // the next fast-tier run 5 minutes later, making billing issues
 // effectively invisible in diagnostics.
 async function loadSlowTier() {
+  const apiKeySnapshot = store.creds?.apiKey;
   const billingSettled = await loadBilling().catch(() => false);
-  logSyncAttempt('slow', { Billing: billingSettled });
+  logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot);
   if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
   else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
   renderDiagnostics();
@@ -2403,7 +2440,7 @@ function init() {
   $('sync-btn').addEventListener('click', async () => {
     const btn = $('sync-btn');
     btn.classList.add('spinning');
-    try { await loadAll(); } finally { btn.classList.remove('spinning'); }
+    try { await loadAll('button'); } finally { btn.classList.remove('spinning'); }
   });
 
   if (store.creds?.apiKey) {
