@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.73';
+const APP_VERSION = 'v2.74';
 
 const store = {
   get creds() {
@@ -2785,7 +2785,8 @@ function init() {
     if (Number.isNaN(index)) return;
     selectedForecastCycle = (selectedForecastCycle === index) ? null : index;
     document.querySelectorAll('#insights-runway-bars .forecast-bar-wrap').forEach(el => {
-      el.classList.toggle('selected', parseInt(el.dataset.index, 10) === selectedForecastCycle);
+      const isSel = parseInt(el.dataset.index, 10) === selectedForecastCycle;
+      el.querySelector('.forecast-bar').classList.toggle('selected', isSel);
     });
     document.querySelectorAll('#insights-runway-labels span').forEach((el, i) => {
       el.classList.toggle('active-day', i === selectedForecastCycle);
