@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.88">
+<link rel="stylesheet" href="styles.css?v=2.89">
 </head>
 <body>
 <div class="wrap">
@@ -122,6 +122,11 @@
         </div>
       </div>
       <div id="ev-body">
+        <div class="battery-row hidden" id="ev-battery-row">
+          <div class="battery-pct" id="ev-battery-pct">—</div>
+          <div class="battery-gauge"><div class="battery-gauge-fill" id="ev-battery-fill" style="width:0%"></div></div>
+        </div>
+
         <div class="ev-row">
           <div style="flex:1">
             <div class="ev-detail-label">Next dispatch window</div>
@@ -136,12 +141,24 @@
         </div>
 
         <div class="ev-subpanel">
-          <div class="stat-label" style="margin:0 0 8px;">Dispatch windows</div>
-          <div class="slot-list" id="ev-slots"></div>
+          <div class="ev-subpanel-head">
+            <div class="stat-label" style="margin:0;">Charging activity</div>
+            <div class="unit-toggle hidden" id="ev-view-toggle">
+              <button class="unit-toggle-btn active" id="ev-view-dispatch-btn" data-view="dispatch">Windows</button>
+              <button class="unit-toggle-btn" id="ev-view-session-btn" data-view="session">Sessions</button>
+            </div>
+          </div>
+          <div class="slot-list" id="ev-slots-dispatch"></div>
+          <div class="slot-list hidden" id="ev-slots-session"></div>
 
           <div class="stat-label" style="margin:16px 0 8px;">This week</div>
           <div class="week-bars" id="ev-week"></div>
+          <div class="week-legend hidden" id="ev-week-legend">
+            <span><i style="background:var(--mint)"></i>Smart</span>
+            <span><i style="background:var(--amber)"></i>Boost</span>
+          </div>
           <div class="curve-labels" style="margin-top:8px;" id="ev-week-totals"></div>
+          <div class="breakdown-box hidden" id="ev-week-breakdown"></div>
         </div>
       </div>
     </div>
@@ -569,6 +586,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.88"></script>
+<script src="app.js?v=2.89"></script>
 </body>
 </html>

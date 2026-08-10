@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.88';
+const APP_VERSION = 'v2.89';
 
 const store = {
   get creds() {
@@ -161,64 +161,6 @@ async function krakenGQL(query, variables) {
   const json = await res.json();
   if (json.errors) throw new Error(json.errors[0]?.message || 'GraphQL error');
   return json.data;
-}
-
-// Temporary, one-time investigation for the EV panel rewrite — same safe
-// pattern already used for the UpsideDispatchType introspection (removed
-// once confirmed, see README/park-up notes). Pure schema introspection,
-// never touches real dispatch data, so it can't break anything currently
-// working even if a type/field name turns out wrong. Answers three things:
-// (1) the actual root query that returns SmartFlexVehicle (any Query field
-// whose name mentions device/vehicle/ev — likely "devices" per Octopus's
-// own API docs, but not assumed), (2) whether SmartFlexVehicle is a
-// separate object from what registeredKrakenflexDevice already returns
-// (field-name mismatch — vehicleMake/vehicleModel vs make/model — is
-// already good evidence it is, this confirms it directly), (3) whether
-// SmartFlexDispatch carries enough per-window detail to derive both the
-// dispatch-window and session-grouped toggle views from one query, or
-// whether dispatch view needs to keep completedDispatches as a second call.
-// Remove this whole block once the real query is built from confirmed
-// field names — it's investigation scaffolding, not a permanent feature.
-let evSchemaIntrospected = false;
-async function introspectEVSchema() {
-  if (evSchemaIntrospected) return;
-  evSchemaIntrospected = true;
-  try {
-    const data = await krakenGQL(`
-      query IntrospectEVSchema {
-        rootFields: __type(name: "Query") { fields { name } }
-        smartFlexVehicle: __type(name: "SmartFlexVehicle") { fields { name } }
-        smartFlexDispatch: __type(name: "SmartFlexDispatch") { fields { name } }
-        chargingSessionConnection: __type(name: "DeviceChargingSessionConnection") { fields { name } }
-        chargingSessionEdge: __type(name: "DeviceChargingSessionEdge") { fields { name } }
-        money: __type(name: "Money") { fields { name } }
-        energy: __type(name: "Energy") { fields { name } }
-        decimalReading: __type(name: "DecimalReading") { fields { name } }
-        chargingProblem: __type(name: "SmartFlexChargingProblem") { fields { name } }
-      }`, {});
-    const deviceFields = (data?.rootFields?.fields || [])
-      .map(f => f.name)
-      .filter(n => /device|vehicle|\bev\b/i.test(n));
-    const vehicleFields = (data?.smartFlexVehicle?.fields || []).map(f => f.name).join(', ');
-    const dispatchFields = (data?.smartFlexDispatch?.fields || []).map(f => f.name).join(', ');
-    const connectionFields = (data?.chargingSessionConnection?.fields || []).map(f => f.name).join(', ');
-    const edgeFields = (data?.chargingSessionEdge?.fields || []).map(f => f.name).join(', ');
-    const moneyFields = (data?.money?.fields || []).map(f => f.name).join(', ');
-    const energyFields = (data?.energy?.fields || []).map(f => f.name).join(', ');
-    const decimalReadingFields = (data?.decimalReading?.fields || []).map(f => f.name).join(', ');
-    const problemFields = (data?.chargingProblem?.fields || []).map(f => f.name).join(', ');
-    logDebug('EV rewrite — root Query fields matching device/vehicle/ev', deviceFields.join(', ') || '(none found — try a broader search term)');
-    logDebug('EV rewrite — SmartFlexVehicle fields', vehicleFields || '(type not found — name may differ on this account/schema version)');
-    logDebug('EV rewrite — SmartFlexDispatch fields', dispatchFields || '(type not found — name may differ on this account/schema version)');
-    logDebug('EV rewrite — DeviceChargingSessionConnection fields', connectionFields || '(type not found — name may differ on this account/schema version)');
-    logDebug('EV rewrite — DeviceChargingSessionEdge fields', edgeFields || '(guessed type name not found — try DeviceChargingSessionsEdge or check the edges field type directly)');
-    logDebug('EV rewrite — Money fields (for cost)', moneyFields || '(type not found — try a broader search term for the cost sub-fields)');
-    logDebug('EV rewrite — Energy fields (for energyAdded)', energyFields || '(type not found — try a broader search term for the energyAdded sub-fields)');
-    logDebug('EV rewrite — DecimalReading fields (for stateOfCharge)', decimalReadingFields || '(type not found — try a broader search term for the stateOfCharge sub-fields)');
-    logDebug('EV rewrite — SmartFlexChargingProblem fields', problemFields || '(type not found — name may differ on this account/schema version)');
-  } catch (err) {
-    logIssue('EV schema introspection', err);
-  }
 }
 
 // Kraken's GraphQL equivalent of the REST-call diagnostic, but deliberately
@@ -1820,7 +1762,150 @@ async function loadVehicleInfoOnce() {
 }
 
 async function loadEV() {
-  introspectEVSchema(); // fire-and-forget, one-time — see comment above its definition
+  const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
+  if (smartFlexOk) return true;
+  return loadEVLegacy();
+}
+
+// New path: devices(deviceType: ELECTRIC_VEHICLES) → SmartFlexVehicle →
+// chargingSessions. Every field here was confirmed via live introspection
+// this session (see park-up notes) except SmartFlexChargingProblem, which
+// wasn't found under that name and is deliberately left out rather than
+// guessed — same discipline that avoided repeating the earlier "source"
+// field break. cost.amount's unit (pounds vs pence) isn't independently
+// confirmed by introspection alone — assumed pounds decimal (the common
+// GraphQL Money convention) and worth a sanity check against a real
+// screenshot once deployed; wrong would show as an obviously-scaled
+// number (e.g. "£22" for a small top-up), not a broken query.
+// SmartFlexDispatch.dispatches inside each session gives per-window
+// detail (start/end/type/kWh), so the dispatch-window view is derived
+// from the same one query rather than needing completedDispatches at all
+// — only plannedDispatches stays as its own call, since chargingSessions
+// is explicitly historical.
+async function loadEVSmartFlex() {
+  const data = await krakenGQL(`
+    query EVSmartFlexData($accountNumber: String!, $after: DateTime!) {
+      devices(accountNumber: $accountNumber, deviceType: ELECTRIC_VEHICLES) {
+        ... on SmartFlexVehicle {
+          make model
+          status { stateOfCharge { value } }
+          chargingSessions(after: $after, first: 30) {
+            edges {
+              node {
+                start end type
+                cost { amount }
+                energyAdded { value }
+                stateOfChargeFinal
+                dispatches { start end type energyAddedKwh }
+              }
+            }
+          }
+        }
+      }
+      plannedDispatches(accountNumber: $accountNumber) { start end delta }
+    }`, {
+      accountNumber: store.creds.accountNumber,
+      after: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
+    });
+
+  const vehicle = (data.devices || []).find(d => d && d.chargingSessions);
+  if (!vehicle) return false; // no EV device on this path, or wrong shape — fall back to legacy
+
+  const sessions = (vehicle.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+  const planned = data.plannedDispatches || [];
+  const now = new Date();
+  const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
+
+  $('ev-tag').textContent = activeDispatch ? 'CHARGING' : (planned.length ? 'SCHEDULED' : 'IDLE');
+  $('ev-tag').className = activeDispatch ? 'card-tag tag-pink' : (planned.length ? 'card-tag tag-amber' : 'card-tag tag-dim');
+  applyEvCollapse(!!activeDispatch || planned.length > 0);
+
+  if (planned[0]) {
+    const s = new Date(planned[0].start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const e = new Date(planned[0].end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    $('ev-ready').textContent = `${s} – ${e}`;
+  } else {
+    $('ev-ready').textContent = 'None scheduled';
+  }
+
+  // Battery gauge — genuinely new, wasn't available via the legacy path at all
+  const soc = vehicle.status?.stateOfCharge?.value;
+  if (soc != null) {
+    $('ev-battery-row').classList.remove('hidden');
+    const pct = Math.min(100, Math.max(0, soc));
+    $('ev-battery-pct').textContent = `${Math.round(pct)}%`;
+    $('ev-battery-fill').style.width = `${pct}%`;
+  } else {
+    $('ev-battery-row').classList.add('hidden');
+  }
+
+  const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
+
+  // Dispatch-window view — derived from each session's nested dispatches,
+  // flattened and sorted oldest-first (same chronological-timeline
+  // convention as before), now with a real SMART/BOOST badge per window.
+  const allDispatches = [];
+  sessions.forEach(s => (s.dispatches || []).forEach(d => allDispatches.push(d)));
+  allDispatches.sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  const dispatchSlots = $('ev-slots-dispatch');
+  dispatchSlots.classList.remove('hidden');
+  dispatchSlots.innerHTML = allDispatches.map(d =>
+    `<div class="slot done"><span>✓ ${fmtT(d.start)} – ${fmtT(d.end)}${badgeHtml(d.type)}</span><b>Completed · ${Math.abs(d.energyAddedKwh || 0).toFixed(1)} kWh</b></div>`
+  ).join('');
+  planned.forEach(d => {
+    const isActive = now >= new Date(d.start) && now < new Date(d.end);
+    const label = isActive ? '● Dispatching now' : 'Planned';
+    const cls = isActive ? ' active' : ' scheduled';
+    dispatchSlots.insertAdjacentHTML('beforeend', `<div class="slot${cls}"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${label}</b></div>`);
+  });
+  if (!dispatchSlots.children.length) dispatchSlots.innerHTML = '<div class="slot">No dispatch windows scheduled</div>';
+
+  // Session view — whole charging sessions, oldest-first to match, each
+  // with its own real cost/kWh (not the approximated rate the legacy path
+  // uses) and battery % reached, plus type badge.
+  const sessionSlots = $('ev-slots-session');
+  sessionSlots.innerHTML = [...sessions].reverse().map(s => {
+    const kwh = s.energyAdded?.value;
+    const cost = s.cost?.amount;
+    const startD = new Date(s.start);
+    const dayLabel = startD.toDateString() === now.toDateString() ? 'Today'
+      : startD.toDateString() === new Date(now - 86400000).toDateString() ? 'Yesterday'
+      : startD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const socText = s.stateOfChargeFinal != null ? `<span class="slot-soc">→ ${Math.round(s.stateOfChargeFinal)}%</span>` : '';
+    return `<div class="slot done">
+      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}</div>
+      <div class="slot-row"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}${cost != null ? ' · £' + Math.abs(cost).toFixed(2) : ''}</b>${socText}</div>
+    </div>`;
+  }).join('');
+  if (!sessionSlots.children.length) sessionSlots.innerHTML = '<div class="slot">No charging sessions this week</div>';
+
+  $('ev-view-toggle').classList.remove('hidden');
+  $('ev-week-legend').classList.remove('hidden');
+
+  // This session / avg rate — now real per-session figures where available,
+  // rather than approximating rate as today's cheapest.
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todaysSessions = sessions.filter(s => new Date(s.start) >= startOfToday);
+  const sessionKwh = todaysSessions.reduce((sum, s) => sum + Math.abs(s.energyAdded?.value || 0), 0);
+  const sessionCost = todaysSessions.reduce((sum, s) => sum + Math.abs(s.cost?.amount || 0), 0);
+  $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
+  $('ev-cost').textContent = `£${sessionCost.toFixed(2)}`;
+  $('ev-avg-rate').textContent = sessionKwh > 0 ? `${((sessionCost / sessionKwh) * 100).toFixed(1)}p/kWh` : '—';
+
+  evWeekBuckets = renderEVWeekChart(sessions, now);
+  $('ev-week-breakdown').classList.add('hidden');
+  evWeekSelectedDay = null;
+
+  return true;
+}
+
+// Original path — completedDispatches/plannedDispatches only, kWh
+// approximated at today's cheapest rate. Kept as the fallback for any
+// account where the SmartFlex query above returns nothing (no EV device
+// registered under that path, or a schema difference on another account).
+async function loadEVLegacy() {
   try {
     const data = await krakenGQL(`
       query IOGStatus($accountNumber: String!) {
@@ -1832,9 +1917,6 @@ async function loadEV() {
     const completed = data.completedDispatches || [];
 
     const now = new Date();
-    // "Charging" means a dispatch window is actually in progress right now —
-    // not just that one exists somewhere in the planned list. A window hours
-    // in the future is upcoming, not active.
     const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
     $('ev-tag').textContent = activeDispatch ? 'CHARGING' : (planned.length ? 'SCHEDULED' : 'IDLE');
     if (activeDispatch) $('ev-tag').className = 'card-tag tag-pink';
@@ -1843,9 +1925,6 @@ async function loadEV() {
 
     applyEvCollapse(!!activeDispatch || planned.length > 0);
 
-    // "Next dispatch window" is the start–end of the next scheduled off-peak
-    // charge slot Octopus has planned — not a "ready by" estimate, since the
-    // API doesn't expose vehicle state of charge or a true completion time.
     if (planned[0]) {
       const s = new Date(planned[0].start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const e = new Date(planned[0].end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1854,16 +1933,14 @@ async function loadEV() {
       $('ev-ready').textContent = 'None scheduled';
     }
 
-    const slots = $('ev-slots');
+    $('ev-battery-row').classList.add('hidden');
+    $('ev-view-toggle').classList.add('hidden');
+    $('ev-week-legend').classList.add('hidden');
+    $('ev-slots-session').classList.add('hidden');
+    $('ev-slots-dispatch').classList.remove('hidden');
+
+    const slots = $('ev-slots-dispatch');
     slots.innerHTML = '';
-    // Show every window Octopus returns, not just the 2 most recent — the
-    // session/week totals already sum everything regardless of what's
-    // shown, so capping the visible list here was silently inconsistent
-    // with those totals. Reversed so the list reads as a single
-    // chronological timeline (oldest completed first, most recent last,
-    // any planned/upcoming continuing naturally below) rather than
-    // newest-first, which read oddly once more than a couple of entries
-    // were visible at once.
     [...completed].reverse().forEach(d => {
       slots.insertAdjacentHTML('beforeend', `<div class="slot done"><span>✓ ${new Date(d.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(d.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><b>Completed · ${Math.abs(+d.delta).toFixed(1)} kWh</b></div>`);
     });
@@ -1875,16 +1952,6 @@ async function loadEV() {
     });
     if (!slots.children.length) slots.innerHTML = '<div class="slot">No dispatch windows scheduled</div>';
 
-    // Session/weekly totals: dispatches already report kWh added (delta) — the
-    // rate applied is approximated as today's cheapest electricity rate, since
-    // IOG dispatches always land in the off-peak window. It's an approximation,
-    // not the exact rate that was live at each dispatch's own start time.
-    // Delta comes back negative from Octopus (a consistent API convention,
-    // confirmed across many real sessions — not a display error), but a
-    // negative here doesn't mean anything was lost, only added, so it's
-    // shown as a plain magnitude throughout rather than literally negative.
-    // The underlying signed value is still what every calculation below
-    // uses — only the display strips the sign.
     const rateP = cachedOffPeakRateP ?? 7.5;
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todaysCompleted = completed.filter(d => new Date(d.start) >= startOfToday);
@@ -1915,13 +1982,86 @@ async function loadEV() {
       $('ev-added').textContent = '—';
       $('ev-cost').textContent = '—';
       $('ev-avg-rate').textContent = '—';
-      $('ev-slots').innerHTML = '<div class="slot">Unavailable right now</div>';
+      $('ev-battery-row').classList.add('hidden');
+      $('ev-view-toggle').classList.add('hidden');
+      $('ev-week-legend').classList.add('hidden');
+      $('ev-slots-dispatch').innerHTML = '<div class="slot">Unavailable right now</div>';
       renderWeekBars('ev-week', [0, 0, 0, 0, 0, 0, 0], '');
       $('ev-week-totals').innerHTML = '<span>—</span><span>—</span><span>—</span>';
     }
     return false;
   }
 }
+
+// Stacked week chart (SMART/BOOST) with tap-to-breakdown — the one chart
+// in the app that never had this, closed out now that session-level data
+// makes a per-day breakdown genuinely worthwhile. Returns the per-day
+// bucket data so the click handler (wired once in init()) can look up
+// whichever day gets tapped without recomputing.
+function renderEVWeekChart(sessions, now) {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 6);
+  const buckets = Array.from({ length: 7 }, () => ({ smart: 0, boost: 0, sessions: [] }));
+  sessions.forEach(s => {
+    const dayIdx = Math.floor((new Date(s.start) - startOfWeek) / 86400000);
+    if (dayIdx < 0 || dayIdx > 6) return;
+    const kwh = Math.abs(s.energyAdded?.value || 0);
+    if (s.type === 'BOOST') buckets[dayIdx].boost += kwh; else buckets[dayIdx].smart += kwh;
+    buckets[dayIdx].sessions.push(s);
+  });
+
+  const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const today = now.getDay();
+  const max = Math.max(...buckets.map(b => b.smart + b.boost), 0.01);
+  const maxBarHeight = 44;
+
+  $('ev-week').innerHTML = buckets.map((b, i) => {
+    const total = b.smart + b.boost;
+    const h = Math.max(2, Math.round((total / max) * maxBarHeight));
+    const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
+    const boostH = h - smartH;
+    const label = labels[(today - (6 - i) + 7) % 7];
+    return `<div class="ev-week-col">
+      <div class="ev-week-stack" data-i="${i}" style="height:${h}px">
+        ${boostH ? `<div class="ev-week-seg boost" style="height:${boostH}px"></div>` : ''}
+        ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
+      </div>
+      <span data-i="${i}">${label}</span>
+    </div>`;
+  }).join('');
+
+  const weekKwh = buckets.reduce((s, b) => s + b.smart + b.boost, 0);
+  const weekCost = sessions.reduce((s, sess) => {
+    const d = new Date(sess.start);
+    return d >= startOfWeek ? s + Math.abs(sess.cost?.amount || 0) : s;
+  }, 0);
+  $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added</span><span><b>£${weekCost.toFixed(2)}</b> total</span><span><b>${weekKwh > 0 ? ((weekCost / weekKwh) * 100).toFixed(1) : '—'}p</b> avg</span>`;
+
+  return buckets;
+}
+
+function renderEVWeekBreakdown(index) {
+  const box = $('ev-week-breakdown');
+  const bucket = evWeekBuckets?.[index];
+  if (!bucket || !bucket.sessions.length) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const startOfWeek = new Date(new Date().setHours(0, 0, 0, 0)); startOfWeek.setDate(startOfWeek.getDate() - 6);
+  const dayDate = new Date(startOfWeek); dayDate.setDate(dayDate.getDate() + index);
+  const total = bucket.smart + bucket.boost;
+  const cost = bucket.sessions.reduce((s, sess) => s + Math.abs(sess.cost?.amount || 0), 0);
+  const smartCount = bucket.sessions.filter(s => s.type === 'SMART').length;
+  const boostCount = bucket.sessions.filter(s => s.type === 'BOOST').length;
+  const countLabel = bucket.sessions.length === 1 ? '1 session' : `${bucket.sessions.length} sessions`;
+  const typeLabel = [smartCount && `${smartCount} smart`, boostCount && `${boostCount} boost`].filter(Boolean).join(', ');
+  box.innerHTML = `<div class="breakdown-date">${dayNames[dayDate.getDay()]}</div>`
+    + `<div class="breakdown-row"><span class="label">Sessions</span><span class="val">${countLabel}${typeLabel ? ` (${typeLabel})` : ''}</span></div>`
+    + `<div class="breakdown-row"><span class="label">Added</span><span class="val">${total.toFixed(1)} kWh</span></div>`
+    + `<div class="breakdown-total"><span>Cost</span><span>£${cost.toFixed(2)}</span></div>`;
+}
+
+let evWeekBuckets = null;
+let evWeekSelectedDay = null;
 
 function populateDemoEV() {
     applyEvCollapse(true);
@@ -1930,7 +2070,11 @@ function populateDemoEV() {
     $('ev-added').textContent = '9.6 kWh';
     $('ev-cost').textContent = '£0.72';
     $('ev-avg-rate').textContent = '7.5p/kWh';
-    $('ev-slots').innerHTML = `
+    $('ev-battery-row').classList.add('hidden');
+    $('ev-view-toggle').classList.add('hidden');
+    $('ev-week-legend').classList.add('hidden');
+    $('ev-slots-dispatch').classList.remove('hidden');
+    $('ev-slots-dispatch').innerHTML = `
       <div class="slot done"><span>✓ 00:30 – 04:00</span><b>Completed · 22.1 kWh</b></div>
       <div class="slot active"><span>● 04:00 – 05:30</span><b>Dispatching now · 7.4kW</b></div>
       <div class="slot"><span>Planned tonight</span><b>23:30 – 05:30</b></div>`;
@@ -2791,6 +2935,30 @@ function init() {
     $('ev-card').classList.toggle('ev-collapsed', !evManualOverride);
     $('ev-chevron').textContent = evManualOverride ? '▾' : '▸';
     $('ev-header').setAttribute('aria-expanded', String(evManualOverride));
+  });
+  $('ev-view-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('.unit-toggle-btn');
+    if (!btn) return;
+    const view = btn.dataset.view;
+    $('ev-view-dispatch-btn').classList.toggle('active', view === 'dispatch');
+    $('ev-view-session-btn').classList.toggle('active', view === 'session');
+    $('ev-slots-dispatch').classList.toggle('hidden', view !== 'dispatch');
+    $('ev-slots-session').classList.toggle('hidden', view !== 'session');
+  });
+  $('ev-week').addEventListener('click', (e) => {
+    const bar = e.target.closest('.ev-week-stack');
+    if (!bar) return;
+    const index = parseInt(bar.dataset.i, 10);
+    if (Number.isNaN(index)) return;
+    evWeekSelectedDay = (evWeekSelectedDay === index) ? null : index;
+    document.querySelectorAll('#ev-week .ev-week-stack').forEach(el => {
+      el.classList.toggle('selected', parseInt(el.dataset.i, 10) === evWeekSelectedDay);
+    });
+    document.querySelectorAll('#ev-week span[data-i]').forEach(el => {
+      el.classList.toggle('active-day', parseInt(el.dataset.i, 10) === evWeekSelectedDay);
+    });
+    if (evWeekSelectedDay === null) $('ev-week-breakdown').classList.add('hidden');
+    else renderEVWeekBreakdown(evWeekSelectedDay);
   });
 
   // Insights — collapsed by default; data is lazy-loaded on the first
