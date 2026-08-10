@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.84';
+const APP_VERSION = 'v2.85';
 
 const store = {
   get creds() {
@@ -161,6 +161,46 @@ async function krakenGQL(query, variables) {
   const json = await res.json();
   if (json.errors) throw new Error(json.errors[0]?.message || 'GraphQL error');
   return json.data;
+}
+
+// Temporary, one-time investigation for the EV panel rewrite — same safe
+// pattern already used for the UpsideDispatchType introspection (removed
+// once confirmed, see README/park-up notes). Pure schema introspection,
+// never touches real dispatch data, so it can't break anything currently
+// working even if a type/field name turns out wrong. Answers three things:
+// (1) the actual root query that returns SmartFlexVehicle (any Query field
+// whose name mentions device/vehicle/ev — likely "devices" per Octopus's
+// own API docs, but not assumed), (2) whether SmartFlexVehicle is a
+// separate object from what registeredKrakenflexDevice already returns
+// (field-name mismatch — vehicleMake/vehicleModel vs make/model — is
+// already good evidence it is, this confirms it directly), (3) whether
+// SmartFlexDispatch carries enough per-window detail to derive both the
+// dispatch-window and session-grouped toggle views from one query, or
+// whether dispatch view needs to keep completedDispatches as a second call.
+// Remove this whole block once the real query is built from confirmed
+// field names — it's investigation scaffolding, not a permanent feature.
+let evSchemaIntrospected = false;
+async function introspectEVSchema() {
+  if (evSchemaIntrospected) return;
+  evSchemaIntrospected = true;
+  try {
+    const data = await krakenGQL(`
+      query IntrospectEVSchema {
+        rootFields: __type(name: "Query") { fields { name } }
+        smartFlexVehicle: __type(name: "SmartFlexVehicle") { fields { name } }
+        smartFlexDispatch: __type(name: "SmartFlexDispatch") { fields { name } }
+      }`, {});
+    const deviceFields = (data?.rootFields?.fields || [])
+      .map(f => f.name)
+      .filter(n => /device|vehicle|\bev\b/i.test(n));
+    const vehicleFields = (data?.smartFlexVehicle?.fields || []).map(f => f.name).join(', ');
+    const dispatchFields = (data?.smartFlexDispatch?.fields || []).map(f => f.name).join(', ');
+    logDebug('EV rewrite — root Query fields matching device/vehicle/ev', deviceFields.join(', ') || '(none found — try a broader search term)');
+    logDebug('EV rewrite — SmartFlexVehicle fields', vehicleFields || '(type not found — name may differ on this account/schema version)');
+    logDebug('EV rewrite — SmartFlexDispatch fields', dispatchFields || '(type not found — name may differ on this account/schema version)');
+  } catch (err) {
+    logIssue('EV schema introspection', err);
+  }
 }
 
 // Kraken's GraphQL equivalent of the REST-call diagnostic, but deliberately
@@ -1762,6 +1802,7 @@ async function loadVehicleInfoOnce() {
 }
 
 async function loadEV() {
+  introspectEVSchema(); // fire-and-forget, one-time — see comment above its definition
   try {
     const data = await krakenGQL(`
       query IOGStatus($accountNumber: String!) {
