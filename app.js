@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.87';
+const APP_VERSION = 'v2.88';
 
 const store = {
   get creds() {
@@ -191,6 +191,10 @@ async function introspectEVSchema() {
         smartFlexDispatch: __type(name: "SmartFlexDispatch") { fields { name } }
         chargingSessionConnection: __type(name: "DeviceChargingSessionConnection") { fields { name } }
         chargingSessionEdge: __type(name: "DeviceChargingSessionEdge") { fields { name } }
+        money: __type(name: "Money") { fields { name } }
+        energy: __type(name: "Energy") { fields { name } }
+        decimalReading: __type(name: "DecimalReading") { fields { name } }
+        chargingProblem: __type(name: "SmartFlexChargingProblem") { fields { name } }
       }`, {});
     const deviceFields = (data?.rootFields?.fields || [])
       .map(f => f.name)
@@ -199,11 +203,19 @@ async function introspectEVSchema() {
     const dispatchFields = (data?.smartFlexDispatch?.fields || []).map(f => f.name).join(', ');
     const connectionFields = (data?.chargingSessionConnection?.fields || []).map(f => f.name).join(', ');
     const edgeFields = (data?.chargingSessionEdge?.fields || []).map(f => f.name).join(', ');
+    const moneyFields = (data?.money?.fields || []).map(f => f.name).join(', ');
+    const energyFields = (data?.energy?.fields || []).map(f => f.name).join(', ');
+    const decimalReadingFields = (data?.decimalReading?.fields || []).map(f => f.name).join(', ');
+    const problemFields = (data?.chargingProblem?.fields || []).map(f => f.name).join(', ');
     logDebug('EV rewrite — root Query fields matching device/vehicle/ev', deviceFields.join(', ') || '(none found — try a broader search term)');
     logDebug('EV rewrite — SmartFlexVehicle fields', vehicleFields || '(type not found — name may differ on this account/schema version)');
     logDebug('EV rewrite — SmartFlexDispatch fields', dispatchFields || '(type not found — name may differ on this account/schema version)');
     logDebug('EV rewrite — DeviceChargingSessionConnection fields', connectionFields || '(type not found — name may differ on this account/schema version)');
     logDebug('EV rewrite — DeviceChargingSessionEdge fields', edgeFields || '(guessed type name not found — try DeviceChargingSessionsEdge or check the edges field type directly)');
+    logDebug('EV rewrite — Money fields (for cost)', moneyFields || '(type not found — try a broader search term for the cost sub-fields)');
+    logDebug('EV rewrite — Energy fields (for energyAdded)', energyFields || '(type not found — try a broader search term for the energyAdded sub-fields)');
+    logDebug('EV rewrite — DecimalReading fields (for stateOfCharge)', decimalReadingFields || '(type not found — try a broader search term for the stateOfCharge sub-fields)');
+    logDebug('EV rewrite — SmartFlexChargingProblem fields', problemFields || '(type not found — name may differ on this account/schema version)');
   } catch (err) {
     logIssue('EV schema introspection', err);
   }
