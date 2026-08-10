@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.86';
+const APP_VERSION = 'v2.87';
 
 const store = {
   get creds() {
@@ -190,6 +190,7 @@ async function introspectEVSchema() {
         smartFlexVehicle: __type(name: "SmartFlexVehicle") { fields { name } }
         smartFlexDispatch: __type(name: "SmartFlexDispatch") { fields { name } }
         chargingSessionConnection: __type(name: "DeviceChargingSessionConnection") { fields { name } }
+        chargingSessionEdge: __type(name: "DeviceChargingSessionEdge") { fields { name } }
       }`, {});
     const deviceFields = (data?.rootFields?.fields || [])
       .map(f => f.name)
@@ -197,10 +198,12 @@ async function introspectEVSchema() {
     const vehicleFields = (data?.smartFlexVehicle?.fields || []).map(f => f.name).join(', ');
     const dispatchFields = (data?.smartFlexDispatch?.fields || []).map(f => f.name).join(', ');
     const connectionFields = (data?.chargingSessionConnection?.fields || []).map(f => f.name).join(', ');
+    const edgeFields = (data?.chargingSessionEdge?.fields || []).map(f => f.name).join(', ');
     logDebug('EV rewrite — root Query fields matching device/vehicle/ev', deviceFields.join(', ') || '(none found — try a broader search term)');
     logDebug('EV rewrite — SmartFlexVehicle fields', vehicleFields || '(type not found — name may differ on this account/schema version)');
     logDebug('EV rewrite — SmartFlexDispatch fields', dispatchFields || '(type not found — name may differ on this account/schema version)');
     logDebug('EV rewrite — DeviceChargingSessionConnection fields', connectionFields || '(type not found — name may differ on this account/schema version)');
+    logDebug('EV rewrite — DeviceChargingSessionEdge fields', edgeFields || '(guessed type name not found — try DeviceChargingSessionsEdge or check the edges field type directly)');
   } catch (err) {
     logIssue('EV schema introspection', err);
   }
