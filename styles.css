@@ -471,7 +471,7 @@ button{font-family:inherit;cursor:pointer;}
 
 /* Balance runway forecast */
 .forecast-wrap{margin-top:16px;}
-.forecast-caption{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);margin-bottom:10px;}
+.forecast-caption{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);margin-bottom:14px;}
 .forecast-scale{position:relative;height:100px;width:40px;flex-shrink:0;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-dim);}
 .forecast-chart-inner{position:relative;height:100px;flex:1;min-width:0;}
 .forecast-zero-line{position:absolute;left:0;right:0;border-top:1px solid var(--line);}

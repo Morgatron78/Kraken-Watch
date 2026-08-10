@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.74';
+const APP_VERSION = 'v2.75';
 
 const store = {
   get creds() {
@@ -1109,7 +1109,7 @@ function renderInsightsGas() {
 function todayBlendedRateP(fuel) {
   const mtd = fuelData[fuel]?.mtd;
   if (!mtd || !mtd.kwh) return null;
-  return (mtd.cost / mtd.kwh) * 100; // pence/kWh, matching the app's existing pence-based rate convention
+  return (mtd.usageCost / mtd.kwh) * 100; // pence/kWh, usage-only — standing charge is added separately per cycle in computeBalanceForecast, so mixing it in here would double-count it
 }
 
 function computeBalanceForecast() {
@@ -1980,13 +1980,20 @@ async function loadBilling() {
     $('cycle-day').textContent = `Day ${elapsedDays} / ${totalDays}`;
 
     fuelData.elec = fuelData.elec || {};
-    fuelData.elec.mtd = { cost: elecMTD, kwh: elec.kwh };
+    // usageCost (excludes standing) feeds the balance forecast's blended
+    // rate — mtd.cost includes standing charges (correct for the Billing
+    // card's "spend so far" figure), but the forecast adds today's standing
+    // charge separately per future month, so dividing by the
+    // standing-inclusive cost would double-count it. Worse the smaller
+    // this month's kWh is (e.g. gas in summer), since a fixed standing fee
+    // gets spread over very little usage, inflating pence/kWh sharply.
+    fuelData.elec.mtd = { cost: elecMTD, kwh: elec.kwh, usageCost: elec.cost };
     fuelData.elec.predicted = { cost: elecPredictedCost, kwh: elecPredictedKwh };
     if (elecStanding) $('elec-standing').textContent = `£${(elecStanding / 100).toFixed(2)}/day`;
 
     if (gasMTD !== null) {
       fuelData.gas = fuelData.gas || {};
-      fuelData.gas.mtd = { cost: gasMTD, kwh: gas.kwh };
+      fuelData.gas.mtd = { cost: gasMTD, kwh: gas.kwh, usageCost: gas.cost };
       fuelData.gas.predicted = { cost: gasPredictedCost, kwh: gasPredictedKwh };
       if (gasStanding) $('gas-standing').textContent = `£${(gasStanding / 100).toFixed(2)}/day`;
       try {
