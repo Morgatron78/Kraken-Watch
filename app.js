@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.89';
+const APP_VERSION = 'v2.90';
 
 const store = {
   get creds() {
@@ -1767,15 +1767,22 @@ async function loadEV() {
   return loadEVLegacy();
 }
 
-// New path: devices(deviceType: ELECTRIC_VEHICLES) → SmartFlexVehicle →
-// chargingSessions. Every field here was confirmed via live introspection
-// this session (see park-up notes) except SmartFlexChargingProblem, which
-// wasn't found under that name and is deliberately left out rather than
-// guessed — same discipline that avoided repeating the earlier "source"
-// field break. cost.amount's unit (pounds vs pence) isn't independently
-// confirmed by introspection alone — assumed pounds decimal (the common
-// GraphQL Money convention) and worth a sanity check against a real
-// screenshot once deployed; wrong would show as an obviously-scaled
+// New path: devices → SmartFlexVehicle → chargingSessions. devices() takes
+// no deviceType filter (confirmed by a real runtime error: "Unknown
+// argument 'deviceType' on field 'Query.devices'" — the earlier docs
+// screenshot showing that enum value was almost certainly from a
+// different, similarly-named device query, not this one). Returns every
+// device on the account regardless of type, so the client-side
+// .find(d => d.chargingSessions) below does the real filtering — already
+// built as a safety net, turned out to be load-bearing.
+// Every other field here was confirmed via live introspection this session
+// (see park-up notes) except SmartFlexChargingProblem, which wasn't found
+// under that name and is deliberately left out rather than guessed — same
+// discipline that caught the deviceType issue above rather than blindly
+// trying more argument names. cost.amount's unit (pounds vs pence) isn't
+// independently confirmed by introspection alone — assumed pounds decimal
+// (the common GraphQL Money convention) and worth a sanity check against a
+// real screenshot once deployed; wrong would show as an obviously-scaled
 // number (e.g. "£22" for a small top-up), not a broken query.
 // SmartFlexDispatch.dispatches inside each session gives per-window
 // detail (start/end/type/kWh), so the dispatch-window view is derived
@@ -1785,7 +1792,7 @@ async function loadEV() {
 async function loadEVSmartFlex() {
   const data = await krakenGQL(`
     query EVSmartFlexData($accountNumber: String!, $after: DateTime!) {
-      devices(accountNumber: $accountNumber, deviceType: ELECTRIC_VEHICLES) {
+      devices(accountNumber: $accountNumber) {
         ... on SmartFlexVehicle {
           make model
           status { stateOfCharge { value } }
