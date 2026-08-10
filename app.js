@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.82';
+const APP_VERSION = 'v2.83';
 
 const store = {
   get creds() {
@@ -1797,10 +1797,18 @@ async function loadEV() {
 
     const slots = $('ev-slots');
     slots.innerHTML = '';
-    completed.slice(0, 2).forEach(d => {
+    // Show every window Octopus returns, not just the 2 most recent — the
+    // session/week totals already sum everything regardless of what's
+    // shown, so capping the visible list here was silently inconsistent
+    // with those totals. Reversed so the list reads as a single
+    // chronological timeline (oldest completed first, most recent last,
+    // any planned/upcoming continuing naturally below) rather than
+    // newest-first, which read oddly once more than a couple of entries
+    // were visible at once.
+    [...completed].reverse().forEach(d => {
       slots.insertAdjacentHTML('beforeend', `<div class="slot done"><span>✓ ${new Date(d.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(d.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><b>Completed · ${(+d.delta).toFixed(1)} kWh</b></div>`);
     });
-    planned.slice(0, 2).forEach(d => {
+    planned.forEach(d => {
       const isActive = now >= new Date(d.start) && now < new Date(d.end);
       const label = isActive ? '● Dispatching now' : 'Planned';
       const cls = isActive ? ' active' : ' scheduled';
