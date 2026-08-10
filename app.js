@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.95';
+const APP_VERSION = 'v2.96';
 
 const store = {
   get creds() {
@@ -1823,7 +1823,7 @@ async function loadEVSmartFlex() {
           make model
           chargePointPowerOutput
           status { ... on SmartFlexVehicleStatus { stateOfCharge { value } isSuspended } }
-          preferences { weekdayTargetSoc weekdayTargetTime weekendTargetSoc weekendTargetTime }
+          preferences { ... on SmartFlexVehicleChargingPreferences { weekdayTargetSoc weekdayTargetTime weekendTargetSoc weekendTargetTime } }
           chargingSessions(after: $after, first: 30) {
             edges {
               node {
