@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.79';
+const APP_VERSION = 'v2.81';
 
 const store = {
   get creds() {
@@ -161,6 +161,33 @@ async function krakenGQL(query, variables) {
   const json = await res.json();
   if (json.errors) throw new Error(json.errors[0]?.message || 'GraphQL error');
   return json.data;
+}
+
+// Kraken's GraphQL equivalent of the REST-call diagnostic, but deliberately
+// narrow: the account-wide 50,000 points/hour ceiling is far beyond what
+// this app's real usage could plausibly reach (rateLimitInfo itself costs
+// only 1 point), so a routine "X/50,000 used" line would just be noise.
+// The one thing actually worth surfacing is isBlocked — if GraphQL calls
+// ever started failing en masse for no obvious reason, this rules a block
+// in or out immediately rather than guessing, the same way capturing real
+// response bodies (not just status codes) cracked the toggle-destruction
+// bug rather than an assumption about rate limiting. Silent no-op on
+// failure or when not blocked — this is a best-effort diagnostic, not
+// something that should itself count as a sync failure.
+async function checkRateLimitBlocked() {
+  try {
+    const data = await krakenGQL(`
+      query RateLimitInfo {
+        rateLimitInfo {
+          pointsAllowanceRateLimit { isBlocked ttl }
+        }
+      }`, {});
+    const info = data?.rateLimitInfo?.pointsAllowanceRateLimit;
+    if (info?.isBlocked) {
+      const resetMins = info.ttl ? Math.max(0, Math.round((info.ttl * 1000 - Date.now()) / 60000)) : null;
+      syncIssues.push(`GraphQL account blocked for exceeding its points allowance${resetMins !== null ? ` — resets in ~${resetMins}m` : ''}`);
+    }
+  } catch (err) { /* best-effort — see comment above */ }
 }
 
 /* ------------------------- Rates & cost calculation ----------------------- */
@@ -1189,18 +1216,28 @@ function renderBalanceForecastChart() {
   if (!balanceForecastData.length) { wrap.classList.add('hidden'); return; }
   wrap.classList.remove('hidden');
 
-  const maxPos = Math.max(...balanceForecastData.map(c => c.cumulative), 1);
-  const maxNeg = Math.abs(Math.min(...balanceForecastData.map(c => c.cumulative), 0)) || 1;
-  const range = maxPos + maxNeg;
+  const maxPos = Math.max(...balanceForecastData.map(c => c.cumulative), 0);
+  const minCumulative = Math.min(...balanceForecastData.map(c => c.cumulative), 0);
+  const hasNegative = minCumulative < 0;
+  const maxNeg = hasNegative ? Math.abs(minCumulative) : 0;
+  const range = (maxPos + maxNeg) || 1; // only guards true div-by-zero, never fakes a negative range
   const chartH = 100;
-  const posH = (maxPos / range) * chartH;
+  // No genuine debit cycle at all (common case, e.g. a well-sized DD) —
+  // bars grow from a true bottom baseline instead of reserving space for a
+  // negative region that doesn't exist. Previously this fell back to a
+  // fake £1 negative range just to avoid dividing by zero, which pushed
+  // the £0 label to sit almost exactly on top of a fabricated bottom
+  // label — a real collision, not just a rounding artifact.
+  const posH = hasNegative ? (maxPos / range) * chartH : chartH;
   const negH = chartH - posH;
 
   $('insights-runway-zeroline').style.top = posH + 'px';
-  $('insights-runway-scale').innerHTML =
-    `<span style="position:absolute;top:0px;right:0;transform:translateY(-50%)">${fmtGBP(Math.ceil(maxPos))}</span>`
-    + `<span style="position:absolute;top:${posH}px;right:0;transform:translateY(-50%)">£0</span>`
-    + `<span style="position:absolute;top:${chartH}px;right:0;transform:translateY(-50%)">${fmtGBP(-Math.ceil(maxNeg))}</span>`;
+  $('insights-runway-scale').innerHTML = hasNegative
+    ? `<span style="position:absolute;top:0px;right:0;transform:translateY(-50%)">${fmtGBP(Math.ceil(maxPos))}</span>`
+      + `<span style="position:absolute;top:${posH}px;right:0;transform:translateY(-50%)">£0</span>`
+      + `<span style="position:absolute;top:${chartH}px;right:0;transform:translateY(-50%)">${fmtGBP(-Math.ceil(maxNeg))}</span>`
+    : `<span style="position:absolute;top:0px;right:0;transform:translateY(-50%)">${fmtGBP(Math.ceil(maxPos))}</span>`
+      + `<span style="position:absolute;top:${chartH}px;right:0;transform:translateY(-50%)">£0</span>`;
 
   $('insights-runway-bars').innerHTML = balanceForecastData.map((c, i) => {
     const isNeg = c.cumulative < 0;
@@ -1239,11 +1276,11 @@ function renderInsightsBilling() {
 
   const allPositive = balanceForecastData.every(c => c.cumulative >= 0);
   if (allPositive) {
-    const avgNet = (balanceForecastData[balanceForecastData.length - 1].cumulative - billingState.balancePounds) / balanceForecastData.length;
+    const lastMonth = balanceForecastData[balanceForecastData.length - 1];
     icon.textContent = '📈';
     headline.className = 'runway-headline ok';
-    headline.textContent = 'Building steadily — no action needed';
-    detail.textContent = `At ${fmtGBP(avgNet)}/mo on average, balance keeps growing`;
+    headline.textContent = 'Payments look sufficient';
+    detail.textContent = `Projected to stay in credit through ${lastMonth.label}`;
   } else {
     const dipIdx = balanceForecastData.findIndex(c => c.cumulative < 0);
     const recoverIdx = balanceForecastData.findIndex((c, i) => i > dipIdx && c.cumulative >= 0);
@@ -1251,10 +1288,13 @@ function renderInsightsBilling() {
     balanceForecastData.forEach((c, i) => { if (c.cumulative < balanceForecastData[lowIdx].cumulative) lowIdx = i; });
     icon.textContent = '⚠️';
     headline.className = 'runway-headline warn';
-    headline.textContent = recoverIdx !== -1
-      ? `Dips into debit from ${balanceForecastData[dipIdx].label}, recovers by ${balanceForecastData[recoverIdx].label}`
-      : `Still projected to be in debit by ${balanceForecastData[balanceForecastData.length - 1].label} (12-month horizon)`;
-    detail.textContent = `Lowest point: ${fmtGBP(balanceForecastData[lowIdx].cumulative)} in ${balanceForecastData[lowIdx].label}`;
+    if (recoverIdx !== -1) {
+      headline.textContent = `Payments may be tight — dips into debit around ${balanceForecastData[dipIdx].label}, recovers by ${balanceForecastData[recoverIdx].label}`;
+      detail.textContent = `Lowest point: ${fmtGBP(balanceForecastData[lowIdx].cumulative)} in ${balanceForecastData[lowIdx].label}`;
+    } else {
+      headline.textContent = `Payments look insufficient — still in debit by ${balanceForecastData[balanceForecastData.length - 1].label}`;
+      detail.textContent = `Lowest point: ${fmtGBP(balanceForecastData[lowIdx].cumulative)} in ${balanceForecastData[lowIdx].label} — consider increasing your Direct Debit`;
+    }
   }
 
   renderBalanceForecastChart();
@@ -2305,7 +2345,7 @@ async function loadBilling() {
             const seg = `<div class="bt-seg gas" style="height:${Math.max(1, Math.round((m.gas / max) * maxBarHeight))}px"></div><div class="bt-seg elec" style="height:${Math.max(1, Math.round((m.elec / max) * maxBarHeight))}px"></div>`;
             const label = new Date(m.year, m.month, 1).toLocaleDateString('en-GB', spansMultipleYears ? { month: 'short', year: '2-digit' } : { month: 'short' });
             const selected = i === selectedBillMonth ? ' selected' : '';
-            return `<div class="bt-bar"><div class="bt-stack${selected}" data-index="${i}">${seg}</div><span>${label}</span></div>`;
+            return `<div class="bt-bar"><div class="bt-stack${selected}" data-index="${i}">${seg}</div><span class="${i === selectedBillMonth ? 'active-day' : ''}">${label}</span></div>`;
           }).join('');
           renderBillYearBreakdown(selectedBillMonth);
           $('bill-year-block').style.display = '';
@@ -2454,6 +2494,7 @@ async function loadAll(source = 'app-start') {
   // .reason, discarding the actual error.
   if (evSettled.status === 'rejected') logIssue('EV (uncaught)', evSettled.reason);
   if (billingSettled.status === 'rejected') logIssue('Billing (uncaught)', billingSettled.reason);
+  await checkRateLimitBlocked();
   logSyncAttempt(source, {
     Rates: ratesResult,
     EV: evSettled.status === 'fulfilled' ? evSettled.value : false,
@@ -2496,6 +2537,7 @@ async function loadFastTier() {
   const ratesResult = await loadRates().catch(() => false);
   const [evSettled] = await Promise.allSettled([loadEV()]);
   const evResult = evSettled.status === 'fulfilled' ? evSettled.value : false;
+  await checkRateLimitBlocked();
   logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot, syncIssues);
   const allResults = [ratesResult, evResult];
   const allReal = allResults.every(v => v === true);
@@ -2782,8 +2824,10 @@ function init() {
     const index = parseInt(bar.dataset.index, 10);
     if (Number.isNaN(index)) return;
     selectedBillMonth = (selectedBillMonth === index) ? null : index;
-    document.querySelectorAll('#bill-year-bars .bt-stack').forEach(el => {
-      el.classList.toggle('selected', parseInt(el.dataset.index, 10) === selectedBillMonth);
+    document.querySelectorAll('#bill-year-bars .bt-bar').forEach(bar => {
+      const idx = parseInt(bar.querySelector('.bt-stack').dataset.index, 10);
+      bar.querySelector('.bt-stack').classList.toggle('selected', idx === selectedBillMonth);
+      bar.querySelector('span').classList.toggle('active-day', idx === selectedBillMonth);
     });
     renderBillYearBreakdown(selectedBillMonth);
   });
