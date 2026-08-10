@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.83';
+const APP_VERSION = 'v2.84';
 
 const store = {
   get creds() {
@@ -1806,7 +1806,7 @@ async function loadEV() {
     // newest-first, which read oddly once more than a couple of entries
     // were visible at once.
     [...completed].reverse().forEach(d => {
-      slots.insertAdjacentHTML('beforeend', `<div class="slot done"><span>✓ ${new Date(d.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(d.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><b>Completed · ${(+d.delta).toFixed(1)} kWh</b></div>`);
+      slots.insertAdjacentHTML('beforeend', `<div class="slot done"><span>✓ ${new Date(d.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(d.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><b>Completed · ${Math.abs(+d.delta).toFixed(1)} kWh</b></div>`);
     });
     planned.forEach(d => {
       const isActive = now >= new Date(d.start) && now < new Date(d.end);
@@ -1820,14 +1820,17 @@ async function loadEV() {
     // rate applied is approximated as today's cheapest electricity rate, since
     // IOG dispatches always land in the off-peak window. It's an approximation,
     // not the exact rate that was live at each dispatch's own start time.
-    // Delta is shown exactly as Octopus returns it, including if it's
-    // occasionally negative for a short dispatch — that's real data from their
-    // API, not a display error, so it isn't clamped or hidden here.
+    // Delta comes back negative from Octopus (a consistent API convention,
+    // confirmed across many real sessions — not a display error), but a
+    // negative here doesn't mean anything was lost, only added, so it's
+    // shown as a plain magnitude throughout rather than literally negative.
+    // The underlying signed value is still what every calculation below
+    // uses — only the display strips the sign.
     const rateP = cachedOffPeakRateP ?? 7.5;
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todaysCompleted = completed.filter(d => new Date(d.start) >= startOfToday);
     const sessionKwh = todaysCompleted.reduce((s, d) => s + (+d.delta), 0);
-    $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
+    $('ev-added').textContent = `${Math.abs(sessionKwh).toFixed(1)} kWh`;
     $('ev-cost').textContent = fmtGBP(sessionKwh * rateP / 100);
     $('ev-avg-rate').textContent = `${rateP.toFixed(1)}p/kWh`;
 
@@ -1837,9 +1840,9 @@ async function loadEV() {
       const dayIdx = Math.floor((new Date(d.start) - startOfWeek) / 86400000);
       if (dayIdx >= 0 && dayIdx < 7) dayTotals[dayIdx] += (+d.delta);
     });
-    renderWeekBars('ev-week', dayTotals, '', v => `${v.toFixed(1)} kWh`);
+    renderWeekBars('ev-week', dayTotals, '', v => `${Math.abs(v).toFixed(1)} kWh`);
     const weekKwh = dayTotals.reduce((a, b) => a + b, 0);
-    $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added</span><span><b>${fmtGBP(weekKwh * rateP / 100)}</b> total</span><span><b>${rateP.toFixed(1)}p</b> avg</span>`;
+    $('ev-week-totals').innerHTML = `<span><b>${Math.abs(weekKwh).toFixed(1)} kWh</b> added</span><span><b>${fmtGBP(weekKwh * rateP / 100)}</b> total</span><span><b>${rateP.toFixed(1)}p</b> avg</span>`;
 
     return true;
   } catch (err) {
