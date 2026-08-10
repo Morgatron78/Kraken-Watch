@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.76';
+const APP_VERSION = 'v2.79';
 
 const store = {
   get creds() {
@@ -475,7 +475,12 @@ function renderChartScale(scaleId, max, formatter) {
 
 function renderWeekBars(containerId, values, colorClass, formatter, maxBarHeight = 44, scaleId = null) {
   const el = $(containerId);
-  const max = Math.max(...values, 0.01);
+  // Bar height is driven by magnitude, not the raw signed value — EV
+  // dispatch kWh can come back negative for short sessions (a real Octopus
+  // measurement quirk, kept visible as-is in the signed text/tooltip below),
+  // and a negative value divided against a near-zero max would otherwise
+  // clamp every bar to the height floor regardless of actual size.
+  const max = Math.max(...values.map(Math.abs), 0.01);
   renderChartScale(scaleId, max, formatter);
   const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = new Date().getDay();
@@ -483,7 +488,7 @@ function renderWeekBars(containerId, values, colorClass, formatter, maxBarHeight
   el.classList.toggle('dense', !showLabels);
   el.innerHTML = values.map((v, i) => {
     const isToday = i === values.length - 1;
-    const h = Math.max(2, Math.round((v / max) * maxBarHeight));
+    const h = Math.max(2, Math.round((Math.abs(v) / max) * maxBarHeight));
     const label = showLabels ? `<span>${labels[(today - (values.length - 1 - i) + 7) % 7]}</span>` : '';
     return `<div class="week-bar"><div class="col ${colorClass}${isToday ? ' today' : ''}" style="height:${h}px" title="${formatter ? formatter(v) : v}"></div>${label}</div>`;
   }).join('');
