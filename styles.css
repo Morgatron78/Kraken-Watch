@@ -513,6 +513,7 @@ button{font-family:inherit;cursor:pointer;}
 .ev-week-stack.selected{outline:2px solid var(--text);outline-offset:1px;}
 .ev-week-seg.smart{background:var(--mint);opacity:0.85;}
 .ev-week-seg.boost{background:var(--amber);opacity:0.85;}
+.ev-week-seg.neutral{background:var(--line);opacity:0.6;}
 .week-legend{display:flex;justify-content:center;gap:14px;margin-top:8px;font-family:'Inter', sans-serif;font-size:9.5px;color:var(--text-dim);}
 .week-legend span{display:inline-flex;align-items:center;gap:5px;}
 .week-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;}

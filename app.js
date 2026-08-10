@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.92';
+const APP_VERSION = 'v2.93';
 
 const store = {
   get creds() {
@@ -1821,6 +1821,21 @@ async function loadEVSmartFlex() {
   if (!vehicle) return false; // no EV device on this path, or wrong shape — fall back to legacy
 
   const sessions = (vehicle.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+  // Temporary — remove once cost/dispatches behavior is confirmed. Two open
+  // questions from the first real-data test: (1) cost showed £0.00 across
+  // real sessions with genuine kWh, which could mean cost.amount is coming
+  // back null (not truly zero) — the safe default (`|| 0`) can't tell the
+  // two apart on its own; (2) the dispatch-window view showed empty despite
+  // real session kWh, meaning session.dispatches may be coming back empty
+  // too. Logging one real session's raw shape answers both in one round
+  // trip rather than guess-fixing and redeploying twice more.
+  if (sessions[0]) {
+    logDebug('EV rewrite — sample session raw data', JSON.stringify({
+      type: sessions[0].type, cost: sessions[0].cost, energyAdded: sessions[0].energyAdded,
+      stateOfChargeFinal: sessions[0].stateOfChargeFinal, dispatchCount: (sessions[0].dispatches || []).length
+    }));
+    logDebug('EV rewrite — sessions with empty dispatches array', `${sessions.filter(s => !(s.dispatches || []).length).length} of ${sessions.length}`);
+  }
   const planned = data.plannedDispatches || [];
   const now = new Date();
   const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
@@ -2028,12 +2043,14 @@ function renderEVWeekChart(sessions, now) {
     const total = b.smart + b.boost;
     const h = Math.max(2, Math.round((total / max) * maxBarHeight));
     const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
-    const boostH = h - smartH;
+    const boostH = total > 0 ? h - smartH : 0;
+    const neutralH = total > 0 ? 0 : h; // no sessions at all that day — a plain neutral floor, not a false Boost claim
     const label = labels[(today - (6 - i) + 7) % 7];
     return `<div class="ev-week-col">
       <div class="ev-week-stack" data-i="${i}" style="height:${h}px">
         ${boostH ? `<div class="ev-week-seg boost" style="height:${boostH}px"></div>` : ''}
         ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
+        ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
       </div>
       <span data-i="${i}">${label}</span>
     </div>`;
