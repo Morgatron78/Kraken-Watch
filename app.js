@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.71';
+const APP_VERSION = 'v2.73';
 
 const store = {
   get creds() {
@@ -413,8 +413,10 @@ let fuelData = { elec: null, gas: null };
 
 // Populated by loadBilling() with figures Insights reuses rather than
 // recomputing — the balance and its trend are already fully calculated
-// there, no reason to duplicate that logic.
-let billingState = { balancePounds: null, trend: null, hasNextPayment: false };
+// there, no reason to duplicate that logic. nextPaymentAmount/Date feed the
+// 12-month balance forecast (each future cycle assumes this same amount
+// recurs monthly — same assumption the single-cycle trend already made).
+let billingState = { balancePounds: null, trend: null, hasNextPayment: false, nextPaymentAmount: null };
 let fuelUnit = { elec: 'cost', gas: 'cost' };
 function logDebug(label, msg) {
   console.info(`${label} debug:`, msg);
@@ -1089,30 +1091,168 @@ function renderInsightsGas() {
   }
 }
 
+// Season-aware 12-month balance forecast. For each of the next 12 payment
+// cycles, prices *last year's same calendar month's actual kWh* (from
+// billMonthsData, already fetched for the bill-year chart — no new API
+// calls) at *today's* rate, rather than repeating this month's cost flat
+// twelve times. Two things are genuinely unknowable this far out and stay
+// fixed at today's value throughout: the unit rate (variable tariffs will
+// likely differ by the time a given month arrives) and the Direct Debit
+// amount (Octopus reviews and can change it). Everything else — the exact
+// day count per month, today's standing charge, last year's real usage —
+// is exact, not estimated.
+//
+// A cycle falls back to a flat repeat of this month's predicted cost only
+// when no matching month exists in the bill history (new account, or a
+// gap from tariff-switch bill bunching — same limitation already
+// documented for the bill-year chart's 15-bill buffer).
+function todayBlendedRateP(fuel) {
+  const mtd = fuelData[fuel]?.mtd;
+  if (!mtd || !mtd.kwh) return null;
+  return (mtd.cost / mtd.kwh) * 100; // pence/kWh, matching the app's existing pence-based rate convention
+}
+
+function computeBalanceForecast() {
+  if (!billingState.hasNextPayment || billingState.balancePounds === null || billingState.nextPaymentAmount === null) return null;
+  const elecRateP = todayBlendedRateP('elec');
+  const gasRateP = todayBlendedRateP('gas');
+  if (elecRateP === null && gasRateP === null) return null;
+
+  const monthByKey = new Map(billMonthsData.map(m => [`${m.year}-${m.month}`, m]));
+  const now = new Date();
+  let running = billingState.balancePounds;
+  const cycles = [];
+
+  for (let i = 1; i <= 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const lastYearKey = `${d.getFullYear() - 1}-${d.getMonth()}`;
+    const histMonth = monthByKey.get(lastYearKey);
+    const days = daysInMonth(d);
+    let elecCost, gasCost, fallback;
+
+    if (histMonth && (histMonth.elecKwh > 0 || histMonth.gasKwh > 0) && elecRateP !== null) {
+      elecCost = (histMonth.elecKwh * elecRateP / 100) + ((cachedElecStandingP || 0) / 100 * days);
+      gasCost = gasRateP !== null ? (histMonth.gasKwh * gasRateP / 100) + ((cachedGasStandingP || 0) / 100 * days) : 0;
+      fallback = false;
+    } else {
+      // No matching month last year — flat repeat of this month's own
+      // predicted cost, same assumption the original single-cycle trend made.
+      elecCost = fuelData.elec?.predicted?.cost || 0;
+      gasCost = fuelData.gas?.predicted?.cost || 0;
+      fallback = true;
+    }
+
+    const payment = billingState.nextPaymentAmount;
+    running += payment - elecCost - gasCost;
+    cycles.push({
+      label: d.toLocaleDateString('en-GB', { month: 'short' }),
+      full: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+      fallback,
+      elec: -elecCost,
+      gas: -gasCost,
+      payment,
+      cumulative: running,
+      sourceYear: histMonth ? d.getFullYear() - 1 : null,
+      sourceMonthLabel: histMonth ? new Date(d.getFullYear() - 1, d.getMonth(), 1).toLocaleDateString('en-GB', { month: 'short' }) : null
+    });
+  }
+  return cycles;
+}
+
+let balanceForecastData = [];
+let selectedForecastCycle = null;
+
+function renderBalanceForecastBreakdown(index) {
+  const box = $('insights-runway-breakdown');
+  if (!box) return;
+  if (index === null || !balanceForecastData[index]) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  const d = balanceForecastData[index];
+  const source = d.fallback
+    ? `Not enough billing history for ${d.label} yet — using this month's own predicted cost as a flat estimate.`
+    : `Based on ${d.sourceMonthLabel} ${d.sourceYear} usage, priced at today's rates`;
+  box.innerHTML = `<div class="breakdown-date">${d.full}</div>`
+    + `<div class="breakdown-source">${source}</div>`
+    + breakdownRow('Payment', 'seg-payment', fmtGBP(d.payment), null)
+    + breakdownRow('Electricity', 'seg-peak', fmtGBP(d.elec), null)
+    + breakdownRow('Gas', 'seg-gas-usage', fmtGBP(d.gas), null)
+    + `<div class="breakdown-total"><span>Projected balance</span><span style="color:${d.cumulative < 0 ? 'var(--coral)' : 'var(--mint)'}">${fmtGBP(d.cumulative)}</span></div>`;
+}
+
+function renderBalanceForecastChart() {
+  const wrap = $('insights-runway-chart-wrap');
+  if (!balanceForecastData.length) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+
+  const maxPos = Math.max(...balanceForecastData.map(c => c.cumulative), 1);
+  const maxNeg = Math.abs(Math.min(...balanceForecastData.map(c => c.cumulative), 0)) || 1;
+  const range = maxPos + maxNeg;
+  const chartH = 100;
+  const posH = (maxPos / range) * chartH;
+  const negH = chartH - posH;
+
+  $('insights-runway-zeroline').style.top = posH + 'px';
+  $('insights-runway-scale').innerHTML =
+    `<span style="position:absolute;top:0px;right:0;transform:translateY(-50%)">${fmtGBP(Math.ceil(maxPos))}</span>`
+    + `<span style="position:absolute;top:${posH}px;right:0;transform:translateY(-50%)">£0</span>`
+    + `<span style="position:absolute;top:${chartH}px;right:0;transform:translateY(-50%)">${fmtGBP(-Math.ceil(maxNeg))}</span>`;
+
+  $('insights-runway-bars').innerHTML = balanceForecastData.map((c, i) => {
+    const isNeg = c.cumulative < 0;
+    const h = isNeg ? Math.max(2, Math.round((Math.abs(c.cumulative) / maxNeg) * negH))
+                     : Math.max(2, Math.round((c.cumulative / maxPos) * posH));
+    const pos = isNeg ? `top:${posH}px;height:${h}px` : `bottom:${negH}px;height:${h}px`;
+    const cls = 'forecast-bar' + (isNeg ? ' neg' : '') + (c.fallback ? ' fallback' : '') + (i === selectedForecastCycle ? ' selected' : '');
+    return `<div class="forecast-col"><div class="forecast-bar-wrap" data-index="${i}"><div class="${cls}" style="${pos}"></div></div></div>`;
+  }).join('');
+  $('insights-runway-labels').innerHTML = balanceForecastData.map((c, i) =>
+    `<span class="${i === selectedForecastCycle ? 'active-day' : ''}">${c.label}</span>`).join('');
+
+  renderBalanceForecastBreakdown(selectedForecastCycle);
+}
+
 function renderInsightsBilling() {
   const icon = $('insights-runway-icon'), headline = $('insights-runway-headline'), detail = $('insights-runway-detail');
-  if (!billingState.hasNextPayment || billingState.trend === null || billingState.balancePounds === null) {
+  balanceForecastData = computeBalanceForecast() || [];
+
+  if (!balanceForecastData.length) {
     icon.textContent = '—';
     headline.textContent = 'Not enough data yet';
     headline.className = 'runway-headline';
-    detail.textContent = 'Needs a Direct Debit figure to project from — see the Billing card above.';
+    detail.textContent = 'Needs a Direct Debit figure and at least one fuel\'s rate to project from — see the Billing card above.';
+    $('insights-runway-chart-wrap').classList.add('hidden');
     return;
   }
-  const { trend, balancePounds } = billingState;
-  if (trend >= 0) {
+
+  if (selectedForecastCycle === null) {
+    // Default to the lowest point — the number the headline itself refers
+    // to, so tapping isn't required to see what "lowest point" means.
+    let lowIdx = 0;
+    balanceForecastData.forEach((c, i) => { if (c.cumulative < balanceForecastData[lowIdx].cumulative) lowIdx = i; });
+    selectedForecastCycle = lowIdx;
+  }
+
+  const allPositive = balanceForecastData.every(c => c.cumulative >= 0);
+  if (allPositive) {
+    const avgNet = (balanceForecastData[balanceForecastData.length - 1].cumulative - billingState.balancePounds) / balanceForecastData.length;
     icon.textContent = '📈';
     headline.className = 'runway-headline ok';
     headline.textContent = 'Building steadily — no action needed';
-    detail.textContent = `At ${fmtGBP(trend)}/mo, balance keeps growing`;
+    detail.textContent = `At ${fmtGBP(avgNet)}/mo on average, balance keeps growing`;
   } else {
-    const monthsLeft = balancePounds / Math.abs(trend);
-    const zeroDate = new Date();
-    zeroDate.setDate(zeroDate.getDate() + Math.round(monthsLeft * 30.44));
+    const dipIdx = balanceForecastData.findIndex(c => c.cumulative < 0);
+    const recoverIdx = balanceForecastData.findIndex((c, i) => i > dipIdx && c.cumulative >= 0);
+    let lowIdx = 0;
+    balanceForecastData.forEach((c, i) => { if (c.cumulative < balanceForecastData[lowIdx].cumulative) lowIdx = i; });
     icon.textContent = '⚠️';
     headline.className = 'runway-headline warn';
-    headline.textContent = `Projected to reach £0 around ${zeroDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
-    detail.textContent = `Drawing down ${fmtGBP(trend)}/mo from ${fmtGBP(balancePounds)} now`;
+    headline.textContent = recoverIdx !== -1
+      ? `Dips into debit from ${balanceForecastData[dipIdx].label}, recovers by ${balanceForecastData[recoverIdx].label}`
+      : `Still projected to be in debit by ${balanceForecastData[balanceForecastData.length - 1].label} (12-month horizon)`;
+    detail.textContent = `Lowest point: ${fmtGBP(balanceForecastData[lowIdx].cumulative)} in ${balanceForecastData[lowIdx].label}`;
   }
+
+  renderBalanceForecastChart();
 }
 
 function renderInsightsStanding() {
@@ -1372,10 +1512,13 @@ async function loadLiveUsage() {
     $('live-unavailable').classList.remove('hidden');
     $('live-body').style.display = 'none';
     $('live-tag').style.display = 'none';
+    $('live30-toggle').classList.add('hidden');
+    closeLive30();
     return false;
   }
   $('live-unavailable').classList.add('hidden');
   $('live-body').style.display = '';
+  $('live30-toggle').classList.remove('hidden');
 
   try {
     const now = new Date();
@@ -1416,6 +1559,87 @@ async function loadLiveUsage() {
     $('live-updated').textContent = 'Unavailable right now';
     return false;
   }
+}
+
+// Last-30-minutes panel — lazy-loaded only when opened (not part of the
+// regular 30s live poll), and kept genuinely live with its own 30s refresh
+// while open, matching the request that this stay "truly live" like the
+// headline draw figure. Goes through krakenGQL (Kraken's GraphQL endpoint),
+// not octRest, so it never touches the REST-call diagnostic counter — that
+// counter only tracks Octopus's separate REST API.
+//
+// Uses the same TEN_SECONDS grouping already proven to work for the 2-minute
+// query above, rather than guessing at an unconfirmed coarser grouping enum
+// value that could break the whole query if wrong (same caution already
+// applied elsewhere in this file, e.g. the EV dispatch type introspection).
+// Up to 180 raw points get bucketed client-side into 1-minute bars instead.
+let live30Open = false;
+let live30Interval = null;
+
+function bucketTelemetryByMinute(points, now) {
+  const buckets = Array.from({ length: 30 }, () => 0);
+  const windowStart = new Date(now.getTime() - 30 * 60 * 1000);
+  for (const p of points) {
+    const t = new Date(p.readAt);
+    const minutesAgo = Math.floor((now - t) / 60000);
+    const idx = 29 - minutesAgo; // idx 0 = oldest, idx 29 = most recent minute
+    if (idx >= 0 && idx < 30) buckets[idx] += (+p.consumptionDelta || 0);
+  }
+  return buckets;
+}
+
+async function loadLive30() {
+  const deviceId = await getLiveDeviceId();
+  if (!deviceId) return false;
+  try {
+    const now = new Date();
+    const start = new Date(now.getTime() - 30 * 60 * 1000);
+    const data = await krakenGQL(`
+      query LiveTelemetry30($deviceId: String!, $start: DateTime!, $end: DateTime!) {
+        smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $start, end: $end) {
+          readAt consumptionDelta
+        }
+      }`, { deviceId, start: start.toISOString(), end: now.toISOString() });
+
+    const points = data?.smartMeterTelemetry || [];
+    const buckets = bucketTelemetryByMinute(points, now);
+    const totalWh = buckets.reduce((s, v) => s + v, 0);
+
+    $('live30-total').innerHTML = `<b>${totalWh.toFixed(0)}</b> Wh used`;
+    const max = Math.max(...buckets, 0.01);
+    renderChartScale('live30-scale', max, v => v.toFixed(0));
+    $('live30-bars').innerHTML = buckets.map((v, i) => {
+      const h = Math.max(1, Math.round((v / max) * 70));
+      const isLatest = i === buckets.length - 1;
+      return `<div class="live30-bar${isLatest ? ' latest' : ''}" style="height:${h}px" title="${v.toFixed(1)} Wh"></div>`;
+    }).join('');
+    const startLabel = new Date(now.getTime() - 30 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const midLabel = new Date(now.getTime() - 15 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const endLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    $('live30-axis').innerHTML = `<span>${startLabel}</span><span>${midLabel}</span><span>${endLabel}</span>`;
+    return true;
+  } catch (err) {
+    logIssue('Live usage (30 min)', err);
+    return false;
+  }
+}
+
+function closeLive30() {
+  live30Open = false;
+  $('live30-toggle')?.setAttribute('aria-expanded', 'false');
+  $('live30-panel')?.classList.add('hidden');
+  if (live30Interval) { clearInterval(live30Interval); live30Interval = null; }
+}
+
+function openLive30() {
+  live30Open = true;
+  $('live30-toggle').setAttribute('aria-expanded', 'true');
+  $('live30-panel').classList.remove('hidden');
+  loadLive30();
+  // Own 30s refresh while open, matching the headline draw figure's cadence
+  // — stops the moment the panel closes, so it's not fetching in the
+  // background when nobody's looking at it.
+  live30Interval = setInterval(loadLive30, 30 * 1000);
 }
 
 // EV card collapse: hidden by default whenever idle with nothing scheduled,
@@ -1795,12 +2019,12 @@ async function loadBilling() {
         const pill = $('balance-trend-pill');
         pill.className = 'trend-pill ' + (trend >= 0 ? 'up' : 'down');
         pill.textContent = `${trend >= 0 ? '↑' : '↓'} ${fmtGBP(trend)}/mo`;
-        billingState = { balancePounds, trend, hasNextPayment: true };
+        billingState = { balancePounds, trend, hasNextPayment: true, nextPaymentAmount: nextPayment.amount / 100 };
 
         $('balance-after-dd-row').style.display = '';
       } else {
         $('balance-after-dd-row').style.display = 'none';
-        billingState = { balancePounds, trend: null, hasNextPayment: false };
+        billingState = { balancePounds, trend: null, hasNextPayment: false, nextPaymentAmount: null };
       }
     }
 
@@ -2024,18 +2248,35 @@ async function loadBilling() {
       // (see .slice(-12) below), so it stays a consistent width regardless
       // of how many bills that took.
       try {
-        const grouped = new Map(); // key 'YYYY-M' -> { year, month, gas, elec, total, bills: [{issuedDate, temporaryUrl}] }
+        // consumption.unit is usually KILOWATT_HOUR for electricity and
+        // either KILOWATT_HOUR or CUBIC_METERS for gas depending on the
+        // meter — same m3→kWh conversion already used in costForRange/
+        // fetchYearMonthly (volume correction × calorific value ÷ 3.6),
+        // applied per-item here rather than assuming a fixed unit.
+        function itemToKwh(t) {
+          const q = parseFloat(t.consumption?.quantity);
+          if (!Number.isFinite(q)) return 0;
+          const unit = t.consumption?.unit;
+          if (unit === 'CUBIC_METERS' || unit === 'CUBIC_METRE') return q * 1.02264 * gasCalorificValue() / 3.6;
+          return q; // already kWh (or close enough — KILOWATT_HOUR, or an unrecognized unit passed through rather than silently dropped)
+        }
+        const grouped = new Map(); // key 'YYYY-M' -> { year, month, gas, elec, gasKwh, elecKwh, total, bills: [{issuedDate, temporaryUrl}] }
         (txnsByBill || []).forEach(({ bill, items }) => {
           const issued = new Date(bill.issuedDate);
           const key = `${issued.getFullYear()}-${issued.getMonth()}`;
-          const gas = (items || []).filter(t => isCharge(t) && /gas/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
-          const elec = (items || []).filter(t => isCharge(t) && /electric/i.test(t.title)).reduce((s, t) => s + t.amounts.gross, 0) / 100;
+          const gasItems = (items || []).filter(t => isCharge(t) && /gas/i.test(t.title));
+          const elecItems = (items || []).filter(t => isCharge(t) && /electric/i.test(t.title));
+          const gas = gasItems.reduce((s, t) => s + t.amounts.gross, 0) / 100;
+          const elec = elecItems.reduce((s, t) => s + t.amounts.gross, 0) / 100;
+          const gasKwh = gasItems.reduce((s, t) => s + itemToKwh(t), 0);
+          const elecKwh = elecItems.reduce((s, t) => s + itemToKwh(t), 0);
           if (grouped.has(key)) {
             const g = grouped.get(key);
             g.gas += gas; g.elec += elec; g.total += gas + elec;
+            g.gasKwh += gasKwh; g.elecKwh += elecKwh;
             g.bills.push({ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl });
           } else {
-            grouped.set(key, { year: issued.getFullYear(), month: issued.getMonth(), gas, elec, total: gas + elec, bills: [{ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl }] });
+            grouped.set(key, { year: issued.getFullYear(), month: issued.getMonth(), gas, elec, gasKwh, elecKwh, total: gas + elec, bills: [{ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl }] });
           }
         });
         const monthsData = Array.from(grouped.values())
@@ -2387,7 +2628,7 @@ async function saveSettings() {
 // Two-tier automatic background refresh (see the comment above loadFastTier
 // for the full reasoning): rates + EV are cheap and time-sensitive, so they
 // keep checking every 5 minutes like before. Billing is expensive (~25+
-// requests) and not time-sensitive, so it drops to every 30 minutes —
+// requests) and not time-sensitive, so it drops to every 6 hours —
 // that bundle running as often as everything else was the likely cause
 // of intermittent "Unavailable" flashes on data that genuinely was there.
 //
@@ -2435,6 +2676,7 @@ function init() {
     btn.setAttribute('aria-label', showing ? 'Show API key' : 'Hide API key');
   });
   $('advanced-toggle').addEventListener('click', () => $('advanced-fields').classList.toggle('hidden'));
+  $('live30-toggle').addEventListener('click', () => { live30Open ? closeLive30() : openLive30(); });
   $('ev-header').addEventListener('click', () => {
     const currentlyExpanded = !$('ev-body').classList.contains('hidden');
     evManualOverride = !currentlyExpanded;
@@ -2532,6 +2774,23 @@ function init() {
       el.classList.toggle('selected', parseInt(el.dataset.index, 10) === selectedBillMonth);
     });
     renderBillYearBreakdown(selectedBillMonth);
+  });
+
+  // Same tap-to-reveal pattern for the balance runway forecast — tap a
+  // cycle's bar to see that month's payment/electricity/gas composition.
+  $('insights-runway-bars').addEventListener('click', (e) => {
+    const bar = e.target.closest('.forecast-bar-wrap');
+    if (!bar) return;
+    const index = parseInt(bar.dataset.index, 10);
+    if (Number.isNaN(index)) return;
+    selectedForecastCycle = (selectedForecastCycle === index) ? null : index;
+    document.querySelectorAll('#insights-runway-bars .forecast-bar-wrap').forEach(el => {
+      el.classList.toggle('selected', parseInt(el.dataset.index, 10) === selectedForecastCycle);
+    });
+    document.querySelectorAll('#insights-runway-labels span').forEach((el, i) => {
+      el.classList.toggle('active-day', i === selectedForecastCycle);
+    });
+    renderBalanceForecastBreakdown(selectedForecastCycle);
   });
 
   // Same tap-to-reveal pattern for the Day view's half-hourly slots.

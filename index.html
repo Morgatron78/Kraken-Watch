@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.71">
+<link rel="stylesheet" href="styles.css?v=2.73">
 </head>
 <body>
 <div class="wrap">
@@ -85,11 +85,28 @@
           <div class="big-value" id="live-watts">—<span>W</span></div>
           <div class="sub" id="live-cost-rate"></div>
           <div class="sub" id="live-updated">Not connected</div>
+          <button class="live30-toggle hidden" id="live30-toggle" aria-expanded="false">
+            Last 30 min
+            <svg width="9" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
         </div>
         <div class="state-block hidden" id="live-unavailable" style="padding:12px 4px 4px;">
           <div class="state-desc" style="font-size:11px;">No live-telemetry device found — needs an Octopus Home Mini or similar. Everything else works without one.</div>
         </div>
       </div>
+    </div>
+
+    <!-- LIVE USAGE — LAST 30 MINUTES (lazy-loaded, only fetched while open) -->
+    <div class="live30-panel hidden" id="live30-panel">
+      <div class="live30-head">
+        <div class="live30-title"><span class="live30-dot"></span>Live usage — last 30 min</div>
+        <div class="live30-total mono" id="live30-total">—</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-scale" id="live30-scale"></div>
+        <div class="live30-bars" id="live30-bars" style="height:70px;"></div>
+      </div>
+      <div class="live30-axis" id="live30-axis"></div>
     </div>
 
     <!-- EV CHARGING -->
@@ -439,6 +456,23 @@
                 <div class="runway-detail" id="insights-runway-detail">—</div>
               </div>
             </div>
+            <div class="forecast-wrap hidden" id="insights-runway-chart-wrap">
+              <div class="forecast-caption">Last year's usage, priced at today's rates</div>
+              <div class="chart-row">
+                <div class="forecast-scale" id="insights-runway-scale"></div>
+                <div class="forecast-chart-inner">
+                  <div class="forecast-zero-line" id="insights-runway-zeroline"></div>
+                  <div class="forecast-bars" id="insights-runway-bars"></div>
+                </div>
+              </div>
+              <div class="forecast-labels" id="insights-runway-labels"></div>
+              <div class="forecast-legend">
+                <span><i style="background:var(--mint)"></i>Projected in credit</span>
+                <span><i style="background:var(--coral)"></i>Projected in debit</span>
+                <span><i class="fallback-swatch"></i>No usage history — flat estimate</span>
+              </div>
+              <div class="breakdown-box hidden" id="insights-runway-breakdown"></div>
+            </div>
           </div>
         </div>
 
@@ -535,6 +569,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.71"></script>
+<script src="app.js?v=2.73"></script>
 </body>
 </html>
