@@ -181,7 +181,6 @@ button{font-family:inherit;cursor:pointer;}
 .chart-legend span{display:inline-flex;align-items:center;gap:5px;}
 .chart-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;}
 
-.week-bar span.active-day{color:var(--text);font-weight:600;}
 
 .breakdown-box{
   margin-top:14px;background:rgba(255,255,255,0.03);border:1px solid var(--line);
@@ -484,7 +483,11 @@ button{font-family:inherit;cursor:pointer;}
 .forecast-bar.selected{outline:2px solid var(--text);outline-offset:1px;}
 .forecast-labels{display:flex;gap:3px;margin-top:8px;padding-left:43px;}
 .forecast-labels span{flex:1;text-align:center;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9px;color:var(--text-dim);min-width:0;}
-.forecast-labels span.active-day{color:var(--text);font-weight:600;}
+/* active-day always means the same thing (bold + full-color selected
+   label) regardless of which chart it's in — one unscoped rule covers
+   week-bar, forecast-labels, and bt-bar (bill-year chart) alike, instead
+   of a separate scoped copy per chart that a new chart can silently miss. */
+.active-day{color:var(--text);font-weight:600;}
 .forecast-legend{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);}
 .forecast-legend span{display:inline-flex;align-items:center;gap:5px;}
 .forecast-legend i{width:9px;height:9px;border-radius:2px;display:inline-block;}

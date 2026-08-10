@@ -9,11 +9,26 @@ one screen, with your own API credentials stored only on your device.
 | Panel | What it shows | Status |
 |---|---|---|
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
-| Live usage | Current draw (W), £/hr estimate, color-coded by level | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
+| Live usage | Current draw (W), £/hr estimate, color-coded by level. A "Last 30 min" toggle expands a pink Wh bar chart below the half-row — lazy-loaded only on expand, refreshes every 30s while open, stops the moment it's closed. Uses `smartMeterTelemetry` at `TEN_SECONDS` grouping, bucketed into 1-minute bars client-side (goes through Kraken GraphQL, so it never counts against the REST-call diagnostic) | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
 | EV charging | Dispatch windows, session kWh/cost, this week — auto-collapses when idle with nothing scheduled. Title shows the registered vehicle's make and short model (e.g. "EV charging — Polestar 2"), with the fuller model detail as a smaller caption underneath. Dispatch windows and week chart sit in their own pink sub-panel (electricity's color); the active "Dispatching now" slot and header status badge both go pink while charging | **Live**, via Kraken GraphQL |
 | Consumption (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown | **Live** |
 | Billing | Account balance and projected balance as two neutral side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns. Bill history: fetches the last 15 bills (see below for why), most recent always expanded with its breakdown collapsible, the rest behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill. Below that, a bill-total-over-time chart grouped by calendar month (not one bar per bill — see below), stacked gas (blue)/electricity (pink), capped to the most recent 12 distinct months | **Live** |
-| Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, balance runway projection, annual standing charge total | **Live**, lazy-loads a month of data on first expand |
+| Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, annual standing charge total, and a 12-month season-aware balance runway forecast (see below) | **Live**, lazy-loads a month of data on first expand |
+
+**Balance runway forecast**, in more detail: for each of the next 12 payment
+cycles, prices *last year's same calendar month's real kWh* (from the same
+bill-history data already fetched for the bill-total chart, no extra API
+calls) at *today's* blended rate, plus today's standing charge × the exact
+number of days in that month. Falls back to a flat repeat of this month's
+own predicted cost only when no matching month exists in the bill history
+(new account, or a bill-bunching gap from a tariff switch). Chart bars show
+the real cumulative trajectory (mint = projected credit, coral = projected
+debit) rather than each cycle's raw composition — tap a bar to see that
+cycle's payment/electricity/gas breakdown and which real month it's priced
+from. Two things stay fixed at today's value throughout, since neither is
+knowable this far out: the unit rate (variable tariffs will likely differ
+by the time a given month arrives) and the Direct Debit amount (Octopus
+reviews and can change it).
 
 If a live call fails, that section shows "Unavailable" rather than a fake
 number. Demo data is available for testing but is **off by default** —
@@ -59,6 +74,45 @@ nearby, where "up" genuinely is good (balance growing). Two separate
 instances of this exact bug shipped and were caught by the user, not code
 review — worth double-checking by hand whenever a new comparison like this
 gets added.
+
+## Typography
+
+Two families, each with one job:
+
+- **Space Grotesk** — titles and headlines only: card titles, panel titles
+  (`.card-title`, `.fuel-panel-title`, `.live30-title`), headline text
+  (`.runway-headline`), the brand name, buttons. Nothing else uses it.
+- **Inter** — everything smaller: labels, captions, chart text, data values,
+  pills, breakdown rows. Replaced IBM Plex Mono in v2.76 — mono looked the
+  part but stopped being legible once the Insights/diagnostics/balance-runway
+  panels started packing real density into small spaces. Inter holds up
+  much better below 11px and keeps `font-variant-numeric: tabular-nums` so
+  numeric columns (rates, breakdown amounts) still align the way the old
+  mono figures did.
+
+Five deliberate size tiers for anything smaller than a title (all Inter):
+
+| Role | Examples | Size |
+|---|---|---|
+| Uppercase eyebrow labels | `.stat-label`, `.big-label`, `.insight-label` | 10px |
+| Dim secondary captions | `.runway-detail`, `.trend-caption`, `.forecast-caption` | 10.5px |
+| Chart axis/scale labels | `.chart-scale`, `.time-axis`, `.forecast-scale` | 9px |
+| List/row item text | `.breakdown-row`, `.bh-item`, `.slot` | 11.5px |
+| Pills/badges/toggles | `.card-tag`, `.trend-pill`, `.unit-toggle-btn` | 10.5px |
+
+Before this pass, the same five roles were scattered across 8+ different
+sizes (9px–11.5px) with no clear logic, and roughly half the "small text"
+rules were silently inheriting Space Grotesk rather than ever declaring a
+font at all — invisible until sizes were compared side by side.
+
+**A real gotcha from doing this migration, worth remembering for the next
+one:** a global find/replace on the old font name (`IBM Plex Mono`) only
+catches rules that *explicitly* declared it. Any rule that never declared a
+font-family — and was silently inheriting the page default instead — sails
+straight through that kind of sweep untouched, even though it's exactly the
+kind of rule a font migration is supposed to catch. 18 rules were like this
+here. The only reliable check is auditing for *any* rule missing a
+font-family in the target category, not just grepping for the old value.
 
 ## Performance
 
@@ -255,11 +309,6 @@ to spot the actual cause rather than guessing.
   fields (`savingSessions`, `joinSavingSessionsCampaign`) are deprecated on
   Octopus's side as of early 2026, with no confirmed working replacement.
   Not built.
-- **Polestar/Smartcar integration** (state of charge, charging status in the
-  EV panel) — researched thoroughly (real signal names, ~$3/month Smartcar
-  plan, webhook-based to avoid 12V battery drain risk) and technically
-  viable, but parked since the user can already see this via existing phone
-  widgets. Revisit if wanted later — the groundwork is already scoped.
 - **Native app wrapper with Lock Screen/Watch widgets** — technically
   possible via Capacitor, but genuine widgets need a separate native
   Swift/WidgetKit codebase and a paid ($99/year) Apple Developer account for

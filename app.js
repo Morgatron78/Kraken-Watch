@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.81';
+const APP_VERSION = 'v2.82';
 
 const store = {
   get creds() {
@@ -1771,23 +1771,6 @@ async function loadEV() {
 
     const planned = data.plannedDispatches || [];
     const completed = data.completedDispatches || [];
-
-    // One-off: yesterday's `source` guess (found via a community GitHub
-    // issue, not official docs) broke the whole query above — a schema
-    // validation error fails the entire request, not just that one field,
-    // confirmed by this account's real diagnostics. The error itself
-    // named the actual concrete type though: UpsideDispatchType. Rather
-    // than guess again, introspect that type directly — same safe pattern
-    // that worked for BillCharge/TransactionAmountType, since introspection
-    // is its own separate query and can't break the real one above.
-    try {
-      const typeData = await krakenGQL(`
-        query IntrospectDispatchType {
-          __type(name: "UpsideDispatchType") { fields { name } }
-        }`, {});
-      const fields = (typeData?.__type?.fields || []).map(f => f.name).join(', ');
-      logDebug('UpsideDispatchType fields', fields || '(none returned — type name may differ from what the error reported)');
-    } catch (err) { logIssue('Dispatch type introspection', err); }
 
     const now = new Date();
     // "Charging" means a dispatch window is actually in progress right now —
