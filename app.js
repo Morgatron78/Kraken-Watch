@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.93';
+const APP_VERSION = 'v2.94';
 
 const store = {
   get creds() {
@@ -1764,7 +1764,29 @@ async function loadVehicleInfoOnce() {
 async function loadEV() {
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
-  return loadEVLegacy();
+
+  // No legacy fallback — a failed sync now shows a genuine Unavailable
+  // state rather than silently substituting the old dispatch-only UI with
+  // different (older, less accurate) data. Recovers naturally on the next
+  // auto-sync. The old dispatch-only path is archived separately
+  // (ev-legacy-archive.js) if this decision ever needs revisiting.
+  if (demoFallbackEnabled()) {
+    populateDemoEV();
+  } else {
+    $('ev-tag').textContent = 'Unavailable';
+    $('ev-tag').className = 'card-tag tag-dim';
+    $('ev-ready').textContent = '—';
+    $('ev-added').textContent = '—';
+    $('ev-battery-row').classList.add('hidden');
+    $('ev-view-toggle').classList.add('hidden');
+    $('ev-week-legend').classList.add('hidden');
+    $('ev-slots-session').classList.add('hidden');
+    $('ev-slots-dispatch').classList.remove('hidden');
+    $('ev-slots-dispatch').innerHTML = '<div class="slot">Unavailable right now</div>';
+    $('ev-week').innerHTML = '';
+    $('ev-week-totals').innerHTML = '<span>—</span>';
+  }
+  return false;
 }
 
 // New path: devices → SmartFlexVehicle → chargingSessions. devices() takes
@@ -1801,7 +1823,6 @@ async function loadEVSmartFlex() {
               node {
                 ... on SmartFlexChargingSession {
                   start end type
-                  cost { amount }
                   energyAdded { value }
                   stateOfChargeFinal
                   dispatches { start end type energyAddedKwh }
@@ -1892,15 +1913,14 @@ async function loadEVSmartFlex() {
   const sessionSlots = $('ev-slots-session');
   sessionSlots.innerHTML = [...sessions].reverse().map(s => {
     const kwh = s.energyAdded?.value;
-    const cost = s.cost?.amount;
     const startD = new Date(s.start);
     const dayLabel = startD.toDateString() === now.toDateString() ? 'Today'
       : startD.toDateString() === new Date(now - 86400000).toDateString() ? 'Yesterday'
       : startD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     const socText = s.stateOfChargeFinal != null ? `<span class="slot-soc">→ ${Math.round(s.stateOfChargeFinal)}%</span>` : '';
-    return `<div class="slot done">
+    return `<div class="slot">
       <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}</div>
-      <div class="slot-row"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}${cost != null ? ' · £' + Math.abs(cost).toFixed(2) : ''}</b>${socText}</div>
+      <div class="slot-row"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${socText}</div>
     </div>`;
   }).join('');
   if (!sessionSlots.children.length) sessionSlots.innerHTML = '<div class="slot">No charging sessions this week</div>';
@@ -1908,113 +1928,22 @@ async function loadEVSmartFlex() {
   $('ev-view-toggle').classList.remove('hidden');
   $('ev-week-legend').classList.remove('hidden');
 
-  // This session / avg rate — now real per-session figures where available,
-  // rather than approximating rate as today's cheapest.
+  // This session — real per-session kWh. Cost was removed: Octopus's
+  // SmartFlex API confirmed via diagnostics to return cost:null for every
+  // session tested (not zero, not a query mistake), so showing "£0.00"
+  // would misleadingly read as free rather than "unavailable". Matches
+  // the original EV panel's decision from early in the project, made for
+  // the same reason via the older dispatch API.
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todaysSessions = sessions.filter(s => new Date(s.start) >= startOfToday);
   const sessionKwh = todaysSessions.reduce((sum, s) => sum + Math.abs(s.energyAdded?.value || 0), 0);
-  const sessionCost = todaysSessions.reduce((sum, s) => sum + Math.abs(s.cost?.amount || 0), 0);
   $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
-  $('ev-cost').textContent = `£${sessionCost.toFixed(2)}`;
-  $('ev-avg-rate').textContent = sessionKwh > 0 ? `${((sessionCost / sessionKwh) * 100).toFixed(1)}p/kWh` : '—';
 
   evWeekBuckets = renderEVWeekChart(sessions, now);
   $('ev-week-breakdown').classList.add('hidden');
   evWeekSelectedDay = null;
 
   return true;
-}
-
-// Original path — completedDispatches/plannedDispatches only, kWh
-// approximated at today's cheapest rate. Kept as the fallback for any
-// account where the SmartFlex query above returns nothing (no EV device
-// registered under that path, or a schema difference on another account).
-async function loadEVLegacy() {
-  try {
-    const data = await krakenGQL(`
-      query IOGStatus($accountNumber: String!) {
-        completedDispatches(accountNumber: $accountNumber) { start end delta }
-        plannedDispatches(accountNumber: $accountNumber) { start end delta }
-      }`, { accountNumber: store.creds.accountNumber });
-
-    const planned = data.plannedDispatches || [];
-    const completed = data.completedDispatches || [];
-
-    const now = new Date();
-    const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
-    $('ev-tag').textContent = activeDispatch ? 'CHARGING' : (planned.length ? 'SCHEDULED' : 'IDLE');
-    if (activeDispatch) $('ev-tag').className = 'card-tag tag-pink';
-    else if (planned.length) $('ev-tag').className = 'card-tag tag-amber';
-    else $('ev-tag').className = 'card-tag tag-dim';
-
-    applyEvCollapse(!!activeDispatch || planned.length > 0);
-
-    if (planned[0]) {
-      const s = new Date(planned[0].start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const e = new Date(planned[0].end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      $('ev-ready').textContent = `${s} – ${e}`;
-    } else {
-      $('ev-ready').textContent = 'None scheduled';
-    }
-
-    $('ev-battery-row').classList.add('hidden');
-    $('ev-view-toggle').classList.add('hidden');
-    $('ev-week-legend').classList.add('hidden');
-    $('ev-slots-session').classList.add('hidden');
-    $('ev-slots-dispatch').classList.remove('hidden');
-
-    const slots = $('ev-slots-dispatch');
-    slots.innerHTML = '';
-    [...completed].reverse().forEach(d => {
-      slots.insertAdjacentHTML('beforeend', `<div class="slot done"><span>✓ ${new Date(d.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(d.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><b>Completed · ${Math.abs(+d.delta).toFixed(1)} kWh</b></div>`);
-    });
-    planned.forEach(d => {
-      const isActive = now >= new Date(d.start) && now < new Date(d.end);
-      const label = isActive ? '● Dispatching now' : 'Planned';
-      const cls = isActive ? ' active' : ' scheduled';
-      slots.insertAdjacentHTML('beforeend', `<div class="slot${cls}"><span>${new Date(d.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(d.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><b>${label}</b></div>`);
-    });
-    if (!slots.children.length) slots.innerHTML = '<div class="slot">No dispatch windows scheduled</div>';
-
-    const rateP = cachedOffPeakRateP ?? 7.5;
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todaysCompleted = completed.filter(d => new Date(d.start) >= startOfToday);
-    const sessionKwh = todaysCompleted.reduce((s, d) => s + (+d.delta), 0);
-    $('ev-added').textContent = `${Math.abs(sessionKwh).toFixed(1)} kWh`;
-    $('ev-cost').textContent = fmtGBP(sessionKwh * rateP / 100);
-    $('ev-avg-rate').textContent = `${rateP.toFixed(1)}p/kWh`;
-
-    const dayTotals = Array(7).fill(0);
-    const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 6);
-    completed.forEach(d => {
-      const dayIdx = Math.floor((new Date(d.start) - startOfWeek) / 86400000);
-      if (dayIdx >= 0 && dayIdx < 7) dayTotals[dayIdx] += (+d.delta);
-    });
-    renderWeekBars('ev-week', dayTotals, '', v => `${Math.abs(v).toFixed(1)} kWh`);
-    const weekKwh = dayTotals.reduce((a, b) => a + b, 0);
-    $('ev-week-totals').innerHTML = `<span><b>${Math.abs(weekKwh).toFixed(1)} kWh</b> added</span><span><b>${fmtGBP(weekKwh * rateP / 100)}</b> total</span><span><b>${rateP.toFixed(1)}p</b> avg</span>`;
-
-    return true;
-  } catch (err) {
-    logIssue('EV dispatch', err);
-    if (demoFallbackEnabled()) {
-      populateDemoEV();
-    } else {
-      $('ev-tag').textContent = 'Unavailable';
-      $('ev-tag').className = 'card-tag tag-dim';
-      $('ev-ready').textContent = '—';
-      $('ev-added').textContent = '—';
-      $('ev-cost').textContent = '—';
-      $('ev-avg-rate').textContent = '—';
-      $('ev-battery-row').classList.add('hidden');
-      $('ev-view-toggle').classList.add('hidden');
-      $('ev-week-legend').classList.add('hidden');
-      $('ev-slots-dispatch').innerHTML = '<div class="slot">Unavailable right now</div>';
-      renderWeekBars('ev-week', [0, 0, 0, 0, 0, 0, 0], '');
-      $('ev-week-totals').innerHTML = '<span>—</span><span>—</span><span>—</span>';
-    }
-    return false;
-  }
 }
 
 // Stacked week chart (SMART/BOOST) with tap-to-breakdown — the one chart
@@ -2057,11 +1986,7 @@ function renderEVWeekChart(sessions, now) {
   }).join('');
 
   const weekKwh = buckets.reduce((s, b) => s + b.smart + b.boost, 0);
-  const weekCost = sessions.reduce((s, sess) => {
-    const d = new Date(sess.start);
-    return d >= startOfWeek ? s + Math.abs(sess.cost?.amount || 0) : s;
-  }, 0);
-  $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added</span><span><b>£${weekCost.toFixed(2)}</b> total</span><span><b>${weekKwh > 0 ? ((weekCost / weekKwh) * 100).toFixed(1) : '—'}p</b> avg</span>`;
+  $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added this week</span>`;
 
   return buckets;
 }
@@ -2075,15 +2000,13 @@ function renderEVWeekBreakdown(index) {
   const startOfWeek = new Date(new Date().setHours(0, 0, 0, 0)); startOfWeek.setDate(startOfWeek.getDate() - 6);
   const dayDate = new Date(startOfWeek); dayDate.setDate(dayDate.getDate() + index);
   const total = bucket.smart + bucket.boost;
-  const cost = bucket.sessions.reduce((s, sess) => s + Math.abs(sess.cost?.amount || 0), 0);
   const smartCount = bucket.sessions.filter(s => s.type === 'SMART').length;
   const boostCount = bucket.sessions.filter(s => s.type === 'BOOST').length;
   const countLabel = bucket.sessions.length === 1 ? '1 session' : `${bucket.sessions.length} sessions`;
   const typeLabel = [smartCount && `${smartCount} smart`, boostCount && `${boostCount} boost`].filter(Boolean).join(', ');
   box.innerHTML = `<div class="breakdown-date">${dayNames[dayDate.getDay()]}</div>`
     + `<div class="breakdown-row"><span class="label">Sessions</span><span class="val">${countLabel}${typeLabel ? ` (${typeLabel})` : ''}</span></div>`
-    + `<div class="breakdown-row"><span class="label">Added</span><span class="val">${total.toFixed(1)} kWh</span></div>`
-    + `<div class="breakdown-total"><span>Cost</span><span>£${cost.toFixed(2)}</span></div>`;
+    + `<div class="breakdown-total"><span>Added</span><span>${total.toFixed(1)} kWh</span></div>`;
 }
 
 let evWeekBuckets = null;
@@ -2094,8 +2017,6 @@ function populateDemoEV() {
     $('ev-tag').textContent = 'DEMO DATA';
     $('ev-ready').textContent = '23:30 – 05:30';
     $('ev-added').textContent = '9.6 kWh';
-    $('ev-cost').textContent = '£0.72';
-    $('ev-avg-rate').textContent = '7.5p/kWh';
     $('ev-battery-row').classList.add('hidden');
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.add('hidden');
@@ -2105,7 +2026,7 @@ function populateDemoEV() {
       <div class="slot active"><span>● 04:00 – 05:30</span><b>Dispatching now · 7.4kW</b></div>
       <div class="slot"><span>Planned tonight</span><b>23:30 – 05:30</b></div>`;
     renderWeekBars('ev-week', [3.0, 2.2, 4.8, 0.1, 3.6, 2.6, 4.4], '');
-    $('ev-week-totals').innerHTML = `<span><b>62.4 kWh</b> added</span><span><b>£4.68</b> total</span><span><b>7.5p</b> avg</span>`;
+    $('ev-week-totals').innerHTML = `<span><b>62.4 kWh</b> added this week</span>`;
 }
 
 // Moves the persistent #bill-history-toggle button back to its safe static
