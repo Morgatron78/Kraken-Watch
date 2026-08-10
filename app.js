@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.94';
+const APP_VERSION = 'v2.95';
 
 const store = {
   get creds() {
@@ -1778,6 +1778,10 @@ async function loadEV() {
     $('ev-ready').textContent = '—';
     $('ev-added').textContent = '—';
     $('ev-battery-row').classList.add('hidden');
+    $('ev-suspended-warning').classList.add('hidden');
+    $('ev-power-box').classList.add('hidden');
+    $('ev-added-box').style.flex = 'none';
+    $('ev-added-box').style.width = '100%';
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.add('hidden');
     $('ev-slots-session').classList.add('hidden');
@@ -1817,7 +1821,9 @@ async function loadEVSmartFlex() {
       devices(accountNumber: $accountNumber) {
         ... on SmartFlexVehicle {
           make model
-          status { ... on SmartFlexVehicleStatus { stateOfCharge { value } } }
+          chargePointPowerOutput
+          status { ... on SmartFlexVehicleStatus { stateOfCharge { value } isSuspended } }
+          preferences { weekdayTargetSoc weekdayTargetTime weekendTargetSoc weekendTargetTime }
           chargingSessions(after: $after, first: 30) {
             edges {
               node {
@@ -1884,6 +1890,26 @@ async function loadEVSmartFlex() {
     $('ev-battery-row').classList.add('hidden');
   }
 
+  // Target SoC/time — all four fields confirmed as plain Int/Time scalars
+  // in the very first schema screenshot, no wrapper-type risk. Picks the
+  // weekday or weekend pair based on today, matching whichever target
+  // preference is actually in effect right now.
+  const prefs = vehicle.preferences;
+  if (prefs) {
+    const isWeekend = [0, 6].includes(now.getDay());
+    const targetSoc = isWeekend ? prefs.weekendTargetSoc : prefs.weekdayTargetSoc;
+    const targetTime = isWeekend ? prefs.weekendTargetTime : prefs.weekdayTargetTime;
+    $('ev-battery-target').textContent = (targetSoc != null && targetTime) ? `Target ${targetSoc}% by ${targetTime.slice(0, 5)}` : '';
+  } else {
+    $('ev-battery-target').textContent = '';
+  }
+
+  // isSuspended — Octopus has disabled control of the device. Silent
+  // unless true, same "invisible unless it matters" pattern as the
+  // isBlocked rate-limit diagnostic — explains a charge that just isn't
+  // happening rather than leaving it a mystery.
+  $('ev-suspended-warning').classList.toggle('hidden', !vehicle.status?.isSuspended);
+
   const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
 
@@ -1938,6 +1964,20 @@ async function loadEVSmartFlex() {
   const todaysSessions = sessions.filter(s => new Date(s.start) >= startOfToday);
   const sessionKwh = todaysSessions.reduce((sum, s) => sum + Math.abs(s.energyAdded?.value || 0), 0);
   $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
+
+  // Charging power — only meaningful while actually charging; shown
+  // alongside "This session" as a second box in that case, hidden
+  // otherwise so the row doesn't show a stale/meaningless kW figure.
+  const power = vehicle.chargePointPowerOutput;
+  if (activeDispatch && power != null) {
+    $('ev-power-box').classList.remove('hidden');
+    $('ev-power').textContent = `${(+power).toFixed(1)} kW`;
+    $('ev-added-box').style.flex = '';
+  } else {
+    $('ev-power-box').classList.add('hidden');
+    $('ev-added-box').style.flex = 'none';
+    $('ev-added-box').style.width = '100%';
+  }
 
   evWeekBuckets = renderEVWeekChart(sessions, now);
   $('ev-week-breakdown').classList.add('hidden');
@@ -2018,6 +2058,10 @@ function populateDemoEV() {
     $('ev-ready').textContent = '23:30 – 05:30';
     $('ev-added').textContent = '9.6 kWh';
     $('ev-battery-row').classList.add('hidden');
+    $('ev-suspended-warning').classList.add('hidden');
+    $('ev-power-box').classList.add('hidden');
+    $('ev-added-box').style.flex = 'none';
+    $('ev-added-box').style.width = '100%';
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.add('hidden');
     $('ev-slots-dispatch').classList.remove('hidden');
