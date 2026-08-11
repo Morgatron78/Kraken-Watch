@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.126';
+const APP_VERSION = 'v2.129';
 
 const store = {
   get creds() {
@@ -552,8 +552,13 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
     // Showing every one of ~28-31 month labels overflows a mobile-width
     // chart (confirmed live) — every label stays legible alone, but that
     // many crammed together doesn't fit. Every 5th only once dense.
+    // The <span> itself must always render even when empty — omitting the
+    // element entirely (rather than just its text) made unlabeled columns
+    // one child shorter than labeled ones, and since columns bottom-align
+    // via flex, that shifted their bars down relative to labeled columns
+    // by roughly the label's own height (confirmed live — a few px lower).
     const showThisLabel = !isDense || i % 5 === 0;
-    const label = showThisLabel ? `<span class="${isSelected ? 'active-day' : ''}">${labelText}</span>` : '';
+    const label = `<span class="${isSelected ? 'active-day' : ''}">${showThisLabel ? labelText : ''}</span>`;
     return `<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${i}">${segHtml}</div>${label}</div>`;
   }).join('');
 }
@@ -1780,32 +1785,7 @@ async function loadVehicleInfoOnce() {
 // panel; if a future EV cost figure is ever wanted, it would need the same
 // approximated-rate approach rather than a real Octopus-sourced value.
 
-// Temporary, one-time — last piece of the gap sweep. The other three
-// candidates checked alongside this one are already resolved (current:
-// one-time onboarding status, not useful; currentState and
-// stateOfChargeLimit: both confirmed genuinely useful, ready to mock up;
-// reAuthenticationState: guessed type name didn't resolve, dropped) —
-// only SmartFlexDeviceAlert's own fields are still unknown. We already
-// know alerts resolves to exactly this one concrete type.
-let evAlertFieldsIntrospected = false;
-async function introspectEVAlertFields() {
-  if (evAlertFieldsIntrospected) return;
-  evAlertFieldsIntrospected = true;
-  try {
-    const data = await krakenGQL(`
-      query IntrospectEVAlertFields {
-        alertType: __type(name: "SmartFlexDeviceAlert") { kind fields { name type { kind name ofType { kind name } } } }
-      }`, {});
-    const t = data?.alertType;
-    const fields = t ? `kind:${t.kind}, fields: ${t.fields.map(f => f.name).join(', ')}` : '(not found — name may differ)';
-    logDebug('EV gap sweep — SmartFlexDeviceAlert fields', fields);
-  } catch (err) {
-    logIssue('EV alert fields introspection', err);
-  }
-}
-
 async function loadEV() {
-  introspectEVAlertFields(); // fire-and-forget, one-time — see comment above
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
@@ -2162,6 +2142,11 @@ function renderEVHistoryBars(buckets, labels) {
     const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
     const boostH = total > 0 ? h - smartH : 0;
     const neutralH = total > 0 ? 0 : h; // no sessions at all in this bucket — a plain neutral floor, not a false Boost claim
+    // Same fix as Consumption's own Month view (same root cause, same day)
+    // — the <span> must always render even when empty. Omitting the
+    // element entirely for unlabeled bars made those columns one child
+    // shorter, and since columns bottom-align via flex, that pushed their
+    // bars down relative to labeled columns by roughly the label's height.
     const showThisLabel = !isDense || i % 5 === 0;
     return `<div class="ev-week-col">
       <div class="ev-week-stack" data-i="${i}" style="height:${h}px">
@@ -2169,7 +2154,7 @@ function renderEVHistoryBars(buckets, labels) {
         ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
         ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
       </div>
-      ${showThisLabel ? `<span data-i="${i}">${labels[i]}</span>` : ''}
+      <span data-i="${i}">${showThisLabel ? labels[i] : ''}</span>
     </div>`;
   }).join('');
   renderChartScale('ev-week-scale', max, v => v.toFixed(1));
@@ -2294,13 +2279,17 @@ async function loadEVMonthData(now) {
 }
 
 function buildEVMonthBuckets(sessions, now) {
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const buckets = Array.from({ length: daysInMonth }, () => ({ smart: 0, boost: 0, sessions: [] }));
-  const dates = Array.from({ length: daysInMonth }, (_, i) => new Date(now.getFullYear(), now.getMonth(), i + 1));
+  // Matches Consumption's own Month view exactly — only elapsed days, not
+  // the full month padded with empty future placeholders. Grows day by
+  // day through the month rather than showing a static 31-slot structure
+  // with trailing empty bars for days that haven't happened yet.
+  const elapsedDays = daysElapsedInMonth(now);
+  const buckets = Array.from({ length: elapsedDays }, () => ({ smart: 0, boost: 0, sessions: [] }));
+  const dates = Array.from({ length: elapsedDays }, (_, i) => new Date(now.getFullYear(), now.getMonth(), i + 1));
   sessions.forEach(s => {
     const day = new Date(s.start).getDate();
     const kwh = Math.abs(s.energyAdded?.value || 0);
-    if (day < 1 || day > daysInMonth) return;
+    if (day < 1 || day > elapsedDays) return;
     if (s.type === 'BOOST') buckets[day - 1].boost += kwh; else buckets[day - 1].smart += kwh;
     buckets[day - 1].sessions.push(s);
   });
