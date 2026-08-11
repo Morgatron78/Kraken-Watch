@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.122';
+const APP_VERSION = 'v2.123';
 
 const store = {
   get creds() {
@@ -1785,46 +1785,30 @@ async function loadVehicleInfoOnce() {
 // panel; if a future EV cost figure is ever wanted, it would need the same
 // approximated-rate approach rather than a real Octopus-sourced value.
 
-// Temporary, one-time — final gap sweep before deciding what (if anything)
-// still belongs on the EV panel. Covers four candidates in one safe
-// round trip rather than four separate rounds: alerts (device-level
-// warnings beyond isSuspended), stateOfChargeLimit (battery-protection
-// bounds, possibly distinct from the daily target schedule), current/
-// currentState (Octopus's own device state machine — might distinguish
-// "not plugged in" from genuine idle, which dispatch-timing alone can't),
-// and reAuthenticationState (a possible diagnostic for a broken Polestar
-// connection, currently invisible). Every type name here except
-// reAuthenticationState's was confirmed directly from earlier schema
-// screenshots, not guessed — and even that one guess is safe, since
-// introspecting a type BY NAME never breaks anything even if wrong,
-// unlike guessing a field inside the real functional query. Remove once
-// findings are confirmed and any real fields are wired in for good.
-let evRemainingFieldsIntrospected = false;
-async function introspectRemainingEVFields() {
-  if (evRemainingFieldsIntrospected) return;
-  evRemainingFieldsIntrospected = true;
+// Temporary, one-time — last piece of the gap sweep. The other three
+// candidates checked alongside this one are already resolved (current:
+// one-time onboarding status, not useful; currentState and
+// stateOfChargeLimit: both confirmed genuinely useful, ready to mock up;
+// reAuthenticationState: guessed type name didn't resolve, dropped) —
+// only SmartFlexDeviceAlert's own fields are still unknown. We already
+// know alerts resolves to exactly this one concrete type.
+let evAlertFieldsIntrospected = false;
+async function introspectEVAlertFields() {
+  if (evAlertFieldsIntrospected) return;
+  evAlertFieldsIntrospected = true;
   try {
     const data = await krakenGQL(`
-      query IntrospectRemainingEVFields {
-        alertsType: __type(name: "SmartFlexDeviceAlertInterface") { kind possibleTypes { name } }
-        socLimitType: __type(name: "StateOfChargeLimit") { kind fields { name type { kind name ofType { kind name } } } }
-        lifecycleType: __type(name: "SmartFlexDeviceLifecycleStatus") { kind enumValues { name } }
-        deviceStateType: __type(name: "SmartFlexDeviceState") { kind enumValues { name } }
-        reAuthType: __type(name: "ReAuthenticationState") { kind enumValues { name } fields { name } }
+      query IntrospectEVAlertFields {
+        alertType: __type(name: "SmartFlexDeviceAlert") { kind fields { name type { kind name ofType { kind name } } } }
       }`, {});
-    const fmtEnum = t => t ? `kind:${t.kind}${t.enumValues ? ', values: ' + t.enumValues.map(v => v.name).join(', ') : ''}` : '(not found — name may differ)';
-    const fmtFields = t => t ? `kind:${t.kind}${t.fields ? ', fields: ' + t.fields.map(f => f.name).join(', ') : ''}` : '(not found — name may differ)';
-    const fmtInterface = t => t ? `kind:${t.kind}, possibleTypes: ${(t.possibleTypes || []).map(p => p.name).join(', ') || '(none)'}` : '(not found — name may differ)';
-    logDebug('EV gap sweep — alerts (SmartFlexDeviceAlertInterface)', fmtInterface(data?.alertsType));
-    logDebug('EV gap sweep — stateOfChargeLimit (StateOfChargeLimit)', fmtFields(data?.socLimitType));
-    logDebug('EV gap sweep — current (SmartFlexDeviceLifecycleStatus)', fmtEnum(data?.lifecycleType));
-    logDebug('EV gap sweep — currentState (SmartFlexDeviceState)', fmtEnum(data?.deviceStateType));
-    logDebug('EV gap sweep — reAuthenticationState (guessed: ReAuthenticationState)', fmtEnum(data?.reAuthType) + ' / ' + fmtFields(data?.reAuthType));
+    const t = data?.alertType;
+    const fields = t ? `kind:${t.kind}, fields: ${t.fields.map(f => f.name).join(', ')}` : '(not found — name may differ)';
+    logDebug('EV gap sweep — SmartFlexDeviceAlert fields', fields);
   } catch (err) { /* best-effort, see comment above */ }
 }
 
 async function loadEV() {
-  introspectRemainingEVFields(); // fire-and-forget, one-time — see comment above
+  introspectEVAlertFields(); // fire-and-forget, one-time — see comment above
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
