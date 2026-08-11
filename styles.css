@@ -80,6 +80,7 @@ button{font-family:inherit;cursor:pointer;}
 .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;}
 #ev-card.ev-collapsed .card-head{margin-bottom:0;}
 #ev-card.ev-collapsed #ev-battery-row{margin-bottom:0;}
+#ev-card.ev-collapsed #ev-schedule-preview{margin-bottom:0;}
 .card-title{font-size:16px;font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;gap:8px;}
 .card-tag{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;padding:3px 9px;border-radius:100px;white-space:nowrap;}
 .tag-mint{color:var(--mint);background:var(--mint-soft);border:1px solid rgba(61,220,151,0.35);}
