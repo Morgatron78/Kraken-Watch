@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.102';
+const APP_VERSION = 'v2.103';
 
 const store = {
   get creds() {
@@ -1778,6 +1778,8 @@ async function loadEV() {
     $('ev-ready').textContent = '—';
     $('ev-added').textContent = '—';
     $('ev-battery-row').classList.add('hidden');
+    $('ev-schedule-preview').classList.add('hidden');
+    $('ev-test-dispatch-warning').classList.add('hidden');
     $('ev-suspended-warning').classList.add('hidden');
     $('ev-power-box').classList.add('hidden');
     $('ev-sessions-box').classList.add('hidden');
@@ -1788,6 +1790,8 @@ async function loadEV() {
     $('ev-slots-dispatch').innerHTML = '<div class="slot">Unavailable right now</div>';
     $('ev-week').innerHTML = '';
     $('ev-week-totals').innerHTML = '<span>—</span>';
+    $('ev-streak-row').classList.add('hidden');
+    $('ev-highlight-line').classList.add('hidden');
   }
   return false;
 }
@@ -1821,7 +1825,7 @@ async function loadEVSmartFlex() {
         ... on SmartFlexVehicle {
           make model
           chargePointPowerOutput
-          status { ... on SmartFlexVehicleStatus { stateOfCharge { value } isSuspended } }
+          status { ... on SmartFlexVehicleStatus { stateOfCharge { value } isSuspended testDispatchFailureReason } }
           preferences { ... on SmartFlexDevicePreferences { schedules { dayOfWeek time max } } }
           chargingSessions(after: $after, first: 30) {
             edges {
@@ -1847,21 +1851,6 @@ async function loadEVSmartFlex() {
   if (!vehicle) return false; // no EV device on this path, or wrong shape — fall back to legacy
 
   const sessions = (vehicle.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
-  // Temporary — remove once cost/dispatches behavior is confirmed. Two open
-  // questions from the first real-data test: (1) cost showed £0.00 across
-  // real sessions with genuine kWh, which could mean cost.amount is coming
-  // back null (not truly zero) — the safe default (`|| 0`) can't tell the
-  // two apart on its own; (2) the dispatch-window view showed empty despite
-  // real session kWh, meaning session.dispatches may be coming back empty
-  // too. Logging one real session's raw shape answers both in one round
-  // trip rather than guess-fixing and redeploying twice more.
-  if (sessions[0]) {
-    logDebug('EV rewrite — sample session raw data', JSON.stringify({
-      type: sessions[0].type, cost: sessions[0].cost, energyAdded: sessions[0].energyAdded,
-      stateOfChargeFinal: sessions[0].stateOfChargeFinal, dispatchCount: (sessions[0].dispatches || []).length
-    }));
-    logDebug('EV rewrite — sessions with empty dispatches array', `${sessions.filter(s => !(s.dispatches || []).length).length} of ${sessions.length}`);
-  }
   const planned = data.plannedDispatches || [];
   const now = new Date();
   const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
@@ -1898,11 +1887,41 @@ async function loadEVSmartFlex() {
   // a wrong guess here just shows no target text, it can't break the query
   // the way a wrong GraphQL field/fragment guess would).
   const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-  const todaySchedule = (vehicle.preferences?.schedules || []).find(s => s.dayOfWeek === dayNames[now.getDay()]);
+  const schedules = vehicle.preferences?.schedules || [];
+  const todaySchedule = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
   if (todaySchedule && todaySchedule.max != null && todaySchedule.time) {
     $('ev-battery-target').textContent = `Target ${Math.round(todaySchedule.max)}% by ${todaySchedule.time.slice(0, 5)}`;
+    // Countdown — only shown if today's target time hasn't passed yet;
+    // once it has, "X hours until target" would be nonsensical (negative
+    // or referring to a target that's already come and gone).
+    const [th, tm] = todaySchedule.time.split(':').map(Number);
+    const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), th, tm);
+    if (targetDate > now) {
+      const diffMin = Math.round((targetDate - now) / 60000);
+      const h = Math.floor(diffMin / 60), m = diffMin % 60;
+      $('ev-battery-countdown').textContent = `${h > 0 ? h + 'h ' : ''}${m}m to go`;
+    } else {
+      $('ev-battery-countdown').textContent = '';
+    }
   } else {
     $('ev-battery-target').textContent = '';
+    $('ev-battery-countdown').textContent = '';
+  }
+
+  // Weekly schedule preview — the schedules array already has all 7 days,
+  // previously only today's entry was ever looked at. Small dot row shows
+  // which days have a target set, at a glance, without needing to check
+  // each day individually.
+  if (schedules.length) {
+    $('ev-schedule-preview').classList.remove('hidden');
+    $('ev-schedule-preview').innerHTML = dayNames.map((d, i) => {
+      const has = schedules.some(s => s.dayOfWeek === d);
+      const isToday = i === now.getDay();
+      const label = ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i];
+      return `<div class="schedule-day"><div class="schedule-day-label">${label}</div><div class="schedule-day-dot${has ? ' set' : ''}${isToday ? ' today' : ''}"></div></div>`;
+    }).join('');
+  } else {
+    $('ev-schedule-preview').classList.add('hidden');
   }
 
   // isSuspended — Octopus has disabled control of the device. Silent
@@ -1910,6 +1929,17 @@ async function loadEVSmartFlex() {
   // isBlocked rate-limit diagnostic — explains a charge that just isn't
   // happening rather than leaving it a mystery.
   $('ev-suspended-warning').classList.toggle('hidden', !vehicle.status?.isSuspended);
+
+  // testDispatchFailureReason — same SmartFlexVehicleStatus fragment
+  // already confirmed working for stateOfCharge/isSuspended, so this is a
+  // sibling field on an already-proven type, not a new schema risk.
+  const failReason = vehicle.status?.testDispatchFailureReason;
+  if (failReason) {
+    $('ev-test-dispatch-warning').classList.remove('hidden');
+    $('ev-test-dispatch-warning').textContent = `⚠ Last test dispatch failed — ${failReason.replace(/_/g, ' ').toLowerCase()}`;
+  } else {
+    $('ev-test-dispatch-warning').classList.add('hidden');
+  }
 
   const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
@@ -1935,8 +1965,12 @@ async function loadEVSmartFlex() {
   if (!dispatchSlots.children.length) dispatchSlots.innerHTML = '<div class="slot">No dispatch windows scheduled</div>';
 
   // Session view — whole charging sessions, oldest-first to match, each
-  // with its own real cost/kWh (not the approximated rate the legacy path
-  // uses) and battery % reached, plus type badge.
+  // with its own real kWh and battery % reached, plus type badge. Battery
+  // gained per session chains consecutive sessions (this session's start %
+  // ≈ the previous session's end %) — an assumption that only breaks if
+  // charging happened elsewhere in between (e.g. a public charger), in
+  // which case the delta is just slightly off, not broken.
+  sessions.forEach((s, i) => { s._startSoc = i > 0 ? sessions[i - 1].stateOfChargeFinal : null; });
   const sessionSlots = $('ev-slots-session');
   sessionSlots.innerHTML = [...sessions].reverse().map(s => {
     const kwh = s.energyAdded?.value;
@@ -1944,7 +1978,15 @@ async function loadEVSmartFlex() {
     const dayLabel = startD.toDateString() === now.toDateString() ? 'Today'
       : startD.toDateString() === new Date(now - 86400000).toDateString() ? 'Yesterday'
       : startD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-    const socText = s.stateOfChargeFinal != null ? `<span class="slot-soc">→ ${Math.round(s.stateOfChargeFinal)}%</span>` : '';
+    let socText = '';
+    if (s.stateOfChargeFinal != null) {
+      if (s._startSoc != null) {
+        const gain = Math.round(s.stateOfChargeFinal - s._startSoc);
+        socText = `<span class="slot-soc">${Math.round(s._startSoc)}% → ${Math.round(s.stateOfChargeFinal)}%</span> <span class="slot-soc-gain">(${gain >= 0 ? '+' : ''}${gain}%)</span>`;
+      } else {
+        socText = `<span class="slot-soc">→ ${Math.round(s.stateOfChargeFinal)}%</span>`;
+      }
+    }
     return `<div class="slot">
       <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}</div>
       <div class="slot-row"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${socText}</div>
@@ -2032,6 +2074,25 @@ function renderEVWeekChart(sessions, now) {
   const weekSessionCount = buckets.reduce((s, b) => s + b.sessions.length, 0);
   $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added</span><span><b>${weekSessionCount}</b> session${weekSessionCount === 1 ? '' : 's'} this week</span>`;
 
+  // Charging streak — days with at least one session, out of the last 7.
+  const daysCharged = buckets.filter(b => b.sessions.length > 0).length;
+  $('ev-streak-row').classList.remove('hidden');
+  $('ev-streak-row').innerHTML = `<div class="ev-streak-dots">${buckets.map(b => `<div class="ev-streak-dot${b.sessions.length ? ' charged' : ''}"></div>`).join('')}</div><div class="ev-streak-text">Charged <b>${daysCharged}</b> of the last 7 days</div>`;
+
+  // Most active day — same "extremes" pattern already used in Insights
+  // (cheapest/priciest day), applied to EV sessions instead.
+  let busiestIdx = -1, busiestTotal = 0;
+  buckets.forEach((b, i) => { const t = b.smart + b.boost; if (t > busiestTotal) { busiestTotal = t; busiestIdx = i; } });
+  if (busiestIdx >= 0) {
+    const dayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const busiestDayIdx = (today - (6 - busiestIdx) + 7) % 7;
+    const b = buckets[busiestIdx];
+    $('ev-highlight-line').classList.remove('hidden');
+    $('ev-highlight-line').innerHTML = `Busiest day: <b>${dayLabels[busiestDayIdx]}</b>, ${busiestTotal.toFixed(1)} kWh across ${b.sessions.length} session${b.sessions.length === 1 ? '' : 's'}`;
+  } else {
+    $('ev-highlight-line').classList.add('hidden');
+  }
+
   return buckets;
 }
 
@@ -2062,12 +2123,16 @@ function populateDemoEV() {
     $('ev-ready').textContent = '23:30 – 05:30';
     $('ev-added').textContent = '9.6 kWh';
     $('ev-battery-row').classList.add('hidden');
+    $('ev-schedule-preview').classList.add('hidden');
+    $('ev-test-dispatch-warning').classList.add('hidden');
     $('ev-suspended-warning').classList.add('hidden');
     $('ev-power-box').classList.add('hidden');
     $('ev-sessions-box').classList.remove('hidden');
     $('ev-sessions-count').textContent = '2';
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.add('hidden');
+    $('ev-streak-row').classList.add('hidden');
+    $('ev-highlight-line').classList.add('hidden');
     $('ev-slots-dispatch').classList.remove('hidden');
     $('ev-slots-dispatch').innerHTML = `
       <div class="slot done"><span>✓ 00:30 – 04:00</span><b>Completed · 22.1 kWh</b></div>
