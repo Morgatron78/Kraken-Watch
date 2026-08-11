@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.97';
+const APP_VERSION = 'v2.99';
 
 const store = {
   get creds() {
@@ -1808,10 +1808,23 @@ async function introspectPreferencesType() {
   try {
     const data = await krakenGQL(`
       query IntrospectPreferencesType {
-        __type(name: "SmartFlexDevicePreferencesInterface") { possibleTypes { name } }
+        interfaceInfo: __type(name: "SmartFlexDevicePreferencesInterface") { possibleTypes { name } }
+        fieldsInfo: __type(name: "SmartFlexDevicePreferences") {
+          fields { name type { kind name ofType { kind name } } }
+        }
       }`, {});
-    const types = (data?.__type?.possibleTypes || []).map(t => t.name).join(', ');
+    const types = (data?.interfaceInfo?.possibleTypes || []).map(t => t.name).join(', ');
+    // Include each field's type kind, not just its name — an INTERFACE or
+    // UNION kind here would mean this field needs its own inline fragment
+    // too, same pattern hit four times already tonight. Catching that now
+    // avoids a sixth failed real-query attempt to discover it the hard way.
+    const fields = (data?.fieldsInfo?.fields || []).map(f => {
+      const kind = f.type?.kind === 'NON_NULL' ? f.type?.ofType?.kind : f.type?.kind;
+      const typeName = f.type?.kind === 'NON_NULL' ? f.type?.ofType?.name : f.type?.name;
+      return `${f.name}:${typeName}(${kind})`;
+    }).join(', ');
     logDebug('EV rewrite — SmartFlexDevicePreferencesInterface possible types', types || '(none found — interface name may differ)');
+    logDebug('EV rewrite — SmartFlexDevicePreferences fields+kinds', fields || '(type not found — name may differ)');
   } catch (err) { /* best-effort, see comment above */ }
 }
 
