@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.107';
+const APP_VERSION = 'v2.108';
 
 const store = {
   get creds() {
@@ -1761,7 +1761,39 @@ async function loadVehicleInfoOnce() {
   }
 }
 
+// Temporary, one-time test of costOfCharge — deprecated (scheduled for
+// removal, guidance says use SmartFlexChargingSession.cost instead) but
+// deprecated doesn't necessarily mean already broken, and real evidence
+// (the Polestar app's own Month/Year/All cost overview, which structurally
+// matches this aggregate query far better than the per-session field that
+// returned null) suggests it might still return real data. Every field on
+// CostOfChargeType is a plain scalar (String/Boolean/Date/Float), no
+// interfaces or fragments needed, so this can be a genuine test rather
+// than another introspection round. DataFrequency's exact enum values
+// aren't independently confirmed — MONTH is a reasonable guess matching
+// Polestar's own UI, and a wrong enum value typically produces a clear
+// "not a valid X" error listing the real options, same low-risk pattern
+// as every other enum guess tonight. Logs the raw result only — no UI
+// built around this until real (non-null) data is actually confirmed.
+let costOfChargeTested = false;
+async function testCostOfCharge() {
+  if (costOfChargeTested) return;
+  costOfChargeTested = true;
+  try {
+    const data = await krakenGQL(`
+      query TestCostOfCharge($accountNumber: String!, $frequency: DataFrequency!) {
+        costOfCharge(accountNumber: $accountNumber, frequency: $frequency) {
+          costOfChargeId isSmartCharge reportDate totalConsumption totalCostExclTax totalCostInclTax
+        }
+      }`, { accountNumber: store.creds.accountNumber, frequency: 'MONTH' });
+    logDebug('EV rewrite — costOfCharge raw result', JSON.stringify(data?.costOfCharge ?? null));
+  } catch (err) {
+    logIssue('EV costOfCharge test', err);
+  }
+}
+
 async function loadEV() {
+  testCostOfCharge(); // fire-and-forget, one-time — see comment below
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
