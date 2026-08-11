@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.116';
+const APP_VERSION = 'v2.118';
 
 const store = {
   get creds() {
@@ -460,6 +460,7 @@ function renderDiagnostics() {
   $('diagnostics-title').textContent = syncIssues.length ? '⚠ Diagnostics' : 'ℹ Diagnostics (debug info)';
   $('diagnostics-title').style.color = syncIssues.length ? 'var(--coral)' : 'var(--text-dim)';
   const lines = [
+    `ℹ App version: ${APP_VERSION}`,
     `ℹ ${restCallsInLastHour()} REST call(s) in the last hour (Octopus's documented shared limit is 100/hour)`,
     ...syncIssues.map(m => `⚠ ${m}`),
     ...debugNotes.map(m => `ℹ ${m}`)
@@ -2220,6 +2221,7 @@ async function setEVHistoryPeriod(period) {
       $('ev-week-scale').innerHTML = '';
       $('ev-week-kwh-total').textContent = '—';
       $('ev-week-session-count').textContent = '—';
+      renderDiagnostics(); // logIssue() only records the error, doesn't redraw the panel — without this, a failure from this on-demand action stays invisible until the next scheduled sync happens to redraw it
       return;
     }
     result = buildEVMonthBuckets(monthData.sessions, now);
