@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.119';
+const APP_VERSION = 'v2.121';
 
 const store = {
   get creds() {
@@ -1817,6 +1817,7 @@ async function loadEV() {
     $('ev-history-period-label').textContent = 'This week';
     $('ev-week-kwh-total').textContent = '—';
     $('ev-week-session-count').textContent = '—';
+    $('insights-ev-panel').classList.add('hidden');
   }
   return false;
 }
@@ -2060,6 +2061,7 @@ async function loadEVSmartFlex() {
   }
 
   await setEVHistoryPeriod(evHistoryPeriod);
+  renderEVInsights(sessions, now);
 
   return true;
 }
@@ -2074,7 +2076,7 @@ async function loadEVSmartFlex() {
 function renderEVHistoryBars(buckets, labels) {
   const max = Math.max(...buckets.map(b => b.smart + b.boost), 0.01);
   const maxBarHeight = 44;
-  const isDense = buckets.length > 10; // Month (~28-31 bars) needs tighter spacing, same pattern as Consumption's own Month view
+  const isDense = buckets.length > 10; // affects bar spacing only, not label visibility — same fix as Consumption's own Month view, which had this exact bug earlier tonight
   $('ev-week').classList.toggle('dense', isDense);
   $('ev-week').innerHTML = buckets.map((b, i) => {
     const total = b.smart + b.boost;
@@ -2088,7 +2090,7 @@ function renderEVHistoryBars(buckets, labels) {
         ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
         ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
       </div>
-      ${isDense ? '' : `<span data-i="${i}">${labels[i]}</span>`}
+      <span data-i="${i}">${labels[i]}</span>
     </div>`;
   }).join('');
   renderChartScale('ev-week-scale', max, v => v.toFixed(1));
@@ -2118,6 +2120,35 @@ function buildEVWeekBuckets(sessions, now) {
   const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const labels = dates.map(d => dayLabels[d.getDay()]);
   return { buckets, labels, dates, dateFormat: 'weekday' };
+}
+
+// Streak + busiest-day for the Insights panel — deliberately independent
+// of Charge History's own Day/Week/Month toggle state (evWeekBuckets
+// changes with whatever period the user has selected there), since these
+// are inherently weekly concepts that wouldn't make sense recomputed for
+// a single day or a whole month. Builds its own week buckets directly
+// from the sessions already loaded, rather than reusing shared state.
+function renderEVInsights(sessions, now) {
+  const { buckets } = buildEVWeekBuckets(sessions, now);
+  const panel = $('insights-ev-panel');
+  const hasAnyData = buckets.some(b => b.sessions.length > 0);
+  if (!hasAnyData) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+
+  const daysCharged = buckets.filter(b => b.sessions.length > 0).length;
+  $('insights-ev-streak-dots').innerHTML = buckets.map(b => `<div class="ev-streak-dot${b.sessions.length ? ' charged' : ''}"></div>`).join('');
+  $('insights-ev-streak-text').innerHTML = `Charged <b>${daysCharged}</b> of the last 7 days`;
+
+  let busiestIdx = -1, busiestTotal = 0;
+  buckets.forEach((b, i) => { const t = b.smart + b.boost; if (t > busiestTotal) { busiestTotal = t; busiestIdx = i; } });
+  if (busiestIdx >= 0) {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 6);
+    const busiestDate = new Date(startOfWeek); busiestDate.setDate(busiestDate.getDate() + busiestIdx);
+    const b = buckets[busiestIdx];
+    $('insights-ev-highlight').innerHTML = `Busiest day: <b>${dayNames[busiestDate.getDay()]}</b>, ${busiestTotal.toFixed(1)} kWh across ${b.sessions.length} session${b.sessions.length === 1 ? '' : 's'}`;
+  }
 }
 
 // Day — hourly buckets using dispatches (not sessions), since a single
@@ -2300,6 +2331,7 @@ function populateDemoEV() {
     $('ev-history-period-label').textContent = 'This week';
     $('ev-week-kwh-total').textContent = '62.4 kWh';
     $('ev-week-session-count').textContent = '9';
+    $('insights-ev-panel').classList.add('hidden');
 }
 
 // Moves the persistent #bill-history-toggle button back to its safe static

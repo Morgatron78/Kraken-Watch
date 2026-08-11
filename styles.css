@@ -443,6 +443,15 @@ button{font-family:inherit;cursor:pointer;}
 .standing-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:19px;font-weight:600;}
 .standing-total-note{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:10px;line-height:1.5;text-align:center;}
 
+.ev-streak-row{display:flex;align-items:center;gap:12px;}
+.ev-streak-dots{display:flex;gap:4px;}
+.ev-streak-dot{width:9px;height:9px;border-radius:50%;background:var(--line);}
+.ev-streak-dot.charged{background:var(--mint);}
+.ev-streak-text{font-family:'Inter', sans-serif;font-size:12px;color:var(--text-dim);}
+.ev-streak-text b{color:var(--text);font-weight:600;}
+.ev-highlight-line{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
+.ev-highlight-line b{color:var(--text);font-weight:600;}
+
 .hidden{display:none !important;}
 
 /* Live usage — last 30 minutes */
