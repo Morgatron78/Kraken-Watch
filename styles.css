@@ -511,12 +511,12 @@ button{font-family:inherit;cursor:pointer;}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
 .battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;margin-top:2px;}
 
-.schedule-preview{display:flex;gap:6px;margin-top:10px;margin-bottom:16px;padding:0 2px;}
+.schedule-preview{display:flex;gap:4px;margin-top:10px;margin-bottom:16px;padding:0 2px;}
 .schedule-day{flex:1;text-align:center;}
 .schedule-day-label{font-family:'Inter', sans-serif;font-size:8.5px;color:var(--text-dim);margin-bottom:4px;}
-.schedule-day-dot{width:6px;height:6px;border-radius:50%;margin:0 auto;background:var(--line);}
-.schedule-day-dot.set{background:var(--mint);}
-.schedule-day-dot.today{background:var(--pink);box-shadow:0 0 5px var(--pink);}
+.schedule-day-time{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text);}
+.schedule-day.today .schedule-day-label,
+.schedule-day.today .schedule-day-time{color:var(--pink);font-weight:600;}
 
 .ev-diag-line{
   display:flex;align-items:center;gap:6px;font-family:'Inter', sans-serif;font-size:11px;color:var(--amber);

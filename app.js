@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.105';
+const APP_VERSION = 'v2.106';
 
 const store = {
   get creds() {
@@ -1909,16 +1909,20 @@ async function loadEVSmartFlex() {
   }
 
   // Weekly schedule preview — the schedules array already has all 7 days,
-  // previously only today's entry was ever looked at. Small dot row shows
-  // which days have a target set, at a glance, without needing to check
-  // each day individually.
+  // previously only today's entry was ever looked at. Originally a dot
+  // row (which days have a target set), but real-world testing showed
+  // that's the wrong question — most accounts have every day scheduled,
+  // so "set vs unset" barely varies while the actual target *time* is
+  // the genuinely useful thing to compare across days. Days with no
+  // schedule entry show "—" rather than a blank gap.
   if (schedules.length) {
     $('ev-schedule-preview').classList.remove('hidden');
     $('ev-schedule-preview').innerHTML = dayNames.map((d, i) => {
-      const has = schedules.some(s => s.dayOfWeek === d);
+      const entry = schedules.find(s => s.dayOfWeek === d);
       const isToday = i === now.getDay();
       const label = ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i];
-      return `<div class="schedule-day"><div class="schedule-day-label">${label}</div><div class="schedule-day-dot${has ? ' set' : ''}${isToday ? ' today' : ''}"></div></div>`;
+      const timeText = entry?.time ? entry.time.slice(0, 5) : '—';
+      return `<div class="schedule-day${isToday ? ' today' : ''}"><div class="schedule-day-label">${label}</div><div class="schedule-day-time">${timeText}</div></div>`;
     }).join('');
   } else {
     $('ev-schedule-preview').classList.add('hidden');
