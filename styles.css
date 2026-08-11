@@ -532,6 +532,7 @@ button{font-family:inherit;cursor:pointer;}
   background:rgba(255,107,91,0.1);border:1px solid rgba(255,107,91,0.3);border-radius:10px;padding:8px 12px;margin-bottom:16px;
 }
 #ev-view-toggle .unit-toggle-btn.active{color:var(--pink);}
+#ev-history-period-toggle .unit-toggle-btn.active{color:var(--pink);}
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
 
 .ev-week-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
