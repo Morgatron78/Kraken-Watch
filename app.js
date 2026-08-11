@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.114';
+const APP_VERSION = 'v2.116';
 
 const store = {
   get creds() {
@@ -1875,6 +1875,7 @@ async function loadEVSmartFlex() {
   if (!vehicle) return false; // no EV device on this path, or wrong shape — fall back to legacy
 
   const sessions = (vehicle.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+  evLoadedSessions = sessions; // Day view reuses this — no new fetch needed, today is always within this rolling window
   const planned = data.plannedDispatches || [];
   const now = new Date();
   const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
@@ -2057,9 +2058,7 @@ async function loadEVSmartFlex() {
     $('ev-sessions-count').textContent = `${todaysSessions.length}`;
   }
 
-  evWeekBuckets = renderEVWeekChart(sessions, now);
-  $('ev-week-breakdown').classList.add('hidden');
-  evWeekSelectedDay = null;
+  await setEVHistoryPeriod(evHistoryPeriod);
 
   return true;
 }
@@ -2069,10 +2068,45 @@ async function loadEVSmartFlex() {
 // makes a per-day breakdown genuinely worthwhile. Returns the per-day
 // bucket data so the click handler (wired once in init()) can look up
 // whichever day gets tapped without recomputing.
-function renderEVWeekChart(sessions, now) {
+// Shared bar+scale+legend renderer — identical drawing logic across all
+// three periods (Week/Month/Day), only the bucket-building differs.
+function renderEVHistoryBars(buckets, labels) {
+  const max = Math.max(...buckets.map(b => b.smart + b.boost), 0.01);
+  const maxBarHeight = 44;
+  const isDense = buckets.length > 10; // Month (~28-31 bars) needs tighter spacing, same pattern as Consumption's own Month view
+  $('ev-week').classList.toggle('dense', isDense);
+  $('ev-week').innerHTML = buckets.map((b, i) => {
+    const total = b.smart + b.boost;
+    const h = Math.max(2, Math.round((total / max) * maxBarHeight));
+    const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
+    const boostH = total > 0 ? h - smartH : 0;
+    const neutralH = total > 0 ? 0 : h; // no sessions at all in this bucket — a plain neutral floor, not a false Boost claim
+    return `<div class="ev-week-col">
+      <div class="ev-week-stack" data-i="${i}" style="height:${h}px">
+        ${boostH ? `<div class="ev-week-seg boost" style="height:${boostH}px"></div>` : ''}
+        ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
+        ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
+      </div>
+      ${isDense ? '' : `<span data-i="${i}">${labels[i]}</span>`}
+    </div>`;
+  }).join('');
+  renderChartScale('ev-week-scale', max, v => v.toFixed(1));
+  $('ev-week-legend').classList.remove('hidden');
+
+  const kwhTotal = buckets.reduce((s, b) => s + b.smart + b.boost, 0);
+  const sessionCount = buckets.reduce((s, b) => s + b.sessions.length, 0);
+  $('ev-week-kwh-total').textContent = `${kwhTotal.toFixed(1)} kWh`;
+  $('ev-week-session-count').textContent = `${sessionCount}`;
+}
+
+// Week — unchanged logic, 7 daily buckets from the sessions already loaded
+// for the live card (no new fetch).
+function buildEVWeekBuckets(sessions, now) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 6);
   const buckets = Array.from({ length: 7 }, () => ({ smart: 0, boost: 0, sessions: [] }));
+  const dates = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(startOfWeek); d.setDate(d.getDate() + i); dates.push(d); }
   sessions.forEach(s => {
     const dayIdx = Math.floor((new Date(s.start) - startOfWeek) / 86400000);
     if (dayIdx < 0 || dayIdx > 6) return;
@@ -2080,38 +2114,124 @@ function renderEVWeekChart(sessions, now) {
     if (s.type === 'BOOST') buckets[dayIdx].boost += kwh; else buckets[dayIdx].smart += kwh;
     buckets[dayIdx].sessions.push(s);
   });
+  const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const labels = dates.map(d => dayLabels[d.getDay()]);
+  return { buckets, labels, dates, dateFormat: 'weekday' };
+}
 
-  const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  const today = now.getDay();
-  const max = Math.max(...buckets.map(b => b.smart + b.boost), 0.01);
-  const maxBarHeight = 44;
+// Day — hourly buckets using dispatches (not sessions), since a single
+// day's shape needs finer detail than a whole session gives. Reuses
+// evLoadedSessions (the same rolling window already fetched for the live
+// card) — today is always within that window, so no new fetch at all.
+function buildEVDayBuckets(sessions, now) {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const buckets = Array.from({ length: 24 }, () => ({ smart: 0, boost: 0, sessions: [] }));
+  const dates = Array.from({ length: 24 }, (_, h) => new Date(startOfToday.getTime() + h * 3600000));
+  sessions.forEach(s => {
+    (s.dispatches || []).forEach(d => {
+      const start = new Date(d.start);
+      if (start < startOfToday || start >= new Date(startOfToday.getTime() + 86400000)) return;
+      const hour = start.getHours();
+      const kwh = Math.abs(d.energyAddedKwh || 0);
+      if (d.type === 'BOOST') buckets[hour].boost += kwh; else buckets[hour].smart += kwh;
+      buckets[hour].sessions.push(s);
+    });
+  });
+  const labels = dates.map(d => `${d.getHours()}`);
+  return { buckets, labels, dates, dateFormat: 'hour' };
+}
 
-  $('ev-week').innerHTML = buckets.map((b, i) => {
-    const total = b.smart + b.boost;
-    const h = Math.max(2, Math.round((total / max) * maxBarHeight));
-    const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
-    const boostH = total > 0 ? h - smartH : 0;
-    const neutralH = total > 0 ? 0 : h; // no sessions at all that day — a plain neutral floor, not a false Boost claim
-    const label = labels[(today - (6 - i) + 7) % 7];
-    return `<div class="ev-week-col">
-      <div class="ev-week-stack" data-i="${i}" style="height:${h}px">
-        ${boostH ? `<div class="ev-week-seg boost" style="height:${boostH}px"></div>` : ''}
-        ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
-        ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
-      </div>
-      <span data-i="${i}">${label}</span>
-    </div>`;
-  }).join('');
-  renderChartScale('ev-week-scale', max, v => v.toFixed(1));
-  $('ev-week-legend').classList.remove('hidden');
+// Month — the one period needing a genuinely new, wider-range fetch.
+// Deliberately drops the `dispatches` sub-field entirely (only needed for
+// the Windows view / Day's hourly detail, neither of which apply at
+// month scale) — meaningfully lighter payload for ~28-31 sessions worth
+// of data. One generous single fetch (first: 400) rather than full
+// multi-page pagination, with pageInfo.hasNextPage checked so an
+// unusually heavy month is flagged honestly rather than silently
+// under-counted — a real pagination loop can be added later if that
+// check ever actually fires, rather than building it upfront on a guess.
+async function loadEVMonthData(now) {
+  const key = `${now.getFullYear()}-${now.getMonth()}`;
+  if (evMonthCache?.key === key) return evMonthCache;
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  try {
+    const data = await krakenGQL(`
+      query EVMonthHistory($accountNumber: String!, $after: DateTime!) {
+        devices(accountNumber: $accountNumber) {
+          ... on SmartFlexVehicle {
+            chargingSessions(after: $after, first: 400) {
+              pageInfo { hasNextPage }
+              edges { node { ... on SmartFlexChargingSession { start type energyAdded { value } } } }
+            }
+          }
+        }
+      }`, { accountNumber: store.creds.accountNumber, after: startOfMonth.toISOString() });
+    const vehicle = (data.devices || []).find(d => d && d.chargingSessions);
+    const sessions = (vehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+    const hasMore = !!vehicle?.chargingSessions?.pageInfo?.hasNextPage;
+    evMonthCache = { key, sessions, hasMore };
+    return evMonthCache;
+  } catch (err) {
+    logIssue('EV month history', err);
+    return null;
+  }
+}
 
-  const weekKwh = buckets.reduce((s, b) => s + b.smart + b.boost, 0);
-  const weekSessionCount = buckets.reduce((s, b) => s + b.sessions.length, 0);
-  $('ev-history-period-label').textContent = 'This week';
-  $('ev-week-kwh-total').textContent = `${weekKwh.toFixed(1)} kWh`;
-  $('ev-week-session-count').textContent = `${weekSessionCount}`;
+function buildEVMonthBuckets(sessions, now) {
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const buckets = Array.from({ length: daysInMonth }, () => ({ smart: 0, boost: 0, sessions: [] }));
+  const dates = Array.from({ length: daysInMonth }, (_, i) => new Date(now.getFullYear(), now.getMonth(), i + 1));
+  sessions.forEach(s => {
+    const day = new Date(s.start).getDate();
+    const kwh = Math.abs(s.energyAdded?.value || 0);
+    if (day < 1 || day > daysInMonth) return;
+    if (s.type === 'BOOST') buckets[day - 1].boost += kwh; else buckets[day - 1].smart += kwh;
+    buckets[day - 1].sessions.push(s);
+  });
+  const labels = dates.map(d => `${d.getDate()}`);
+  return { buckets, labels, dates, dateFormat: 'dayOfMonth' };
+}
 
-  return buckets;
+// Switches Charge History between Day/Week/Month. Month fetches on first
+// use only (then cached); Day and Week both reuse evLoadedSessions with
+// zero new network cost.
+async function setEVHistoryPeriod(period) {
+  evHistoryPeriod = period;
+  evWeekSelectedDay = null;
+  $('ev-week-breakdown').classList.add('hidden');
+  document.getElementById('ev-month-partial-note')?.remove();
+  document.querySelectorAll('#ev-history-period-toggle .unit-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.period === period);
+  });
+
+  const now = new Date();
+  let result;
+  if (period === 'week') {
+    $('ev-history-period-label').textContent = 'This week';
+    result = buildEVWeekBuckets(evLoadedSessions || [], now);
+  } else if (period === 'day') {
+    $('ev-history-period-label').textContent = 'Today';
+    result = buildEVDayBuckets(evLoadedSessions || [], now);
+  } else {
+    $('ev-history-period-label').textContent = 'This month';
+    const monthData = await loadEVMonthData(now);
+    if (!monthData) {
+      $('ev-week').innerHTML = '<div class="slot">Unable to load right now</div>';
+      $('ev-week-scale').innerHTML = '';
+      $('ev-week-kwh-total').textContent = '—';
+      $('ev-week-session-count').textContent = '—';
+      return;
+    }
+    result = buildEVMonthBuckets(monthData.sessions, now);
+    if (monthData.hasMore) {
+      $('ev-week').insertAdjacentHTML('afterend', '<div class="ev-diag-line" id="ev-month-partial-note" style="margin-top:10px;">⚠ Showing partial data — more sessions exist than fetched</div>');
+    }
+  }
+
+  evWeekBuckets = result.buckets;
+  evHistoryDates = result.dates;
+  evHistoryDateFormat = result.dateFormat;
+  renderEVHistoryBars(result.buckets, result.labels);
 }
 
 function renderEVWeekBreakdown(index) {
@@ -2119,9 +2239,16 @@ function renderEVWeekBreakdown(index) {
   const bucket = evWeekBuckets?.[index];
   if (!bucket || !bucket.sessions.length) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const startOfWeek = new Date(new Date().setHours(0, 0, 0, 0)); startOfWeek.setDate(startOfWeek.getDate() - 6);
-  const dayDate = new Date(startOfWeek); dayDate.setDate(dayDate.getDate() + index);
+  const date = evHistoryDates?.[index];
+  let dateLabel = '';
+  if (evHistoryDateFormat === 'weekday') {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    dateLabel = dayNames[date.getDay()];
+  } else if (evHistoryDateFormat === 'hour') {
+    dateLabel = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else if (evHistoryDateFormat === 'dayOfMonth') {
+    dateLabel = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
   const smartSessions = bucket.sessions.filter(s => s.type !== 'BOOST');
   const boostSessions = bucket.sessions.filter(s => s.type === 'BOOST');
   const total = bucket.smart + bucket.boost;
@@ -2132,11 +2259,16 @@ function renderEVWeekBreakdown(index) {
   if (boostSessions.length) {
     rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--pink)"></span>Boost</span><span class="val">${boostSessions.length} session${boostSessions.length === 1 ? '' : 's'} · ${bucket.boost.toFixed(1)} kWh</span></div>`;
   }
-  box.innerHTML = `<div class="breakdown-date">${dayNames[dayDate.getDay()]}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh</span></div>`;
+  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh</span></div>`;
 }
 
 let evWeekBuckets = null;
 let evWeekSelectedDay = null;
+let evHistoryPeriod = 'week';
+let evLoadedSessions = null;
+let evMonthCache = null; // { key: 'YYYY-M', sessions: [...] } — avoids refetching when toggling back to a month already viewed
+let evHistoryDates = null;
+let evHistoryDateFormat = 'weekday';
 
 function populateDemoEV() {
     applyEvCollapse(true);
@@ -3040,6 +3172,11 @@ function init() {
     });
     if (evWeekSelectedDay === null) $('ev-week-breakdown').classList.add('hidden');
     else renderEVWeekBreakdown(evWeekSelectedDay);
+  });
+  $('ev-history-period-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('.unit-toggle-btn');
+    if (!btn || btn.dataset.period === evHistoryPeriod) return;
+    setEVHistoryPeriod(btn.dataset.period);
   });
 
   // Insights — collapsed by default; data is lazy-loaded on the first
