@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.123';
+const APP_VERSION = 'v2.124';
 
 const store = {
   get creds() {
@@ -1804,7 +1804,9 @@ async function introspectEVAlertFields() {
     const t = data?.alertType;
     const fields = t ? `kind:${t.kind}, fields: ${t.fields.map(f => f.name).join(', ')}` : '(not found — name may differ)';
     logDebug('EV gap sweep — SmartFlexDeviceAlert fields', fields);
-  } catch (err) { /* best-effort, see comment above */ }
+  } catch (err) {
+    logIssue('EV alert fields introspection', err);
+  }
 }
 
 async function loadEV() {
