@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.111';
+const APP_VERSION = 'v2.112';
 
 const store = {
   get creds() {
@@ -533,8 +533,16 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
   renderChartScale(scaleId, max, formatter);
   const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = new Date().getDay();
-  const showLabels = dayStacks.length <= 10;
-  el.classList.toggle('dense', !showLabels);
+  const isDense = dayStacks.length > 10;
+  // Bar spacing (isDense) and label visibility are separate concerns —
+  // month view genuinely needs the tighter gap for ~28-31 bars, but its
+  // day-of-month numbers are compact enough to stay legible even at that
+  // density, unlike a long run of cycling weekday letters. Previously
+  // both were gated by the same flag, which silently hid every month-view
+  // label regardless of isMonthMode, even though the code right below
+  // already computes the correct day-of-month text for it.
+  const showLabels = isMonthMode || !isDense;
+  el.classList.toggle('dense', isDense);
   el.innerHTML = dayStacks.map((segs, i) => {
     const isToday = i === dayStacks.length - 1;
     const isSelected = i === selectedIndex;
