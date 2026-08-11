@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.96';
+const APP_VERSION = 'v2.97';
 
 const store = {
   get creds() {
@@ -1762,6 +1762,7 @@ async function loadVehicleInfoOnce() {
 }
 
 async function loadEV() {
+  introspectPreferencesType(); // fire-and-forget, one-time — see comment below
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
@@ -1791,6 +1792,27 @@ async function loadEV() {
     $('ev-week-totals').innerHTML = '<span>—</span>';
   }
   return false;
+}
+
+// Temporary, one-time — the SmartFlexVehicleChargingPreferences guess was
+// explicitly ruled out by a real error ("can never be of type"), not just
+// unconfirmed, so guessing again isn't worth the risk of breaking the
+// whole query a second time. __type() introspection can't fail the query
+// even if wrong, unlike a guessed inline fragment — asks GraphQL directly
+// which concrete types actually implement this interface. Remove once the
+// real type name is confirmed and wired into the real query.
+let preferencesTypeIntrospected = false;
+async function introspectPreferencesType() {
+  if (preferencesTypeIntrospected) return;
+  preferencesTypeIntrospected = true;
+  try {
+    const data = await krakenGQL(`
+      query IntrospectPreferencesType {
+        __type(name: "SmartFlexDevicePreferencesInterface") { possibleTypes { name } }
+      }`, {});
+    const types = (data?.__type?.possibleTypes || []).map(t => t.name).join(', ');
+    logDebug('EV rewrite — SmartFlexDevicePreferencesInterface possible types', types || '(none found — interface name may differ)');
+  } catch (err) { /* best-effort, see comment above */ }
 }
 
 // New path: devices → SmartFlexVehicle → chargingSessions. devices() takes
@@ -1823,7 +1845,6 @@ async function loadEVSmartFlex() {
           make model
           chargePointPowerOutput
           status { ... on SmartFlexVehicleStatus { stateOfCharge { value } isSuspended } }
-          preferences { ... on SmartFlexVehicleChargingPreferences { weekdayTargetSoc weekdayTargetTime weekendTargetSoc weekendTargetTime } }
           chargingSessions(after: $after, first: 30) {
             edges {
               node {
