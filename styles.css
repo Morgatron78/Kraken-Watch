@@ -262,6 +262,7 @@ button{font-family:inherit;cursor:pointer;}
   font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:100px;letter-spacing:0.2px;
 }
 .unit-toggle-btn.active{background:var(--bg-panel-2);color:var(--text);}
+.unit-toggle-btn:disabled{opacity:0.35;cursor:default;}
 .fuel-panel.elec .unit-toggle-btn.active{color:var(--pink);}
 .fuel-panel.gas .unit-toggle-btn.active{color:var(--gas-blue);}
 .week-bars-wrap{margin-top:14px;}
@@ -526,15 +527,6 @@ button{font-family:inherit;cursor:pointer;}
 
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}
 
-.ev-streak-row{display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);}
-.ev-streak-dots{display:flex;gap:4px;}
-.ev-streak-dot{width:8px;height:8px;border-radius:50%;background:var(--line);}
-.ev-streak-dot.charged{background:var(--mint);}
-.ev-streak-text{font-family:'Inter', sans-serif;font-size:10.5px;color:var(--text-dim);}
-.ev-streak-text b{color:var(--text);}
-
-.ev-highlight-line{font-family:'Inter', sans-serif;font-size:10.5px;color:var(--text-dim);margin-top:10px;}
-.ev-highlight-line b{color:var(--text);}
 .ev-suspended-warning{
   display:flex;align-items:center;gap:6px;font-family:'Inter', sans-serif;font-size:11px;color:var(--coral);
   background:rgba(255,107,91,0.1);border:1px solid rgba(255,107,91,0.3);border-radius:10px;padding:8px 12px;margin-bottom:16px;

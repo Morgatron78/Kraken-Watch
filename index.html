@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.110">
+<link rel="stylesheet" href="styles.css?v=2.111">
 </head>
 <body>
 <div class="wrap">
@@ -157,16 +157,30 @@
           </div>
           <div class="slot-list" id="ev-slots-dispatch"></div>
           <div class="slot-list hidden" id="ev-slots-session"></div>
+        </div>
 
-          <div class="stat-label" style="margin:16px 0 8px;">This week</div>
-          <div class="week-bars" id="ev-week"></div>
+        <div class="ev-subpanel">
+          <div class="ev-subpanel-head">
+            <div class="stat-label" style="margin:0;">Charge history</div>
+            <div class="unit-toggle" id="ev-history-period-toggle">
+              <button class="unit-toggle-btn" data-period="day" disabled>Day</button>
+              <button class="unit-toggle-btn active" data-period="week">Week</button>
+              <button class="unit-toggle-btn" data-period="month" disabled>Month</button>
+              <button class="unit-toggle-btn" data-period="year" disabled>Year</button>
+            </div>
+          </div>
+          <div class="stat-row tight">
+            <div class="stat"><div class="stat-label" id="ev-history-period-label">This week</div><div class="stat-value-sm" id="ev-week-kwh-total">—</div></div>
+            <div class="stat"><div class="stat-label">Sessions</div><div class="stat-value-sm" id="ev-week-session-count">—</div></div>
+          </div>
+          <div class="chart-row">
+            <div class="chart-scale" id="ev-week-scale"></div>
+            <div class="week-bars" id="ev-week"></div>
+          </div>
           <div class="week-legend hidden" id="ev-week-legend">
             <span><i style="background:var(--mint)"></i>Smart</span>
             <span><i style="background:var(--pink)"></i>Boost</span>
           </div>
-          <div class="curve-labels" style="margin-top:8px;" id="ev-week-totals"></div>
-          <div class="ev-streak-row hidden" id="ev-streak-row"></div>
-          <div class="ev-highlight-line hidden" id="ev-highlight-line"></div>
           <div class="breakdown-box hidden" id="ev-week-breakdown"></div>
         </div>
       </div>
@@ -595,6 +609,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.110"></script>
+<script src="app.js?v=2.111"></script>
 </body>
 </html>

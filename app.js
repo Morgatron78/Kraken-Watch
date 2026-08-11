@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.110';
+const APP_VERSION = 'v2.111';
 
 const store = {
   get creds() {
@@ -1804,9 +1804,10 @@ async function loadEV() {
     $('ev-slots-dispatch').classList.remove('hidden');
     $('ev-slots-dispatch').innerHTML = '<div class="slot">Unavailable right now</div>';
     $('ev-week').innerHTML = '';
-    $('ev-week-totals').innerHTML = '<span>—</span>';
-    $('ev-streak-row').classList.add('hidden');
-    $('ev-highlight-line').classList.add('hidden');
+    $('ev-week-scale').innerHTML = '';
+    $('ev-history-period-label').textContent = 'This week';
+    $('ev-week-kwh-total').textContent = '—';
+    $('ev-week-session-count').textContent = '—';
   }
   return false;
 }
@@ -2093,29 +2094,14 @@ function renderEVWeekChart(sessions, now) {
       <span data-i="${i}">${label}</span>
     </div>`;
   }).join('');
+  renderChartScale('ev-week-scale', max, v => v.toFixed(1));
+  $('ev-week-legend').classList.remove('hidden');
 
   const weekKwh = buckets.reduce((s, b) => s + b.smart + b.boost, 0);
   const weekSessionCount = buckets.reduce((s, b) => s + b.sessions.length, 0);
-  $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added</span><span><b>${weekSessionCount}</b> session${weekSessionCount === 1 ? '' : 's'} this week</span>`;
-
-  // Charging streak — days with at least one session, out of the last 7.
-  const daysCharged = buckets.filter(b => b.sessions.length > 0).length;
-  $('ev-streak-row').classList.remove('hidden');
-  $('ev-streak-row').innerHTML = `<div class="ev-streak-dots">${buckets.map(b => `<div class="ev-streak-dot${b.sessions.length ? ' charged' : ''}"></div>`).join('')}</div><div class="ev-streak-text">Charged <b>${daysCharged}</b> of the last 7 days</div>`;
-
-  // Most active day — same "extremes" pattern already used in Insights
-  // (cheapest/priciest day), applied to EV sessions instead.
-  let busiestIdx = -1, busiestTotal = 0;
-  buckets.forEach((b, i) => { const t = b.smart + b.boost; if (t > busiestTotal) { busiestTotal = t; busiestIdx = i; } });
-  if (busiestIdx >= 0) {
-    const dayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const busiestDayIdx = (today - (6 - busiestIdx) + 7) % 7;
-    const b = buckets[busiestIdx];
-    $('ev-highlight-line').classList.remove('hidden');
-    $('ev-highlight-line').innerHTML = `Busiest day: <b>${dayLabels[busiestDayIdx]}</b>, ${busiestTotal.toFixed(1)} kWh across ${b.sessions.length} session${b.sessions.length === 1 ? '' : 's'}`;
-  } else {
-    $('ev-highlight-line').classList.add('hidden');
-  }
+  $('ev-history-period-label').textContent = 'This week';
+  $('ev-week-kwh-total').textContent = `${weekKwh.toFixed(1)} kWh`;
+  $('ev-week-session-count').textContent = `${weekSessionCount}`;
 
   return buckets;
 }
@@ -2128,14 +2114,17 @@ function renderEVWeekBreakdown(index) {
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const startOfWeek = new Date(new Date().setHours(0, 0, 0, 0)); startOfWeek.setDate(startOfWeek.getDate() - 6);
   const dayDate = new Date(startOfWeek); dayDate.setDate(dayDate.getDate() + index);
+  const smartSessions = bucket.sessions.filter(s => s.type !== 'BOOST');
+  const boostSessions = bucket.sessions.filter(s => s.type === 'BOOST');
   const total = bucket.smart + bucket.boost;
-  const smartCount = bucket.sessions.filter(s => s.type === 'SMART').length;
-  const boostCount = bucket.sessions.filter(s => s.type === 'BOOST').length;
-  const countLabel = bucket.sessions.length === 1 ? '1 session' : `${bucket.sessions.length} sessions`;
-  const typeLabel = [smartCount && `${smartCount} smart`, boostCount && `${boostCount} boost`].filter(Boolean).join(', ');
-  box.innerHTML = `<div class="breakdown-date">${dayNames[dayDate.getDay()]}</div>`
-    + `<div class="breakdown-row"><span class="label">Sessions</span><span class="val">${countLabel}${typeLabel ? ` (${typeLabel})` : ''}</span></div>`
-    + `<div class="breakdown-total"><span>Added</span><span>${total.toFixed(1)} kWh</span></div>`;
+  let rows = '';
+  if (smartSessions.length) {
+    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--mint)"></span>Smart</span><span class="val">${smartSessions.length} session${smartSessions.length === 1 ? '' : 's'} · ${bucket.smart.toFixed(1)} kWh</span></div>`;
+  }
+  if (boostSessions.length) {
+    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--pink)"></span>Boost</span><span class="val">${boostSessions.length} session${boostSessions.length === 1 ? '' : 's'} · ${bucket.boost.toFixed(1)} kWh</span></div>`;
+  }
+  box.innerHTML = `<div class="breakdown-date">${dayNames[dayDate.getDay()]}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh</span></div>`;
 }
 
 let evWeekBuckets = null;
@@ -2154,16 +2143,16 @@ function populateDemoEV() {
     $('ev-sessions-box').classList.remove('hidden');
     $('ev-sessions-count').textContent = '2';
     $('ev-view-toggle').classList.add('hidden');
-    $('ev-week-legend').classList.add('hidden');
-    $('ev-streak-row').classList.add('hidden');
-    $('ev-highlight-line').classList.add('hidden');
+    $('ev-week-legend').classList.remove('hidden');
     $('ev-slots-dispatch').classList.remove('hidden');
     $('ev-slots-dispatch').innerHTML = `
       <div class="slot done"><span>✓ 00:30 – 04:00</span><b>Completed · 22.1 kWh</b></div>
       <div class="slot active"><span>● 04:00 – 05:30</span><b>Dispatching now · 7.4kW</b></div>
       <div class="slot"><span>Planned tonight</span><b>23:30 – 05:30</b></div>`;
-    renderWeekBars('ev-week', [3.0, 2.2, 4.8, 0.1, 3.6, 2.6, 4.4], '');
-    $('ev-week-totals').innerHTML = `<span><b>62.4 kWh</b> added</span><span><b>9</b> sessions this week</span>`;
+    renderWeekBars('ev-week', [3.0, 2.2, 4.8, 0.1, 3.6, 2.6, 4.4], '', v => `${v.toFixed(1)} kWh`, 44, 'ev-week-scale');
+    $('ev-history-period-label').textContent = 'This week';
+    $('ev-week-kwh-total').textContent = '62.4 kWh';
+    $('ev-week-session-count').textContent = '9';
 }
 
 // Moves the persistent #bill-history-toggle button back to its safe static
