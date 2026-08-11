@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.125';
+const APP_VERSION = 'v2.126';
 
 const store = {
   get creds() {
@@ -479,7 +479,7 @@ function renderDiagnostics() {
     if (!syncLog.length) {
       historyBox.innerHTML = '';
     } else {
-      const recent = syncLog.slice(-20).reverse();
+      const recent = syncLog.slice(-10).reverse();
       historyBox.innerHTML = '<div class="sync-history-title">Recent syncs</div>' + recent.map(entry => {
         const time = new Date(entry.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const failed = Object.entries(entry.r).filter(([, ok]) => ok !== true).map(([k]) => k);
@@ -535,14 +535,6 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
   const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = new Date().getDay();
   const isDense = dayStacks.length > 10;
-  // Bar spacing (isDense) and label visibility are separate concerns —
-  // month view genuinely needs the tighter gap for ~28-31 bars, but its
-  // day-of-month numbers are compact enough to stay legible even at that
-  // density, unlike a long run of cycling weekday letters. Previously
-  // both were gated by the same flag, which silently hid every month-view
-  // label regardless of isMonthMode, even though the code right below
-  // already computes the correct day-of-month text for it.
-  const showLabels = isMonthMode || !isDense;
   el.classList.toggle('dense', isDense);
   el.innerHTML = dayStacks.map((segs, i) => {
     const isToday = i === dayStacks.length - 1;
@@ -555,10 +547,13 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
     // dateForPeriodIndex's own month-mode logic) — the day-of-week formula
     // below only correctly handles up to a 7-bar span (a single +7
     // wraparound correction), so a longer month array pushed it negative
-    // and printed literal "undefined". Numbers are also just more legible
-    // for a month's worth of bars than cycling weekday letters anyway.
+    // and printed literal "undefined".
     const labelText = isMonthMode ? String(i + 1) : labels[(today - (dayStacks.length - 1 - i) + 7) % 7];
-    const label = showLabels ? `<span class="${isSelected ? 'active-day' : ''}">${labelText}</span>` : '';
+    // Showing every one of ~28-31 month labels overflows a mobile-width
+    // chart (confirmed live) — every label stays legible alone, but that
+    // many crammed together doesn't fit. Every 5th only once dense.
+    const showThisLabel = !isDense || i % 5 === 0;
+    const label = showThisLabel ? `<span class="${isSelected ? 'active-day' : ''}">${labelText}</span>` : '';
     return `<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${i}">${segHtml}</div>${label}</div>`;
   }).join('');
 }
@@ -2159,7 +2154,7 @@ async function loadEVSmartFlex() {
 function renderEVHistoryBars(buckets, labels) {
   const max = Math.max(...buckets.map(b => b.smart + b.boost), 0.01);
   const maxBarHeight = 44;
-  const isDense = buckets.length > 10; // affects bar spacing only, not label visibility — same fix as Consumption's own Month view, which had this exact bug earlier tonight
+  const isDense = buckets.length > 10; // affects bar spacing AND label frequency once dense — Month's ~28-31 bars overflow a mobile-width chart if every label shows (confirmed live), so only every 5th is shown once dense
   $('ev-week').classList.toggle('dense', isDense);
   $('ev-week').innerHTML = buckets.map((b, i) => {
     const total = b.smart + b.boost;
@@ -2167,13 +2162,14 @@ function renderEVHistoryBars(buckets, labels) {
     const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
     const boostH = total > 0 ? h - smartH : 0;
     const neutralH = total > 0 ? 0 : h; // no sessions at all in this bucket — a plain neutral floor, not a false Boost claim
+    const showThisLabel = !isDense || i % 5 === 0;
     return `<div class="ev-week-col">
       <div class="ev-week-stack" data-i="${i}" style="height:${h}px">
         ${boostH ? `<div class="ev-week-seg boost" style="height:${boostH}px"></div>` : ''}
         ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
         ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
       </div>
-      <span data-i="${i}">${labels[i]}</span>
+      ${showThisLabel ? `<span data-i="${i}">${labels[i]}</span>` : ''}
     </div>`;
   }).join('');
   renderChartScale('ev-week-scale', max, v => v.toFixed(1));

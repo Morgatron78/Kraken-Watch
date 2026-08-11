@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.125">
+<link rel="stylesheet" href="styles.css?v=2.126">
 </head>
 <body>
 <div class="wrap">
@@ -487,6 +487,17 @@
           </div>
         </div>
 
+        <div class="fuel-panel elec hidden" id="insights-ev-panel">
+          <div class="fuel-panel-title">⚡ EV Charging</div>
+          <div class="insight-block">
+            <div class="ev-streak-row">
+              <div class="ev-streak-dots" id="insights-ev-streak-dots"></div>
+              <div class="ev-streak-text" id="insights-ev-streak-text">—</div>
+            </div>
+            <div class="ev-highlight-line" id="insights-ev-highlight">—</div>
+          </div>
+        </div>
+
         <div class="fuel-panel billing">
           <div class="fuel-panel-title">⛽ Balance runway</div>
           <div class="insight-block">
@@ -525,17 +536,6 @@
               <div class="standing-col"><div class="standing-label">Full year</div><div class="standing-value" id="insights-standing-full-year">—</div></div>
             </div>
             <div class="standing-total-note">Paid across both fuels, before a single unit of energy is even used. Full-year figure assumes today's rates hold — standing charges change less often than usage rates, but aren't fixed.</div>
-          </div>
-        </div>
-
-        <div class="fuel-panel elec hidden" id="insights-ev-panel">
-          <div class="fuel-panel-title">⚡ EV Charging</div>
-          <div class="insight-block">
-            <div class="ev-streak-row">
-              <div class="ev-streak-dots" id="insights-ev-streak-dots"></div>
-              <div class="ev-streak-text" id="insights-ev-streak-text">—</div>
-            </div>
-            <div class="ev-highlight-line" id="insights-ev-highlight">—</div>
           </div>
         </div>
 
@@ -621,6 +621,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.125"></script>
+<script src="app.js?v=2.126"></script>
 </body>
 </html>
