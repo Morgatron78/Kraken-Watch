@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.108';
+const APP_VERSION = 'v2.109';
 
 const store = {
   get creds() {
@@ -1785,7 +1785,7 @@ async function testCostOfCharge() {
         costOfCharge(accountNumber: $accountNumber, frequency: $frequency) {
           costOfChargeId isSmartCharge reportDate totalConsumption totalCostExclTax totalCostInclTax
         }
-      }`, { accountNumber: store.creds.accountNumber, frequency: 'MONTH' });
+      }`, { accountNumber: store.creds.accountNumber, frequency: 'MONTHLY' });
     logDebug('EV rewrite — costOfCharge raw result', JSON.stringify(data?.costOfCharge ?? null));
   } catch (err) {
     logIssue('EV costOfCharge test', err);
