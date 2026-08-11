@@ -495,7 +495,7 @@ button{font-family:inherit;cursor:pointer;}
 
 /* EV panel rewrite: battery gauge, view toggle, session/dispatch badges,
    stacked week chart with tap-to-breakdown */
-.battery-row{display:flex;align-items:center;gap:12px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
+.battery-row{display:flex;align-items:center;gap:12px;margin-top:14px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
 .battery-pct{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;flex-shrink:0;}
 .battery-gauge{flex:1;height:8px;background:rgba(255,255,255,0.06);border-radius:100px;overflow:hidden;}
 .battery-gauge-fill{height:100%;background:linear-gradient(90deg,var(--mint),#5eeab0);border-radius:100px;}

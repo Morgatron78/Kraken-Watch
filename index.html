@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.99">
+<link rel="stylesheet" href="styles.css?v=2.100">
 </head>
 <body>
 <div class="wrap">
@@ -121,12 +121,12 @@
           <span id="ev-chevron" style="font-size:11px;color:var(--text-dim);">▾</span>
         </div>
       </div>
+      <div class="battery-row hidden" id="ev-battery-row">
+        <div class="battery-pct" id="ev-battery-pct">—</div>
+        <div class="battery-gauge"><div class="battery-gauge-fill" id="ev-battery-fill" style="width:0%"></div></div>
+        <div class="battery-target" id="ev-battery-target"></div>
+      </div>
       <div id="ev-body">
-        <div class="battery-row hidden" id="ev-battery-row">
-          <div class="battery-pct" id="ev-battery-pct">—</div>
-          <div class="battery-gauge"><div class="battery-gauge-fill" id="ev-battery-fill" style="width:0%"></div></div>
-          <div class="battery-target" id="ev-battery-target"></div>
-        </div>
         <div class="ev-suspended-warning hidden" id="ev-suspended-warning">⚠ Vehicle control is currently suspended by Octopus</div>
 
         <div class="ev-row">
@@ -587,6 +587,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.99"></script>
+<script src="app.js?v=2.100"></script>
 </body>
 </html>
