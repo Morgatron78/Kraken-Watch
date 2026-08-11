@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.101';
+const APP_VERSION = 'v2.102';
 
 const store = {
   get creds() {
@@ -1780,8 +1780,7 @@ async function loadEV() {
     $('ev-battery-row').classList.add('hidden');
     $('ev-suspended-warning').classList.add('hidden');
     $('ev-power-box').classList.add('hidden');
-    $('ev-added-box').style.flex = 'none';
-    $('ev-added-box').style.width = '100%';
+    $('ev-sessions-box').classList.add('hidden');
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.add('hidden');
     $('ev-slots-session').classList.add('hidden');
@@ -1967,18 +1966,20 @@ async function loadEVSmartFlex() {
   const sessionKwh = todaysSessions.reduce((sum, s) => sum + Math.abs(s.energyAdded?.value || 0), 0);
   $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
 
-  // Charging power — only meaningful while actually charging; shown
-  // alongside "This session" as a second box in that case, hidden
-  // otherwise so the row doesn't show a stale/meaningless kW figure.
+  // Second box: charging power while actually charging (immediately useful
+  // in that moment), sessions-today count otherwise (a plain, always-
+  // reliable metric — unlike cost, which turned out to be consistently
+  // null — that also tells you something real: one long overnight charge
+  // vs several short top-ups).
   const power = vehicle.chargePointPowerOutput;
   if (activeDispatch && power != null) {
     $('ev-power-box').classList.remove('hidden');
+    $('ev-sessions-box').classList.add('hidden');
     $('ev-power').textContent = `${(+power).toFixed(1)} kW`;
-    $('ev-added-box').style.flex = '';
   } else {
     $('ev-power-box').classList.add('hidden');
-    $('ev-added-box').style.flex = 'none';
-    $('ev-added-box').style.width = '100%';
+    $('ev-sessions-box').classList.remove('hidden');
+    $('ev-sessions-count').textContent = `${todaysSessions.length}`;
   }
 
   evWeekBuckets = renderEVWeekChart(sessions, now);
@@ -2028,7 +2029,8 @@ function renderEVWeekChart(sessions, now) {
   }).join('');
 
   const weekKwh = buckets.reduce((s, b) => s + b.smart + b.boost, 0);
-  $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added this week</span>`;
+  const weekSessionCount = buckets.reduce((s, b) => s + b.sessions.length, 0);
+  $('ev-week-totals').innerHTML = `<span><b>${weekKwh.toFixed(1)} kWh</b> added</span><span><b>${weekSessionCount}</b> session${weekSessionCount === 1 ? '' : 's'} this week</span>`;
 
   return buckets;
 }
@@ -2062,8 +2064,8 @@ function populateDemoEV() {
     $('ev-battery-row').classList.add('hidden');
     $('ev-suspended-warning').classList.add('hidden');
     $('ev-power-box').classList.add('hidden');
-    $('ev-added-box').style.flex = 'none';
-    $('ev-added-box').style.width = '100%';
+    $('ev-sessions-box').classList.remove('hidden');
+    $('ev-sessions-count').textContent = '2';
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.add('hidden');
     $('ev-slots-dispatch').classList.remove('hidden');
@@ -2072,7 +2074,7 @@ function populateDemoEV() {
       <div class="slot active"><span>● 04:00 – 05:30</span><b>Dispatching now · 7.4kW</b></div>
       <div class="slot"><span>Planned tonight</span><b>23:30 – 05:30</b></div>`;
     renderWeekBars('ev-week', [3.0, 2.2, 4.8, 0.1, 3.6, 2.6, 4.4], '');
-    $('ev-week-totals').innerHTML = `<span><b>62.4 kWh</b> added this week</span>`;
+    $('ev-week-totals').innerHTML = `<span><b>62.4 kWh</b> added</span><span><b>9</b> sessions this week</span>`;
 }
 
 // Moves the persistent #bill-history-toggle button back to its safe static
