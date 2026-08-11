@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.124">
+<link rel="stylesheet" href="styles.css?v=2.125">
 </head>
 <body>
 <div class="wrap">
@@ -123,17 +123,19 @@
       </div>
       <div class="battery-row hidden" id="ev-battery-row">
         <div class="battery-pct" id="ev-battery-pct">—</div>
-        <div class="battery-gauge"><div class="battery-gauge-fill" id="ev-battery-fill" style="width:0%"></div></div>
+        <div class="battery-gauge">
+          <div class="battery-gauge-fill" id="ev-battery-fill" style="width:0%"></div>
+          <div class="battery-gauge-restricted hidden" id="ev-battery-restricted"></div>
+          <div class="battery-gauge-limit hidden" id="ev-battery-limit"></div>
+        </div>
         <div class="battery-target-col">
           <div class="battery-target" id="ev-battery-target"></div>
           <div class="battery-countdown" id="ev-battery-countdown"></div>
         </div>
       </div>
       <div class="schedule-preview hidden" id="ev-schedule-preview"></div>
-      <div class="ev-diag-line hidden" id="ev-test-dispatch-warning"></div>
+      <div class="ev-warnings hidden" id="ev-warnings"></div>
       <div id="ev-body" class="hidden">
-        <div class="ev-suspended-warning hidden" id="ev-suspended-warning">⚠ Vehicle control is currently suspended by Octopus</div>
-
         <div class="ev-row">
           <div style="flex:1">
             <div class="ev-detail-label">Next dispatch window</div>
@@ -619,6 +621,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.124"></script>
+<script src="app.js?v=2.125"></script>
 </body>
 </html>

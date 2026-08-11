@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.124';
+const APP_VERSION = 'v2.125';
 
 const store = {
   get creds() {
@@ -1828,8 +1828,7 @@ async function loadEV() {
     $('ev-added').textContent = '—';
     $('ev-battery-row').classList.add('hidden');
     $('ev-schedule-preview').classList.add('hidden');
-    $('ev-test-dispatch-warning').classList.add('hidden');
-    $('ev-suspended-warning').classList.add('hidden');
+    $('ev-warnings').classList.add('hidden');
     $('ev-power-box').classList.add('hidden');
     $('ev-sessions-box').classList.add('hidden');
     $('ev-view-toggle').classList.add('hidden');
@@ -1876,7 +1875,8 @@ async function loadEVSmartFlex() {
         ... on SmartFlexVehicle {
           make model
           chargePointPowerOutput
-          status { ... on SmartFlexVehicleStatus { stateOfCharge { value } isSuspended testDispatchFailureReason } }
+          status { ... on SmartFlexVehicleStatus { stateOfCharge { value } isSuspended testDispatchFailureReason currentState stateOfChargeLimit { upperSocLimit isLimitViolated } } }
+          alerts { ... on SmartFlexDeviceAlert { message publishedAt } }
           preferences { ... on SmartFlexDevicePreferences { schedules { dayOfWeek time max } } }
           chargingSessions(after: $after, first: 30) {
             edges {
@@ -1926,6 +1926,27 @@ async function loadEVSmartFlex() {
     const pct = Math.min(100, Math.max(0, soc));
     $('ev-battery-pct').textContent = `${Math.round(pct)}%`;
     $('ev-battery-fill').style.width = `${pct}%`;
+
+    // Limit marker — only shown when Octopus reports a real upper bound.
+    // The striped "restricted" zone beyond it naturally disappears once
+    // the fill genuinely exceeds the limit, since you're now visibly past
+    // the boundary — the warning line above explains why, this just shows
+    // where the line was.
+    const limit = vehicle.status?.stateOfChargeLimit?.upperSocLimit;
+    if (limit != null) {
+      const limitPct = Math.min(100, Math.max(0, limit));
+      $('ev-battery-limit').classList.remove('hidden');
+      $('ev-battery-limit').style.left = `${limitPct}%`;
+      if (limitPct > pct) {
+        $('ev-battery-restricted').classList.remove('hidden');
+        $('ev-battery-restricted').style.width = `${100 - limitPct}%`;
+      } else {
+        $('ev-battery-restricted').classList.add('hidden');
+      }
+    } else {
+      $('ev-battery-limit').classList.add('hidden');
+      $('ev-battery-restricted').classList.add('hidden');
+    }
   } else {
     $('ev-battery-row').classList.add('hidden');
   }
@@ -1980,26 +2001,63 @@ async function loadEVSmartFlex() {
     $('ev-schedule-preview').classList.add('hidden');
   }
 
-  // isSuspended — Octopus has disabled control of the device. Silent
-  // unless true, same "invisible unless it matters" pattern as the
-  // isBlocked rate-limit diagnostic — explains a charge that just isn't
-  // happening rather than leaving it a mystery.
-  $('ev-suspended-warning').classList.toggle('hidden', !vehicle.status?.isSuspended);
+  // Consolidated warnings — collects every applicable condition into one
+  // list rather than five separate boxes, so the panel shows exactly what's
+  // wrong (0 to N lines) without stacking clutter regardless of how many
+  // fire at once. Each condition stays silent unless genuinely true, same
+  // "invisible unless it matters" pattern as before.
+  const warnings = [];
 
-  // testDispatchFailureReason — same SmartFlexVehicleStatus fragment
-  // already confirmed working for stateOfCharge/isSuspended, so this is a
-  // sibling field on an already-proven type, not a new schema risk.
-  // Confirmed via real data: this field returns an explicit "no failure"
-  // enum value (rendered as literal "none" once lowercased) rather than
-  // null when nothing's failed — a truthy check alone treated that as a
-  // real failure and fired constantly. Excluded case-insensitively since
-  // the exact casing Octopus uses isn't independently confirmed.
+  if (vehicle.status?.isSuspended) {
+    warnings.push({ level: 'coral', text: 'Vehicle control is currently suspended by Octopus' });
+  }
+
+  // testDispatchFailureReason returns an explicit "no failure" enum value
+  // (renders as literal "none" once lowercased) rather than null when
+  // nothing's failed — confirmed via real data, a truthy check alone fired
+  // constantly. Excluded case-insensitively since the exact casing Octopus
+  // uses isn't independently confirmed.
   const failReason = vehicle.status?.testDispatchFailureReason;
   if (failReason && failReason.toUpperCase() !== 'NONE') {
-    $('ev-test-dispatch-warning').classList.remove('hidden');
-    $('ev-test-dispatch-warning').textContent = `⚠ Last test dispatch failed — ${failReason.replace(/_/g, ' ').toLowerCase()}`;
+    warnings.push({ level: 'amber', text: `Last test dispatch failed — ${failReason.replace(/_/g, ' ').toLowerCase()}` });
+  }
+
+  // currentState — Octopus's own device state machine. Most of its values
+  // (SETUP_COMPLETE, SMART_CONTROL_CAPABLE, the AUTHENTICATION_*/TEST_*
+  // ones) are one-time onboarding milestones, not ongoing status — for an
+  // established device they'd just sit at one value forever, no different
+  // from the already-confirmed-unhelpful `current` lifecycle field. Only
+  // the states that could genuinely vary day-to-day for a device that's
+  // already live are surfaced here. BOOSTING/SMART_CONTROL_IN_PROGRESS are
+  // deliberately not warnings — normal operation, already reflected by the
+  // status pill.
+  const state = vehicle.status?.currentState;
+  if (state === 'LOST_CONNECTION') {
+    warnings.push({ level: 'coral', text: 'Lost connection to vehicle' });
+  } else if (state === 'SMART_CONTROL_OFF') {
+    warnings.push({ level: 'amber', text: 'Smart control is currently off' });
+  } else if (state === 'SMART_CONTROL_NOT_AVAILABLE') {
+    warnings.push({ level: 'amber', text: 'Smart control is not available for this vehicle right now' });
+  }
+
+  if (vehicle.status?.stateOfChargeLimit?.isLimitViolated) {
+    const limit = vehicle.status.stateOfChargeLimit.upperSocLimit;
+    const current = vehicle.status.stateOfCharge?.value;
+    const limitText = limit != null && current != null ? ` (${Math.round(current)}% vs ${Math.round(limit)}% limit)` : '';
+    warnings.push({ level: 'amber', text: `Battery limit exceeded${limitText}` });
+  }
+
+  (vehicle.alerts || []).forEach(a => {
+    if (a?.message) warnings.push({ level: 'amber', text: a.message });
+  });
+
+  const warningsEl = $('ev-warnings');
+  if (warnings.length) {
+    warningsEl.classList.remove('hidden');
+    warningsEl.innerHTML = warnings.map(w => `<div class="ev-warning-line ${w.level}">⚠ ${w.text}</div>`).join('');
   } else {
-    $('ev-test-dispatch-warning').classList.add('hidden');
+    warningsEl.classList.add('hidden');
+    warningsEl.innerHTML = '';
   }
 
   const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -2287,7 +2345,7 @@ async function setEVHistoryPeriod(period) {
     }
     result = buildEVMonthBuckets(monthData.sessions, now);
     if (monthData.hasMore) {
-      $('ev-week').insertAdjacentHTML('afterend', '<div class="ev-diag-line" id="ev-month-partial-note" style="margin-top:10px;">⚠ Showing partial data — more sessions exist than fetched</div>');
+      $('ev-week').insertAdjacentHTML('afterend', '<div class="ev-warning-line amber" id="ev-month-partial-note" style="margin-top:10px;margin-bottom:0;">⚠ Showing partial data — more sessions exist than fetched</div>');
     }
   }
 
@@ -2340,8 +2398,7 @@ function populateDemoEV() {
     $('ev-added').textContent = '9.6 kWh';
     $('ev-battery-row').classList.add('hidden');
     $('ev-schedule-preview').classList.add('hidden');
-    $('ev-test-dispatch-warning').classList.add('hidden');
-    $('ev-suspended-warning').classList.add('hidden');
+    $('ev-warnings').classList.add('hidden');
     $('ev-power-box').classList.add('hidden');
     $('ev-sessions-box').classList.remove('hidden');
     $('ev-sessions-count').textContent = '2';

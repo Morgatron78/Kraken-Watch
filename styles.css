@@ -81,6 +81,7 @@ button{font-family:inherit;cursor:pointer;}
 #ev-card.ev-collapsed .card-head{margin-bottom:0;}
 #ev-card.ev-collapsed #ev-battery-row{margin-bottom:0;}
 #ev-card.ev-collapsed #ev-schedule-preview{margin-bottom:0;}
+#ev-card.ev-collapsed #ev-warnings{margin-bottom:0;}
 .card-title{font-size:16px;font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;gap:8px;}
 .card-tag{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;padding:3px 9px;border-radius:100px;white-space:nowrap;}
 .tag-mint{color:var(--mint);background:var(--mint-soft);border:1px solid rgba(61,220,151,0.35);}
@@ -507,7 +508,21 @@ button{font-family:inherit;cursor:pointer;}
    stacked week chart with tap-to-breakdown */
 .battery-row{display:flex;align-items:center;gap:12px;margin-top:14px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
 .battery-pct{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;flex-shrink:0;}
-.battery-gauge{flex:1;height:8px;background:rgba(255,255,255,0.14);border:1px solid var(--line);border-radius:100px;overflow:hidden;}
+.battery-gauge{flex:1;height:8px;background:rgba(255,255,255,0.14);border:1px solid var(--line);border-radius:100px;overflow:hidden;position:relative;}
+.battery-gauge-limit{position:absolute;top:0;bottom:0;width:2px;background:var(--amber);z-index:2;}
+.battery-gauge-restricted{
+  position:absolute;top:0;bottom:0;right:0;
+  background:repeating-linear-gradient(135deg,rgba(255,184,77,0.35) 0 2px,rgba(255,184,77,0.12) 2px 4px);
+}
+
+.ev-warnings{margin-top:10px;margin-bottom:16px;}
+.ev-warning-line{
+  display:flex;align-items:flex-start;gap:6px;font-family:'Inter', sans-serif;font-size:11px;
+  padding:8px 12px;border-radius:10px;margin-bottom:6px;
+}
+.ev-warning-line:last-child{margin-bottom:0;}
+.ev-warning-line.coral{color:var(--coral);background:rgba(255,107,91,0.1);border:1px solid rgba(255,107,91,0.3);}
+.ev-warning-line.amber{color:var(--amber);background:rgba(255,184,77,0.1);border:1px solid rgba(255,184,77,0.3);}
 .battery-gauge-fill{height:100%;background:linear-gradient(90deg,var(--mint),#5eeab0);border-radius:100px;}
 
 .ev-subpanel-head{display:flex;justify-content:space-between;align-items:center;}
@@ -527,17 +542,8 @@ button{font-family:inherit;cursor:pointer;}
 .schedule-day.today .schedule-day-label,
 .schedule-day.today .schedule-day-time{color:var(--pink);font-weight:600;}
 
-.ev-diag-line{
-  display:flex;align-items:center;gap:6px;font-family:'Inter', sans-serif;font-size:11px;color:var(--amber);
-  background:rgba(255,184,77,0.1);border:1px solid rgba(255,184,77,0.3);border-radius:10px;padding:8px 12px;margin-top:12px;margin-bottom:16px;
-}
-
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}
 
-.ev-suspended-warning{
-  display:flex;align-items:center;gap:6px;font-family:'Inter', sans-serif;font-size:11px;color:var(--coral);
-  background:rgba(255,107,91,0.1);border:1px solid rgba(255,107,91,0.3);border-radius:10px;padding:8px 12px;margin-bottom:16px;
-}
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
 
 .ev-week-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
