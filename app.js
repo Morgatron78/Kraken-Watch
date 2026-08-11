@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.118';
+const APP_VERSION = 'v2.119';
 
 const store = {
   get creds() {
@@ -2146,11 +2146,16 @@ function buildEVDayBuckets(sessions, now) {
 // Deliberately drops the `dispatches` sub-field entirely (only needed for
 // the Windows view / Day's hourly detail, neither of which apply at
 // month scale) — meaningfully lighter payload for ~28-31 sessions worth
-// of data. One generous single fetch (first: 400) rather than full
-// multi-page pagination, with pageInfo.hasNextPage checked so an
-// unusually heavy month is flagged honestly rather than silently
-// under-counted — a real pagination loop can be added later if that
-// check ever actually fires, rather than building it upfront on a guess.
+// of data. One generous single fetch rather than full multi-page
+// pagination, with pageInfo.hasNextPage checked so an unusually heavy
+// month is flagged honestly rather than silently under-counted — a real
+// pagination loop can be added later if that check ever actually fires.
+// first: 400 hit a real error — "Invalid pagination parameters" — while
+// the same after/first pattern already works fine at first: 30 on the
+// live card query, suggesting a page-size cap rather than a structural
+// mistake. Reduced to 100 to test that theory; if this also errors, the
+// real cap is lower still and needs finding properly rather than guessed
+// again.
 async function loadEVMonthData(now) {
   const key = `${now.getFullYear()}-${now.getMonth()}`;
   if (evMonthCache?.key === key) return evMonthCache;
@@ -2160,7 +2165,7 @@ async function loadEVMonthData(now) {
       query EVMonthHistory($accountNumber: String!, $after: DateTime!) {
         devices(accountNumber: $accountNumber) {
           ... on SmartFlexVehicle {
-            chargingSessions(after: $after, first: 400) {
+            chargingSessions(after: $after, first: 100) {
               pageInfo { hasNextPage }
               edges { node { ... on SmartFlexChargingSession { start type energyAdded { value } } } }
             }
