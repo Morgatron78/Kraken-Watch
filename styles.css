@@ -520,7 +520,7 @@ button{font-family:inherit;cursor:pointer;}
 
 .ev-diag-line{
   display:flex;align-items:center;gap:6px;font-family:'Inter', sans-serif;font-size:11px;color:var(--amber);
-  background:rgba(255,184,77,0.1);border:1px solid rgba(255,184,77,0.3);border-radius:10px;padding:8px 12px;margin-top:12px;
+  background:rgba(255,184,77,0.1);border:1px solid rgba(255,184,77,0.3);border-radius:10px;padding:8px 12px;margin-top:12px;margin-bottom:16px;
 }
 
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}

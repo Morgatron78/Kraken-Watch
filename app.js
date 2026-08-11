@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.103';
+const APP_VERSION = 'v2.104';
 
 const store = {
   get creds() {
@@ -1933,8 +1933,13 @@ async function loadEVSmartFlex() {
   // testDispatchFailureReason — same SmartFlexVehicleStatus fragment
   // already confirmed working for stateOfCharge/isSuspended, so this is a
   // sibling field on an already-proven type, not a new schema risk.
+  // Confirmed via real data: this field returns an explicit "no failure"
+  // enum value (rendered as literal "none" once lowercased) rather than
+  // null when nothing's failed — a truthy check alone treated that as a
+  // real failure and fired constantly. Excluded case-insensitively since
+  // the exact casing Octopus uses isn't independently confirmed.
   const failReason = vehicle.status?.testDispatchFailureReason;
-  if (failReason) {
+  if (failReason && failReason.toUpperCase() !== 'NONE') {
     $('ev-test-dispatch-warning').classList.remove('hidden');
     $('ev-test-dispatch-warning').textContent = `⚠ Last test dispatch failed — ${failReason.replace(/_/g, ' ').toLowerCase()}`;
   } else {
