@@ -323,6 +323,20 @@ a safe position before every risky reassignment, not just once.
   it would need an extra API call per picked range purely to look up a
   past standing charge, for a figure that rarely changes and rarely
   differs by more than a few pence/day even when it does.
+- **Date-picker's electricity history has a real, observed floor —
+  roughly two months back — that gas doesn't share.** Confirmed via
+  testing: picking a week further back than that shows the app's own
+  honest "No data available for this period" note, with no error logged
+  anywhere (checked diagnostics specifically) — meaning the REST call
+  itself succeeds normally, it just comes back with zero consumption
+  readings for that range. So this isn't a rates problem and isn't a bug
+  in how the request is built — the electricity meter's own consumption
+  history via the public REST API genuinely doesn't reach back that far
+  on this account, while the gas meter's does. Octopus's own app can
+  still show older electricity data in some cases, likely because it can
+  draw on internal read history the public consumption endpoint doesn't
+  expose the same way. Nothing to fix here — just a real limit of what
+  this app's data source can offer.
 - **Gas m³→kWh conversion** uses the standard industry approximation
   (×1.02264 correction factor). **Calorific value is configurable** in
   Settings → Advanced (defaults to 40.0) — Octopus's own calorific value
@@ -402,6 +416,16 @@ to spot the actual cause rather than guessing.
 - **Octopus Saving Sessions / Octoplus points** — the relevant GraphQL
   fields (`savingSessions`, `joinSavingSessionsCampaign`) are deprecated on
   Octopus's side as of early 2026, with no confirmed working replacement.
+  Not built.
+- **Octopoints panel** (balance + history + £ equivalent, mocked up as a
+  possible addition to Billing) — confirmed dead end via schema reference:
+  `octoplusRewards` (the query that would have provided this) is deprecated
+  as of 10 Feb 2026, scheduled for removal on or after 10 Aug 2026, and its
+  own docs state "this query is no longer available." A different, more
+  specific field than the Saving Sessions one above, but same outcome —
+  checked separately rather than assuming the earlier rejection covered it,
+  since Octopoints is a broader ledger (redemptions, Wheel of Fortune
+  spins, Saving Sessions rewards) than just Saving Sessions participation.
   Not built.
 - **Native app wrapper with Lock Screen/Watch widgets** — technically
   possible via Capacitor, but genuine widgets need a separate native
