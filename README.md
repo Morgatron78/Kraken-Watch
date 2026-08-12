@@ -166,6 +166,28 @@ fuel-pump shape over a trending-up alternative — a deliberate choice, not
 a default; the emoji was already a visual pun on "running low" that the
 pump icon preserves.
 
+**v2.138 fixed two more gaps, both found by the user testing live rather
+than by review:**
+- The EV panel's own card-title ("EV charging", lowercase c) was never
+  resized/colored in v2.136 — the batch script that applied 26px+pink used
+  an exact case-sensitive text match against "EV Charging" (capital C),
+  which only exists in the *Insights* panel's copy of that title. The real
+  EV panel header uses lowercase "charging" and was silently skipped. A
+  case-sensitive find is exactly the kind of check that passes cleanly
+  while still missing a real instance — worth doing a case-insensitive
+  sweep, or better, matching on the element's class/id rather than its
+  visible text, next time this kind of bulk edit is needed.
+- The plain-Unicode "ℹ"/"⚠" characters left in the diagnostics log and the
+  EV panel's warning lines render as small *colorful* icons by default on
+  iOS (Apple gives both characters emoji presentation unless explicitly
+  told otherwise) — visually indistinguishable from leftover emoji even
+  though they were technically "just text," which defeated the point of
+  removing emoji at all. Replaced with small (11–13px) inline SVGs using
+  the same stroke style as everything else. Checkmark/cross glyphs
+  elsewhere (sync history "✓"/"✗") don't have this problem — those two
+  characters aren't in Unicode's default-emoji-presentation set — so they
+  were left as plain text.
+
 ## Performance
 
 Automatic background refresh runs in three tiers, not one flat interval:

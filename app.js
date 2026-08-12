@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.137';
+const APP_VERSION = 'v2.138';
 
 const store = {
   get creds() {
@@ -471,11 +471,13 @@ function renderDiagnostics() {
     : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
   $('diagnostics-title').innerHTML = `${diagIconSvg} ${hasIssues ? 'Diagnostics' : 'Diagnostics (debug info)'}`;
   $('diagnostics-title').style.color = syncIssues.length ? 'var(--coral)' : 'var(--text-dim)';
+  const infoIconSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+  const warnIconSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
   const lines = [
-    `ℹ App version: ${APP_VERSION}`,
-    `ℹ ${restCallsInLastHour()} REST call(s) in the last hour (Octopus's documented shared limit is 100/hour)`,
-    ...syncIssues.map(m => `⚠ ${m}`),
-    ...debugNotes.map(m => `ℹ ${m}`)
+    `${infoIconSvg} App version: ${APP_VERSION}`,
+    `${infoIconSvg} ${restCallsInLastHour()} REST call(s) in the last hour (Octopus's documented shared limit is 100/hour)`,
+    ...syncIssues.map(m => `${warnIconSvg} ${m}`),
+    ...debugNotes.map(m => `${infoIconSvg} ${m}`)
   ];
   $('diagnostics-list').innerHTML = lines.join('<br>');
 
@@ -2103,7 +2105,8 @@ async function loadEVSmartFlex() {
   const warningsEl = $('ev-warnings');
   if (warnings.length) {
     warningsEl.classList.remove('hidden');
-    warningsEl.innerHTML = warnings.map(w => `<div class="ev-warning-line ${w.level}">⚠ ${w.text}</div>`).join('');
+    const warnTriangleSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    warningsEl.innerHTML = warnings.map(w => `<div class="ev-warning-line ${w.level}">${warnTriangleSvg} ${w.text}</div>`).join('');
   } else {
     warningsEl.classList.add('hidden');
     warningsEl.innerHTML = '';
@@ -2404,7 +2407,7 @@ async function setEVHistoryPeriod(period) {
     }
     result = buildEVMonthBuckets(monthData.sessions, now);
     if (monthData.hasMore) {
-      $('ev-week').insertAdjacentHTML('afterend', '<div class="ev-warning-line amber" id="ev-month-partial-note" style="margin-top:10px;margin-bottom:0;">⚠ Showing partial data — more sessions exist than fetched</div>');
+      $('ev-week').insertAdjacentHTML('afterend', '<div class="ev-warning-line amber" id="ev-month-partial-note" style="margin-top:10px;margin-bottom:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Showing partial data — more sessions exist than fetched</div>');
     }
   }
 
