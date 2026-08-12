@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.140">
+<link rel="stylesheet" href="styles.css?v=2.141">
 </head>
 <body>
 <div class="wrap">
@@ -113,15 +113,15 @@
 
     <!-- EV CHARGING -->
     <div class="card" id="ev-card">
-      <div class="card-head" id="ev-header" style="cursor:pointer;" role="button" aria-expanded="false">
-        <div>
+      <div id="ev-header" style="cursor:pointer;" role="button" aria-expanded="false">
+        <div class="card-head">
           <div class="card-title"><span><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink)"><path d="M5 18H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.19"/><path d="M15 6h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3.19"/><line x1="23" y1="13" x2="23" y2="11"/><polyline points="11 6 7 12 13 12 9 18"/></svg> EV charging</span><span id="ev-name"></span></div>
-          <div class="bh-period hidden" id="ev-caption"></div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="card-tag tag-mint" id="ev-tag">—</div>
+            <span id="ev-chevron" style="font-size:11px;color:var(--text-dim);">▸</span>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <div class="card-tag tag-mint" id="ev-tag">—</div>
-          <span id="ev-chevron" style="font-size:11px;color:var(--text-dim);">▸</span>
-        </div>
+        <div class="bh-period hidden" id="ev-caption"></div>
       </div>
       <div class="battery-row hidden" id="ev-battery-row">
         <div class="battery-pct" id="ev-battery-pct">—</div>
@@ -192,7 +192,7 @@
     <!-- CONSUMPTION -->
     <div class="card" id="consumption-card">
       <div class="card-head">
-        <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Consumption</div>
+        <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Usage</div>
         <div class="head-controls">
           <div class="card-tag tag-dim" id="period-toggle-tag" style="padding:0;background:none;border:none;">
             <div class="unit-toggle" data-role="period">
@@ -652,6 +652,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.140"></script>
+<script src="app.js?v=2.141"></script>
 </body>
 </html>

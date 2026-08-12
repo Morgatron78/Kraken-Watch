@@ -78,7 +78,13 @@ button{font-family:inherit;cursor:pointer;}
   padding:20px;margin-bottom:var(--gap);
 }
 .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;}
-#ev-card.ev-collapsed .card-head{margin-bottom:0;}
+/* EV header: split into a single-line title+pill row (aligns cleanly,
+   both sides one line tall) plus the vehicle-trim caption as an
+   independent line below, rather than centering a two-line block against
+   a one-line pill — the old structure vertically centered the *whole*
+   title+caption block against the pill, which visibly threw the pill off
+   from the title text itself once the caption line was present. */
+#ev-header .card-head{margin-bottom:4px;}
 .head-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
 #ev-card.ev-collapsed #ev-battery-row{margin-bottom:0;}
 #ev-card.ev-collapsed #ev-schedule-preview{margin-bottom:0;}

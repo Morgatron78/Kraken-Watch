@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.140';
+const APP_VERSION = 'v2.141';
 
 const store = {
   get creds() {
@@ -634,7 +634,7 @@ function dateForPeriodIndex(index, arrayLength) {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (arrayLength - 1 - index));
 }
 
-// --- Date picker (Consumption card: Day/Week/Month only, matching
+// --- Date picker (Usage card: Day/Week/Month only, matching
 // Octopus's own picker — Year has no single date to anchor to) ---
 
 function openDatePicker() {
@@ -1108,7 +1108,7 @@ async function loadInsights() {
 
 // A month-array index maps directly to a calendar date (index 0 = the 1st).
 // Deliberately independent of the shared `periodMode`/`dateForPeriodIndex`
-// used by the Consumption panel — Insights can load while that panel is
+// used by the Usage panel — Insights can load while that panel is
 // showing Week, Day, or Year, so it needs its own fixed month-index mapping.
 function insightsMonthDate(index) {
   const now = new Date();
@@ -2409,7 +2409,7 @@ function renderEVHistoryBars(buckets, labels) {
     const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
     const boostH = total > 0 ? h - smartH : 0;
     const neutralH = total > 0 ? 0 : h; // no sessions at all in this bucket — a plain neutral floor, not a false Boost claim
-    // Same fix as Consumption's own Month view (same root cause, same day)
+    // Same fix as Usage's own Month view (same root cause, same day)
     // — the <span> must always render even when empty. Omitting the
     // element entirely for unlabeled bars made those columns one child
     // shorter, and since columns bottom-align via flex, that pushed their
@@ -2546,7 +2546,7 @@ async function loadEVMonthData(now) {
 }
 
 function buildEVMonthBuckets(sessions, now) {
-  // Matches Consumption's own Month view exactly — only elapsed days, not
+  // Matches Usage's own Month view exactly — only elapsed days, not
   // the full month padded with empty future placeholders. Grows day by
   // day through the month rather than showing a static 31-slot structure
   // with trailing empty bars for days that haven't happened yet.
@@ -2926,7 +2926,7 @@ async function loadBilling() {
           }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
         const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
 
-        // Consumption (kWh + sub-period) fetched separately, on its own risk.
+        // Usage (kWh + sub-period) fetched separately, on its own risk.
         // Two rounds of real API errors got us here: first confirmed
         // transactions.edges.node is a concrete TransactionType (no bare
         // `consumption` field, no inline fragment needed there); the API's
@@ -3499,7 +3499,7 @@ function startAutoRefresh() {
   // call once cached), not on any recurring schedule at all.
   loadVehicleInfoOnce().catch(() => {});
   setInterval(loadFastTier, 5 * 60 * 1000);
-  // Consumption bars/MTD, bills, standing charges, balance/DD — everything
+  // Usage bars/MTD, bills, standing charges, balance/DD — everything
   // in loadBilling() — genuinely can't reveal new information more often
   // than this. Smart meter consumption lags 24-48h regardless of how often
   // we ask; bills land on Octopus's own roughly-monthly schedule; standing
