@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.143';
+const APP_VERSION = 'v2.144';
 
 const store = {
   get creds() {
@@ -629,9 +629,18 @@ let billMonthsData = [];
 // week view counts backward from today, month view counts forward from the
 // 1st of the current month.
 function dateForPeriodIndex(index, arrayLength) {
-  const now = pickedDate || new Date();
-  if (periodMode === 'month') return new Date(now.getFullYear(), now.getMonth(), index + 1);
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (arrayLength - 1 - index));
+  const anchor = pickedDate || new Date();
+  if (periodMode === 'month') return new Date(anchor.getFullYear(), anchor.getMonth(), index + 1);
+  if (periodMode === 'week' && pickedDate) {
+    // The fetch itself snaps to the Sun–Sat week around whatever day was
+    // tapped (see loadPickedPeriodData) — pickedDate is that tapped day,
+    // not necessarily the week's last day, so labeling must snap the same
+    // way or every bar gets labeled with the wrong real date.
+    const wd = pickedDate.getDay();
+    const weekEnd = new Date(pickedDate.getFullYear(), pickedDate.getMonth(), pickedDate.getDate() + (6 - wd));
+    return new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate() - (arrayLength - 1 - index));
+  }
+  return new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - (arrayLength - 1 - index));
 }
 
 // --- Date picker (Usage card: Day/Week/Month only, matching
