@@ -90,6 +90,11 @@ button{font-family:inherit;cursor:pointer;}
 #ev-card.ev-collapsed #ev-schedule-preview{margin-bottom:0;}
 #ev-card.ev-collapsed #ev-warnings{margin-bottom:0;}
 .card-title{font-size:16px;font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;gap:8px;}
+/* EV title wraps icon+text in their own inner span (to sit alongside the
+   separate #ev-name span for the vehicle name) — that inner span isn't a
+   flex container itself, so it needs the same icon-to-text gap repeated
+   here, or it falls back to a single literal space instead of 8px. */
+.card-title > span:first-child{display:inline-flex;align-items:center;gap:8px;}
 /* Icon SVGs default to baseline alignment with surrounding text, which
    sits them low and grows the line height oddly — most visible wherever a
    title has more than one inline run (e.g. EV charging's icon+title span
