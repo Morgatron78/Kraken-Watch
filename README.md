@@ -10,10 +10,10 @@ one screen, with your own API credentials stored only on your device.
 |---|---|---|
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
 | Live usage | Current draw (W), £/hr estimate, color-coded by level. A "Last 30 min" toggle expands a pink Wh bar chart below the half-row — lazy-loaded only on expand, refreshes every 30s while open, stops the moment it's closed. Uses `smartMeterTelemetry` at `TEN_SECONDS` grouping, bucketed into 1-minute bars client-side (goes through Kraken GraphQL, so it never counts against the REST-call diagnostic) | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
-| EV charging | Built on Octopus's SmartFlex API (`devices` → `SmartFlexVehicle` → `chargingSessions`). Live battery % with target-SoC/countdown and a weekly schedule strip, an isSuspended warning, and two subpanels: **Charging Activity** (Windows/Sessions toggle — 30-min dispatch windows or whole-session view, both derived from one query, SMART=mint/BOOST=pink badges) and **Charge History**, a genuine consumption-style chart matching the exact pattern elec/gas Consumption already uses — Day/Week/Month toggle (Year deliberately not built: EV charging doesn't have a real seasonal story the way heating does, so 12 monthly totals didn't earn its place over Month), real kWh scale, tap-to-breakdown. Day reuses the same rolling-window data already loaded for the live card (zero new fetch); Month uses its own wider-range query, deliberately dropping the `dispatches` sub-field for a lighter payload, with a real `pageInfo.hasNextPage` check that surfaces an honest "partial data" note rather than silently under-reporting an unusually heavy month. Cost is deliberately not shown anywhere — confirmed via diagnostics that Octopus's API returns `cost: null` for every session, and the deprecated aggregate `costOfCharge` also returns empty; a shown figure would misleadingly read as free rather than unavailable. No fallback to the old dispatch-only path on failure — shows a genuine Unavailable state instead, recovering on the next auto-sync | **Live**, via Kraken GraphQL |
+| EV charging | Built on Octopus's SmartFlex API (`devices` → `SmartFlexVehicle` → `chargingSessions`). Live battery gauge with target-SoC/countdown, a weekly schedule strip, and a striped "restricted zone" marker beyond `stateOfChargeLimit.upperSocLimit` that disappears once the fill genuinely exceeds it. A single consolidated warnings area covers `isSuspended`, `testDispatchFailureReason` (excluding its `NONE` sentinel), `currentState` (LOST_CONNECTION/SMART_CONTROL_OFF/SMART_CONTROL_NOT_AVAILABLE only — other values are one-time onboarding milestones, not shown), `stateOfChargeLimit.isLimitViolated`, and device `alerts` — shows only whichever conditions actually apply, rather than up to five separate boxes. Two subpanels: **Charging Activity** (Windows/Sessions toggle — 30-min dispatch windows or whole-session view, both derived from one query, SMART=mint/BOOST=pink badges) and **Charge History**, a genuine consumption-style chart matching the exact pattern elec/gas Consumption already uses — Day/Week/Month toggle (Year deliberately not built: EV charging doesn't have a real seasonal story the way heating does, so 12 monthly totals didn't earn its place over Month), real kWh scale, tap-to-breakdown. Day reuses the same rolling-window data already loaded for the live card (zero new fetch); Month uses its own wider-range query, deliberately dropping the `dispatches` sub-field for a lighter payload, with a real `pageInfo.hasNextPage` check that surfaces an honest "partial data" note rather than silently under-reporting an unusually heavy month. Cost is deliberately not shown anywhere — confirmed via diagnostics that Octopus's API returns `cost: null` for every session, and the deprecated aggregate `costOfCharge` also returns empty; a shown figure would misleadingly read as free rather than unavailable. A separate historical rate-matching approach was also investigated and confirmed a dead end (see Approximations below). No fallback to the old dispatch-only path on failure — shows a genuine Unavailable state instead, recovering on the next auto-sync | **Live**, via Kraken GraphQL |
 | Consumption (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown | **Live** |
 | Billing | Account balance and projected balance as two neutral side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns. Bill history: fetches the last 15 bills (see below for why), most recent always expanded with its breakdown collapsible, the rest behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill. Below that, a bill-total-over-time chart grouped by calendar month (not one bar per bill — see below), stacked gas (blue)/electricity (pink), capped to the most recent 12 distinct months | **Live** |
-| Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, annual standing charge total, and a 12-month season-aware balance runway forecast (see below) | **Live**, lazy-loads a month of data on first expand |
+| Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, annual standing charge total, a standalone **EV Charging** panel (charging streak dots, busiest day highlight — placed right after Gas, ahead of Balance runway/Standing charges, since EV data is more dynamic week-to-week), and a 12-month season-aware balance runway forecast (see below) | **Live**, lazy-loads a month of data on first expand |
 
 **Balance runway forecast**, in more detail: for each of the next 12 payment
 cycles, prices *last year's same calendar month's real kWh* (from the same
@@ -247,9 +247,17 @@ a safe position before every risky reassignment, not just once.
   drifts slightly over time, so if your gas figures look a little off,
   check your latest bill's usage breakdown for the exact value it used and
   enter that.
-- **EV dispatch rate** is approximated as today's cheapest electricity rate,
-  since dispatches report kWh added but not the exact rate live at that
-  moment. Usually accurate since IOG dispatches land in the off-peak window.
+- **EV session cost isn't shown, and can't be derived from rate history.**
+  `SmartFlexChargingSession.cost` and the deprecated `costOfCharge` aggregate
+  both return null/empty for real data. A follow-up theory — matching a
+  session's dispatch times against this app's own already-fetched rate
+  history, the same way Polestar's own app appears to show real £ costs —
+  was tested directly against a real bill and confirmed a dead end: IOG
+  retroactively applies an off-peak rate to SmartFlex dispatches that land
+  outside the normal off-peak window, but that override never appears in
+  standard rate history, no matter how long you wait for settlement. Any
+  future EV cost figure would need the same client-side approximated-rate
+  approach used elsewhere in the app (kWh × known tariff), not rate-matching.
 - **Predicted monthly cost** is a simple linear projection (today's average
   daily cost carried across the rest of the month) — won't anticipate
   seasonal changes in usage.
@@ -295,9 +303,13 @@ a safe position before every risky reassignment, not just once.
   guess fails the *entire* query it's part of, not just that field, and
   GraphQL error messages here are often specific enough to name the actual
   fix directly.
-- **Battery %, live charge rate, and smart-charging on/off aren't shown** —
-  Octopus's dispatch data genuinely doesn't expose vehicle/charger state,
-  only dispatch windows (start/end/kWh).
+- **`UpsideDispatchType.meta`** (on the retired legacy dispatch query) was
+  confirmed via introspection to hold only `location` (`AT_HOME` or null,
+  completed dispatches) and `source` (`smart-charge`/`test-charge`/
+  `bump-charge`, planned dispatches) — dispatch classification, not cost or
+  rate data. Belongs to the legacy `completedDispatches`/`plannedDispatches`
+  query, fully retired since the SmartFlex rewrite; not worth reviving for
+  this.
 
 If numbers look wrong, check **Settings → Show diagnostics panel** — every
 sync logs reading counts, rate ranges, and totals, which is usually enough
@@ -318,6 +330,21 @@ to spot the actual cause rather than guessing.
   comparison, then dropped: EV charging doesn't have a real seasonal story
   the way heating does, so 12 monthly totals is a coarser view that doesn't
   add much over Month. Day/Week/Month cover the panel fully.
+- **Splitting the EV panel** into a live/current-state card and a separate
+  pattern/history view (mirroring how Consumption splits from Insights) —
+  proposed early on, later reconsidered once the panel's real shape settled;
+  the EV panel is considered complete as one card, no split wanted.
+- **EV session cost via historical rate-matching** — investigated in depth,
+  confirmed a dead end via direct evidence against a real bill (see
+  Approximations above). Octopus's rate history genuinely can't see the
+  rate actually applied to a SmartFlex dispatch.
+- **`reAuthenticationState`** — a guessed field name on the vehicle status
+  type, never resolved via introspection; not chased further once the other
+  candidates in the same investigation (`currentState`, `stateOfChargeLimit`)
+  panned out.
+- **`current`** (a device lifecycle-status field) — confirmed via
+  introspection to exist, but it's a one-time onboarding milestone, static
+  for an already-established device. Not useful to surface.
 
 ## Setup
 

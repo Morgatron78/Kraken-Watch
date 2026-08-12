@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.131';
+const APP_VERSION = 'v2.133';
 
 const store = {
   get creds() {
@@ -209,7 +209,7 @@ function clearRateCacheIfNewDay() {
     rateCacheDay = today;
   }
 }
-let cachedOffPeakRateP = null; // cheapest electricity rate seen today — used as the EV dispatch rate approximation
+let cachedOffPeakRateP = null; // cheapest electricity rate seen today — fallback rate for Live Usage's £/hr estimate when the current rate hasn't loaded yet
 let cachedCurrentRateP = null; // right-now electricity rate — used for the live-usage £/hr estimate
 let cachedElecStandingP = null;
 let cachedGasStandingP = null;
@@ -1788,42 +1788,20 @@ async function loadVehicleInfoOnce() {
 // different app doing the same kind of estimate. Cost stays out of the EV
 // panel; if a future EV cost figure is ever wanted, it would need the same
 // approximated-rate approach rather than a real Octopus-sourced value.
-
-// Temporary, one-time — direct evidence check for the EV cost
-// rate-matching investigation. The user's real 31 July bill shows the
-// off-peak rate (7.62p) applied at 12:30-13:00 and 15:00-15:30, both well
-// outside the documented core off-peak window (23:30-05:30) — the second
-// slot's consumption (1.21 kWh) looks like a genuine smart-charging
-// dispatch that landed midday. If this app's own already-fetched rate
-// history shows the same 7.62p at those exact times for that exact date
-// (now safely past any settlement lag, being ~2 weeks old), that's direct
-// proof our existing data source reflects the same settled reality as
-// the actual invoice — meaning the whole rate-matching approach is
-// viable with data already fetched, no new query needed. Local-time
-// Date constructor arguments used throughout (year, month, day, hour,
-// minute) rather than ISO strings with a 'Z' suffix, since the bill's
-// times are local UK time and a UTC string would silently shift the
-// comparison by an hour.
-let julyRateEvidenceChecked = false;
-async function checkJulyRateEvidence() {
-  if (julyRateEvidenceChecked) return;
-  julyRateEvidenceChecked = true;
-  try {
-    const from = new Date(2026, 6, 31, 0, 0).toISOString();
-    const to = new Date(2026, 7, 1, 0, 0).toISOString();
-    const rates = await fetchElecRates(from, to);
-    const r1230 = rateAt(rates, +new Date(2026, 6, 31, 12, 30));
-    const r1500 = rateAt(rates, +new Date(2026, 6, 31, 15, 0));
-    const fmt = r => r != null ? `${r.toFixed(2)}p` : 'no data';
-    logDebug('Rate evidence check — 31 Jul, bill shows 7.62p at both vs our data',
-      `12:30: ${fmt(r1230)}, 15:00: ${fmt(r1500)}`);
-  } catch (err) {
-    logIssue('Rate evidence check', err);
-  }
-}
+//
+// Rate-matching investigated separately and now closed as a dead end: a
+// one-time evidence check (since removed) compared the 31 Jul bill, which
+// showed the off-peak rate applied to a midday SmartFlex dispatch, against
+// this app's own already-fetched standard rate history for the same
+// timestamps. The app's rate history showed the ordinary peak rate, not
+// the bill's off-peak override — confirming the retroactive SmartFlex
+// override is per-appliance/invisible to standard rate history, not
+// property-wide. This data source cannot see the rate actually applied to
+// a dispatch, so rate-matching has no data to match against, regardless
+// of settlement time. Any future EV cost figure must use the
+// approximated-rate approach above, not rate-matching.
 
 async function loadEV() {
-  checkJulyRateEvidence(); // fire-and-forget, one-time — see comment above
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
