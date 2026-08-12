@@ -114,6 +114,28 @@ kind of rule a font migration is supposed to catch. 18 rules were like this
 here. The only reliable check is auditing for *any* rule missing a
 font-family in the target category, not just grepping for the old value.
 
+## Icons
+
+Every icon in the app (v2.136) is a hand-inlined SVG — no icon font, no
+icon library, no CDN dependency, matching the project's zero-external-
+dependency approach for offline PWA reliability (the same reasoning behind
+Google Fonts being the only external asset the app ever loads). All icons
+share one stroke style: `viewBox="0 0 24 24"`, `stroke="currentColor"`,
+`stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"`,
+`fill="none"` — sized per context via the `<svg>` element's own
+`width`/`height` attributes rather than a wrapping font-size. This wasn't a
+new convention invented for this pass — the sync button's icon has always
+been a hand-copied Feather Icons path; v2.136 just extended that same
+approach to every icon that was previously an emoji (card titles, fuel
+identity icons, settings, diagnostics, connect-account state, and a couple
+of smaller inline ones). EV charging deliberately got its own
+battery-charging icon rather than reusing Current Rate's zap, now that
+they're not just visually identical characters. Standing charges (Insights)
+reuses the exact same calendar icon as the (not yet built) date-picker
+mockup. Balance runway kept the literal fuel-pump shape over a trending-up
+alternative — a deliberate choice, not a default; the emoji was already a
+visual pun on "running low" that the pump icon preserves.
+
 ## Performance
 
 Automatic background refresh runs in three tiers, not one flat interval:
