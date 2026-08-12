@@ -273,6 +273,7 @@ button{font-family:inherit;cursor:pointer;}
   font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9px;color:var(--text-dim);
 }
 .chart-row .week-bars{flex:1;min-width:0;}
+.chart-row .mini-chart-main{flex:1;min-width:0;}
 .fuel-panel-foot{display:flex;justify-content:space-between;margin-top:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);flex-wrap:wrap;gap:4px;}
 .fuel-panel-foot b{color:var(--text);}
 
