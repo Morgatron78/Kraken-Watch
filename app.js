@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.145';
+const APP_VERSION = 'v2.146';
 
 const store = {
   get creds() {
@@ -148,21 +148,6 @@ async function getKrakenToken() {
   const token = json?.data?.obtainKrakenToken?.token;
   if (!token) throw new Error('Kraken auth failed');
   krakenToken = token;
-  // Temporary, one-time — investigating whether the JWT's own payload
-  // already carries an accountUserId claim, which would answer the
-  // loyaltyPointLedgers input question with zero new API calls. Decodes
-  // only the middle (payload) segment, never the raw token itself, since
-  // the payload is all that's needed here and is far less sensitive to
-  // show than the token as a whole. Remove once this question is answered.
-  try {
-    const payloadSegment = token.split('.')[1];
-    const base64 = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
-    const decoded = JSON.parse(atob(padded));
-    logDebug('JWT payload (temp check)', JSON.stringify(decoded));
-  } catch (err) {
-    logDebug('JWT payload (temp check)', `couldn't decode — ${err.message}`);
-  }
   return token;
 }
 
