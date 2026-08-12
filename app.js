@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.138';
+const APP_VERSION = 'v2.140';
 
 const store = {
   get creds() {
@@ -385,9 +385,9 @@ function bucketReadingsByDay(results, n, now = new Date()) {
   return buckets;
 }
 
-async function lastNDaysElecSplit(n) {
+async function lastNDaysElecSplit(n, anchor = new Date()) {
   const { elecMpan, elecSerial } = store.creds;
-  const now = new Date();
+  const now = anchor;
   const rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1));
   const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   const dates = Array.from({ length: n }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1 - i)));
@@ -427,6 +427,24 @@ async function lastNDaysElecSplit(n) {
     logIssue('Electricity week breakdown', err);
     return dates.map(date => ({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false, date, slots: [] }));
   }
+}
+
+// Whole calendar month containing monthAnchor, capped at today if it's the
+// current month (or returning nothing for a month entirely in the future).
+// Deliberately just computes the right (n, anchor) pair and delegates to
+// the already-anchor-generalized lastNDaysElecSplit above, rather than
+// duplicating its fetch/bucket/slot logic — effectiveLastDay minus n days
+// always equals monthStart by construction, so this is exact, not an
+// approximation.
+async function monthElecSplit(monthAnchor) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const monthStart = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
+  if (monthStart > today) return [];
+  const lastDayOfMonth = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() + 1, 0);
+  const isCurrentMonth = monthAnchor.getFullYear() === today.getFullYear() && monthAnchor.getMonth() === today.getMonth();
+  const effectiveLastDay = isCurrentMonth ? today : (lastDayOfMonth > today ? today : lastDayOfMonth);
+  const n = Math.round((+effectiveLastDay - +monthStart) / 86400000) + 1;
+  return lastNDaysElecSplit(n, effectiveLastDay);
 }
 
 /* ------------------------------ Rendering -------------------------------- */
@@ -541,17 +559,17 @@ const fmtKwh = (v) => `${v.toFixed(1)} kWh`;
 // Stacked variant: each day is [{value, cssClass}, ...] segments stacked
 // bottom-to-top (e.g. standing charge, then off-peak, then peak). Segment
 // order in the array is bottom-to-top.
-function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44, scaleId = null, selectedIndex = null, isMonthMode = false) {
+function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44, scaleId = null, selectedIndex = null, isMonthMode = false, suppressToday = false, weekdayAnchor = null) {
   const el = $(containerId);
   const totals = dayStacks.map(day => day.reduce((s, seg) => s + seg.value, 0));
   const max = Math.max(...totals, 0.01);
   renderChartScale(scaleId, max, formatter);
   const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  const today = new Date().getDay();
+  const today = (weekdayAnchor || new Date()).getDay();
   const isDense = dayStacks.length > 10;
   el.classList.toggle('dense', isDense);
   el.innerHTML = dayStacks.map((segs, i) => {
-    const isToday = i === dayStacks.length - 1;
+    const isToday = !suppressToday && i === dayStacks.length - 1;
     const isSelected = i === selectedIndex;
     const segHtml = segs.map(seg => {
       const h = Math.max(seg.value > 0 ? 1 : 0, Math.round((seg.value / max) * maxBarHeight));
@@ -595,15 +613,117 @@ let selectedDay = { elec: null, gas: null };
 // the current grouped-by-month figures to hand, without needing to
 // recompute or re-fetch anything.
 let selectedBillMonth = null;
+
+// Date-picker state — a single shared anchor date (or null for "current
+// period, anchored to today", the existing default behavior everywhere
+// else). Applies across Day/Week/Month, matching how Octopus's own picker
+// works: one date field + one period field, not three independent picks.
+// Not persisted across reloads, same as periodMode/selectedDay — ephemeral
+// UI state, reset on refresh.
+let pickedDate = null;
+let pickerOpen = false;
+let pickerViewMonth = new Date(); // which month the calendar grid shows
 let billMonthsData = [];
 
 // Maps an index in the current period array back to a real calendar date —
 // week view counts backward from today, month view counts forward from the
 // 1st of the current month.
 function dateForPeriodIndex(index, arrayLength) {
-  const now = new Date();
+  const now = pickedDate || new Date();
   if (periodMode === 'month') return new Date(now.getFullYear(), now.getMonth(), index + 1);
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (arrayLength - 1 - index));
+}
+
+// --- Date picker (Consumption card: Day/Week/Month only, matching
+// Octopus's own picker — Year has no single date to anchor to) ---
+
+function openDatePicker() {
+  pickerOpen = true;
+  $('date-picker-panel').classList.remove('hidden');
+  $('date-picker-btn').classList.add('active');
+  pickerViewMonth = pickedDate
+    ? new Date(pickedDate.getFullYear(), pickedDate.getMonth(), 1)
+    : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  renderPickerCalendar();
+}
+
+function closeDatePicker() {
+  pickerOpen = false;
+  $('date-picker-panel').classList.add('hidden');
+  $('date-picker-btn').classList.remove('active');
+}
+
+// Shows/hides the calendar button and the "showing X" pill, and keeps the
+// pill's text in sync with whichever period is active — called after every
+// period-mode switch and every pick, not just on open.
+function updateDatePickerUI() {
+  const isYear = periodMode === 'year';
+  $('date-picker-btn').classList.toggle('hidden', isYear);
+  const pill = $('date-picker-pill');
+  if (!pickedDate || isYear) { pill.classList.add('hidden'); return; }
+  pill.classList.remove('hidden');
+  let text;
+  if (periodMode === 'week') {
+    const wd = pickedDate.getDay();
+    const ws = new Date(pickedDate.getFullYear(), pickedDate.getMonth(), pickedDate.getDate() - wd);
+    const we = new Date(pickedDate.getFullYear(), pickedDate.getMonth(), pickedDate.getDate() + (6 - wd));
+    const sameMonth = ws.getMonth() === we.getMonth();
+    text = sameMonth
+      ? `week of ${ws.getDate()}–${we.getDate()} ${we.toLocaleDateString('en-GB', { month: 'long' })}`
+      : `week of ${ws.getDate()} ${ws.toLocaleDateString('en-GB', { month: 'short' })} – ${we.getDate()} ${we.toLocaleDateString('en-GB', { month: 'short' })}`;
+  } else if (periodMode === 'month') {
+    text = pickedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  } else {
+    text = pickedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+  $('date-picker-pill-text').textContent = text;
+}
+
+function renderPickerCalendar() {
+  const year = pickerViewMonth.getFullYear(), month = pickerViewMonth.getMonth();
+  $('picker-month-label').textContent = pickerViewMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const firstOfMonth = new Date(year, month, 1);
+  const daysInMonthCount = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = firstOfMonth.getDay();
+
+  const dow = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  let html = dow.map(d => `<div class="picker-dow">${d}</div>`).join('');
+  for (let i = 0; i < firstWeekday; i++) html += `<div class="picker-day dim"></div>`;
+
+  // Week mode: highlight the Sun–Sat week around whichever date is
+  // relevant (the pick if one exists, otherwise today) so the picker shows
+  // what's currently on screen, not just a blank grid.
+  let weekStart = null, weekEnd = null;
+  if (periodMode === 'week') {
+    const anchor = pickedDate || today;
+    const wd = anchor.getDay();
+    weekStart = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - wd);
+    weekEnd = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + (6 - wd));
+  }
+
+  for (let d = 1; d <= daysInMonthCount; d++) {
+    const cellDate = new Date(year, month, d);
+    let cls = 'picker-day';
+    const isFuture = cellDate > today;
+    if (isFuture) cls += ' future';
+    if (+cellDate === +today) cls += ' today';
+    if (periodMode === 'week' && weekStart && cellDate >= weekStart && cellDate <= weekEnd) {
+      cls += ' in-week';
+      if (+cellDate === +weekStart) cls += ' week-start';
+      if (+cellDate === +weekEnd) cls += ' week-end';
+    }
+    if (pickedDate && +cellDate === +new Date(pickedDate.getFullYear(), pickedDate.getMonth(), pickedDate.getDate())) {
+      cls += ' selected';
+    }
+    html += `<div class="${cls}" data-date="${cellDate.getFullYear()}-${String(cellDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}">${d}</div>`;
+  }
+  $('picker-grid').innerHTML = html;
+
+  $('picker-legend-text').textContent = periodMode === 'week' ? 'selected week' : periodMode === 'month' ? 'selected month' : 'selected day';
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  $('picker-next-month').classList.toggle('disabled', isCurrentMonth);
 }
 
 function breakdownRow(label, cssClass, costStr, kwhStr) {
@@ -827,10 +947,12 @@ function renderFuelPanel(fuel) {
   $(`${fuel}-mtd`).textContent = d.mtd ? fmt(unit === 'cost' ? d.mtd.cost : d.mtd.kwh) : '—';
   $(`${fuel}-predicted`).textContent = d.predicted ? fmt(unit === 'cost' ? d.predicted.cost : d.predicted.kwh) : '—';
 
-  const periodData = periodMode === 'month' ? d.month : d.week;
+  const periodData = pickedDate
+    ? (periodMode === 'month' ? d.pickedMonth : d.pickedWeek)
+    : (periodMode === 'month' ? d.month : d.week);
   if (periodData) {
     const dayStacks = periodData.map(day => buildDaySegments(fuel, day, unit));
-    renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel], periodMode === 'month');
+    renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel], periodMode === 'month', !!pickedDate, pickedDate);
     renderBreakdown(fuel, periodData, selectedDay[fuel], unit);
   }
 }
@@ -840,13 +962,18 @@ function renderFuelPanel(fuel) {
 let selectedDaySlot = { elec: null };
 
 function renderElecDayView() {
-  const day = fuelData.elec?.day;
+  const day = pickedDate ? fuelData.elec?.pickedDay : fuelData.elec?.day;
   const unit = fuelUnit.elec;
   const fmt = unit === 'cost' ? fmtGBP : fmtKwh;
 
   if (!day || !day.slots || !day.slots.length) {
-    $('elec-day-label').textContent = 'Latest available day';
-    $('elec-day-total').textContent = 'No data yet';
+    // A picked date with no data is a different message from the default
+    // "still waiting for today's readings to settle" — the user asked for
+    // this specific date, so say so rather than implying it's pending.
+    $('elec-day-label').textContent = pickedDate
+      ? pickedDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+      : 'Latest available day';
+    $('elec-day-total').textContent = pickedDate ? 'No data available' : 'No data yet';
     $('elec-day-peak').textContent = '—';
     $('elec-day-scale').innerHTML = '';
     $('elec-day-bars').innerHTML = '';
@@ -885,7 +1012,7 @@ function renderElecDayView() {
 
 function renderElecDaySlotBreakdown(index) {
   const box = $('elec-day-breakdown');
-  const day = fuelData.elec?.day;
+  const day = pickedDate ? fuelData.elec?.pickedDay : fuelData.elec?.day;
   if (index === null || !day || !day.slots[index]) {
     box.classList.add('hidden');
     box.innerHTML = '';
@@ -1414,6 +1541,61 @@ async function loadMonthData(fuel) {
   fuelData[fuel].month = out;
 }
 
+// Fetches whichever period (Day/Week/Month) is currently active, anchored
+// to pickedDate instead of today — called only when a pick is active. Each
+// result is cached against the exact date/month it was fetched for
+// (pickedWeekFor / pickedMonthFor / pickedDayFor) so re-rendering the same
+// pick, or switching periodMode back and forth across it, never refetches;
+// only picking a genuinely different date does.
+async function loadPickedPeriodData() {
+  if (!pickedDate) return;
+  if (periodMode === 'week') {
+    const key = pickedDate.toISOString().slice(0, 10);
+    if (fuelData.elec?.pickedWeekFor !== key) {
+      fuelData.elec = fuelData.elec || {};
+      const days = await lastNDaysElecSplit(7, pickedDate);
+      const standing = cachedElecStandingP ? cachedElecStandingP / 100 : 0;
+      fuelData.elec.pickedWeek = days.map(d => ({ ...d, standing }));
+      fuelData.elec.pickedWeekFor = key;
+    }
+    if (fuelData.gas?.pickedWeekFor !== key) {
+      fuelData.gas = fuelData.gas || {};
+      const days = await lastNDaysCost('gas', 7, pickedDate);
+      const standing = cachedGasStandingP ? cachedGasStandingP / 100 : 0;
+      fuelData.gas.pickedWeek = days.map(d => ({ ...d, standing }));
+      fuelData.gas.pickedWeekFor = key;
+    }
+  } else if (periodMode === 'month') {
+    const key = `${pickedDate.getFullYear()}-${pickedDate.getMonth()}`;
+    if (fuelData.elec?.pickedMonthFor !== key) {
+      fuelData.elec = fuelData.elec || {};
+      const days = await monthElecSplit(pickedDate);
+      const standing = cachedElecStandingP ? cachedElecStandingP / 100 : 0;
+      fuelData.elec.pickedMonth = days.map(d => ({ ...d, standing }));
+      fuelData.elec.pickedMonthFor = key;
+    }
+    if (fuelData.gas?.pickedMonthFor !== key) {
+      fuelData.gas = fuelData.gas || {};
+      const days = await monthFuelSplit('gas', pickedDate);
+      const standing = cachedGasStandingP ? cachedGasStandingP / 100 : 0;
+      fuelData.gas.pickedMonth = days.map(d => ({ ...d, standing }));
+      fuelData.gas.pickedMonthFor = key;
+    }
+  } else if (periodMode === 'day') {
+    const key = pickedDate.toISOString().slice(0, 10);
+    if (fuelData.elec?.pickedDayFor !== key) {
+      fuelData.elec = fuelData.elec || {};
+      try {
+        fuelData.elec.pickedDay = await fetchElecDayHalfHourly(pickedDate);
+      } catch (err) {
+        logIssue('Picked day view', err);
+        fuelData.elec.pickedDay = { date: pickedDate, slots: [] };
+      }
+      fuelData.elec.pickedDayFor = key;
+    }
+  }
+}
+
 // Adds the (roughly constant) daily standing charge onto each day's split,
 // using whatever was last fetched by loadBilling — so the chart's standing-
 // charge segment doesn't need its own API call per day.
@@ -1432,7 +1614,7 @@ async function lastNDaysGasSplitWithStanding(n) {
 // Steps backward from today (same "consumption data lags" reality as
 // everywhere else in the app) until it finds a day with actual readings,
 // giving up after a few tries rather than looping indefinitely.
-async function fetchElecDayHalfHourly() {
+async function fetchElecDayHalfHourly(anchor = null) {
   const { elecMpan, elecSerial } = store.creds;
   if (!elecMpan || !elecSerial) throw new Error('No elec meter point on file');
   // A full day is 48 half-hour slots (46/47 on a DST-change day) — require
@@ -1441,8 +1623,16 @@ async function fetchElecDayHalfHourly() {
   // producing a near-empty 2-bar chart that looked broken rather than
   // genuinely incomplete.
   const MIN_SLOTS_FOR_COMPLETE_DAY = 40;
-  for (let daysAgo = 0; daysAgo <= 3; daysAgo++) {
-    const now = new Date();
+  // A specific picked date: fetch exactly that day, no stepping back to an
+  // earlier one — the user asked for that date specifically, so an honest
+  // "incomplete" answer for it beats silently substituting a different day
+  // they didn't ask for. The default (no anchor) keeps the old behavior:
+  // step back from today to find the latest complete day, since there's no
+  // single date the caller is expecting in that case.
+  const daysToTry = anchor ? [0] : [0, 1, 2, 3];
+  const baseDate = anchor || new Date();
+  for (const daysAgo of daysToTry) {
+    const now = baseDate;
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
     const fromISO = dayStart.toISOString(), toISO = dayEnd.toISOString();
@@ -1468,7 +1658,7 @@ async function fetchElecDayHalfHourly() {
       .sort((a, b) => +new Date(a.start) - +new Date(b.start));
     return { date: dayStart, slots };
   }
-  return { date: null, slots: [] }; // genuinely no complete day in the last few days
+  return { date: anchor || null, slots: [] }; // genuinely no complete day available
 }
 
 // Monthly kWh totals for the calendar year so far, one API call per fuel via
@@ -2962,12 +3152,12 @@ async function loadBilling() {
   return anyLive;
 }
 
-async function lastNDaysCost(fuel, n) {
+async function lastNDaysCost(fuel, n, anchor = new Date()) {
   const creds = store.creds;
   const isElec = fuel === 'elec';
   const mp = isElec ? creds.elecMpan : creds.gasMprn;
   const serial = isElec ? creds.elecSerial : creds.gasSerial;
-  const now = new Date();
+  const now = anchor;
   const rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1));
   const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   const dates = Array.from({ length: n }, (_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1 - i)));
@@ -3000,6 +3190,20 @@ async function lastNDaysCost(fuel, n) {
     logIssue(`${isElec ? 'Electricity' : 'Gas'} week breakdown`, err);
     return dates.map(date => ({ cost: 0, kwh: 0, hasData: false, date }));
   }
+}
+
+// Same trick as monthElecSplit above — compute the (n, anchor) pair for the
+// whole calendar month containing monthAnchor (capped at today for the
+// current month), delegate to the already-anchor-generalized lastNDaysCost.
+async function monthFuelSplit(fuel, monthAnchor) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const monthStart = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
+  if (monthStart > today) return [];
+  const lastDayOfMonth = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() + 1, 0);
+  const isCurrentMonth = monthAnchor.getFullYear() === today.getFullYear() && monthAnchor.getMonth() === today.getMonth();
+  const effectiveLastDay = isCurrentMonth ? today : (lastDayOfMonth > today ? today : lastDayOfMonth);
+  const n = Math.round((+effectiveLastDay - +monthStart) / 86400000) + 1;
+  return lastNDaysCost(fuel, n, effectiveLastDay);
 }
 
 function populateDemoBilling() {
@@ -3396,7 +3600,10 @@ function init() {
       selectedDay.elec = null; // reset — old index would point at a different day/month in the new array
       selectedDay.gas = null;
       selectedDaySlot.elec = null;
-      if (periodMode === 'month') {
+      closeDatePicker();
+      if (pickedDate && periodMode !== 'year') {
+        await loadPickedPeriodData();
+      } else if (periodMode === 'month') {
         await Promise.all([loadMonthData('elec'), loadMonthData('gas')]);
       } else if (periodMode === 'day') {
         if (!fuelData.elec) fuelData.elec = {};
@@ -3416,10 +3623,57 @@ function init() {
           catch (err) { logIssue('Year view (gas)', err); fuelData.gas.year = []; }
         }
       }
+      updateDatePickerUI();
       renderFuelPanel('elec');
       renderFuelPanel('gas');
     });
   });
+
+  // Date picker: calendar button opens/closes the panel; month nav browses
+  // without changing the pick; tapping a day picks it and closes the panel;
+  // reset/jump-to-today both clear the pick and fall back to the normal
+  // today-anchored view everywhere else in the app already uses.
+  $('date-picker-btn').addEventListener('click', () => {
+    if (pickerOpen) closeDatePicker(); else openDatePicker();
+  });
+
+  $('picker-prev-month').addEventListener('click', () => {
+    pickerViewMonth = new Date(pickerViewMonth.getFullYear(), pickerViewMonth.getMonth() - 1, 1);
+    renderPickerCalendar();
+  });
+  $('picker-next-month').addEventListener('click', () => {
+    if ($('picker-next-month').classList.contains('disabled')) return;
+    pickerViewMonth = new Date(pickerViewMonth.getFullYear(), pickerViewMonth.getMonth() + 1, 1);
+    renderPickerCalendar();
+  });
+
+  $('picker-grid').addEventListener('click', async (e) => {
+    const cell = e.target.closest('.picker-day[data-date]');
+    if (!cell || cell.classList.contains('future')) return;
+    const [y, m, d] = cell.dataset.date.split('-').map(Number);
+    pickedDate = new Date(y, m - 1, d);
+    selectedDay.elec = null;
+    selectedDay.gas = null;
+    selectedDaySlot.elec = null;
+    closeDatePicker();
+    updateDatePickerUI();
+    await loadPickedPeriodData();
+    renderFuelPanel('elec');
+    renderFuelPanel('gas');
+  });
+
+  async function resetToToday() {
+    pickedDate = null;
+    selectedDay.elec = null;
+    selectedDay.gas = null;
+    selectedDaySlot.elec = null;
+    closeDatePicker();
+    updateDatePickerUI();
+    renderFuelPanel('elec');
+    renderFuelPanel('gas');
+  }
+  $('date-picker-reset').addEventListener('click', resetToToday);
+  $('picker-jump-today').addEventListener('click', resetToToday);
 
   // Tap a bar to see that day's (or month's) breakdown; tap the same bar
   // again to close it. Event delegation so it works regardless of how many

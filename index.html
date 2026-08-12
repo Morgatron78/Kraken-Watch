@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.138">
+<link rel="stylesheet" href="styles.css?v=2.140">
 </head>
 <body>
 <div class="wrap">
@@ -193,13 +193,42 @@
     <div class="card" id="consumption-card">
       <div class="card-head">
         <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Consumption</div>
-        <div class="card-tag tag-dim" id="period-toggle-tag" style="padding:0;background:none;border:none;">
-          <div class="unit-toggle" data-role="period">
-            <button type="button" class="unit-toggle-btn" data-period="day">Day</button>
-            <button type="button" class="unit-toggle-btn active" data-period="week">Week</button>
-            <button type="button" class="unit-toggle-btn" data-period="month">Month</button>
-            <button type="button" class="unit-toggle-btn" data-period="year">Year</button>
+        <div class="head-controls">
+          <div class="card-tag tag-dim" id="period-toggle-tag" style="padding:0;background:none;border:none;">
+            <div class="unit-toggle" data-role="period">
+              <button type="button" class="unit-toggle-btn" data-period="day">Day</button>
+              <button type="button" class="unit-toggle-btn active" data-period="week">Week</button>
+              <button type="button" class="unit-toggle-btn" data-period="month">Month</button>
+              <button type="button" class="unit-toggle-btn" data-period="year">Year</button>
+            </div>
           </div>
+          <button class="cal-btn" id="date-picker-btn" aria-label="Pick a date">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="jump-pill hidden" id="date-picker-pill">
+        Showing <b id="date-picker-pill-text"></b>
+        <button id="date-picker-reset" aria-label="Back to today" title="Back to today">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+
+      <div class="picker-panel hidden" id="date-picker-panel">
+        <div class="picker-head">
+          <button class="picker-nav" id="picker-prev-month" aria-label="Previous month">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <div class="picker-month" id="picker-month-label"></div>
+          <button class="picker-nav" id="picker-next-month" aria-label="Next month">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        </div>
+        <div class="picker-grid" id="picker-grid"></div>
+        <div class="picker-foot">
+          <div class="dot-legend"><i></i> <span id="picker-legend-text">selected week</span></div>
+          <button class="picker-today-btn" id="picker-jump-today">Jump to today</button>
         </div>
       </div>
 
@@ -490,7 +519,7 @@
         </div>
 
         <div class="fuel-panel elec hidden" id="insights-ev-panel">
-          <div class="fuel-panel-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink)"><path d="M5 18H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.19"/><path d="M15 6h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3.19"/><line x1="23" y1="13" x2="23" y2="11"/><polyline points="11 6 7 12 13 12 9 18"/></svg> EV Charging</div>
+          <div class="fuel-panel-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink)"><path d="M5 18H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.19"/><path d="M15 6h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3.19"/><line x1="23" y1="13" x2="23" y2="11"/><polyline points="11 6 7 12 13 12 9 18"/></svg> EV charging</div>
           <div class="insight-block">
             <div class="ev-streak-row">
               <div class="ev-streak-dots" id="insights-ev-streak-dots"></div>
@@ -623,6 +652,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.138"></script>
+<script src="app.js?v=2.140"></script>
 </body>
 </html>

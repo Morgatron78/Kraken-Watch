@@ -79,10 +79,17 @@ button{font-family:inherit;cursor:pointer;}
 }
 .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;}
 #ev-card.ev-collapsed .card-head{margin-bottom:0;}
+.head-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
 #ev-card.ev-collapsed #ev-battery-row{margin-bottom:0;}
 #ev-card.ev-collapsed #ev-schedule-preview{margin-bottom:0;}
 #ev-card.ev-collapsed #ev-warnings{margin-bottom:0;}
 .card-title{font-size:16px;font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;gap:8px;}
+/* Icon SVGs default to baseline alignment with surrounding text, which
+   sits them low and grows the line height oddly — most visible wherever a
+   title has more than one inline run (e.g. EV charging's icon+title span
+   next to the separate #ev-name span for the vehicle name). Middle-aligns
+   every title-level icon uniformly rather than patching case by case. */
+.card-title svg, .fuel-panel-title svg, .live30-title svg{vertical-align:middle;}
 .card-tag{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;padding:3px 9px;border-radius:100px;white-space:nowrap;}
 .tag-mint{color:var(--mint);background:var(--mint-soft);border:1px solid rgba(61,220,151,0.35);}
 .tag-pink{color:var(--pink);background:var(--pink-soft);border:1px solid rgba(255,79,163,0.4);}
@@ -286,6 +293,49 @@ button{font-family:inherit;cursor:pointer;}
 .mini-bars{display:flex;align-items:flex-end;gap:1.5px;height:40px;overflow:hidden;}
 .mini-bar{flex:1;border-radius:1.5px 1.5px 0 0;min-width:1px;}
 .mini-axis{display:flex;justify-content:space-between;font-size:9px;color:var(--text-dim);margin-top:4px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;}
+
+/* Date picker (Consumption card: Day/Week/Month) */
+.cal-btn{
+  width:26px;height:26px;border-radius:100px;border:none;background:var(--bg);
+  color:var(--text-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.cal-btn.active{background:rgba(255,79,163,0.14);color:var(--pink);}
+.jump-pill{
+  display:flex;align-items:center;gap:6px;background:var(--bg);border-radius:100px;
+  padding:5px 10px 5px 12px;font-size:11.5px;color:var(--text-dim);margin-bottom:14px;
+  font-family:'Inter', sans-serif;width:fit-content;
+}
+.jump-pill b{color:var(--text);font-weight:600;}
+.jump-pill button{
+  border:none;background:var(--bg-panel-2);color:var(--text-dim);width:18px;height:18px;
+  border-radius:100px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.picker-panel{background:var(--bg-panel-2);border-radius:14px;padding:14px;margin-bottom:16px;}
+.picker-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.picker-month{font-size:13px;font-weight:600;font-family:'Space Grotesk', sans-serif;}
+.picker-nav{
+  width:24px;height:24px;border-radius:8px;border:none;background:var(--bg);
+  color:var(--text-dim);display:flex;align-items:center;justify-content:center;
+}
+.picker-nav.disabled{opacity:0.3;pointer-events:none;}
+.picker-grid{display:flex;flex-wrap:wrap;text-align:center;}
+.picker-dow{width:14.28%;font-size:10px;color:var(--text-dim);padding:4px 0;box-sizing:border-box;font-family:'Inter', sans-serif;}
+.picker-day{
+  width:14.28%;font-size:11.5px;color:var(--text);padding:7px 0;border-radius:8px;
+  font-variant-numeric:tabular-nums;box-sizing:border-box;font-family:'Inter', sans-serif;
+}
+.picker-day.dim{visibility:hidden;}
+.picker-day.future{color:var(--text-dim);opacity:0.3;pointer-events:none;}
+.picker-day.today{border:1px solid var(--line);}
+.picker-day.selected{background:var(--pink);color:#1a0a12;font-weight:700;}
+.picker-day.in-week{background:rgba(255,79,163,0.14);border-radius:0;}
+.picker-day.in-week.week-start{border-radius:8px 0 0 8px;}
+.picker-day.in-week.week-end{border-radius:0 8px 8px 0;}
+.picker-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:10.5px;color:var(--text-dim);font-family:'Inter', sans-serif;}
+.picker-foot .dot-legend{display:flex;align-items:center;gap:4px;}
+.picker-foot .dot-legend i{width:6px;height:6px;border-radius:2px;background:rgba(255,79,163,0.14);display:inline-block;}
+.picker-today-btn{border:none;background:none;color:var(--pink);font-size:10.5px;font-weight:600;font-family:'Inter', sans-serif;}
+
 
 .fuel-split{margin-top:18px;margin-bottom:18px;display:flex;flex-direction:column;gap:9px;}
 
