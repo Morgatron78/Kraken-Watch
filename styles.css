@@ -588,13 +588,13 @@ button{font-family:inherit;cursor:pointer;}
 }
 
 .ev-warnings{margin-top:10px;margin-bottom:16px;}
-.ev-warning-line{
+.warning-line{
   display:flex;align-items:flex-start;gap:6px;font-family:'Inter', sans-serif;font-size:11px;
   padding:8px 12px;border-radius:10px;margin-bottom:6px;
 }
-.ev-warning-line:last-child{margin-bottom:0;}
-.ev-warning-line.coral{color:var(--coral);background:rgba(255,107,91,0.1);border:1px solid rgba(255,107,91,0.3);}
-.ev-warning-line.amber{color:var(--amber);background:rgba(255,184,77,0.1);border:1px solid rgba(255,184,77,0.3);}
+.warning-line:last-child{margin-bottom:0;}
+.warning-line.coral{color:var(--coral);background:rgba(255,107,91,0.1);border:1px solid rgba(255,107,91,0.3);}
+.warning-line.amber{color:var(--amber);background:rgba(255,184,77,0.1);border:1px solid rgba(255,184,77,0.3);}
 .battery-gauge-fill{height:100%;background:linear-gradient(90deg,var(--mint),#5eeab0);border-radius:100px;}
 
 .ev-subpanel-head{display:flex;justify-content:space-between;align-items:center;}

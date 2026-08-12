@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.142';
+const APP_VERSION = 'v2.143';
 
 const store = {
   get creds() {
@@ -954,6 +954,12 @@ function renderFuelPanel(fuel) {
     const dayStacks = periodData.map(day => buildDaySegments(fuel, day, unit));
     renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel], periodMode === 'month', !!pickedDate, pickedDate);
     renderBreakdown(fuel, periodData, selectedDay[fuel], unit);
+    // Only for a picked (historical) period, not the default current
+    // week/month — that already handles lag gracefully via the
+    // "hasData"-scanning logic elsewhere, and showing this for an
+    // in-progress current period would be alarming rather than honest.
+    const isPickedEmpty = !!pickedDate && periodData.every(day => day.hasData === false);
+    $(`${fuel}-period-nodata`).classList.toggle('hidden', !isPickedEmpty);
   }
 }
 
@@ -1550,17 +1556,26 @@ async function loadMonthData(fuel) {
 async function loadPickedPeriodData() {
   if (!pickedDate) return;
   if (periodMode === 'week') {
-    const key = pickedDate.toISOString().slice(0, 10);
+    // The pill/calendar both snap to the Sun–Sat week around pickedDate for
+    // display — this fetch needs the exact same snap, or tapping any day
+    // that isn't a Saturday fetches the wrong week entirely (whatever 7
+    // days end at the tapped day, not the displayed Sun–Sat range).
+    const wd = pickedDate.getDay();
+    const weekStart = new Date(pickedDate.getFullYear(), pickedDate.getMonth(), pickedDate.getDate() - wd);
+    const weekEnd = new Date(pickedDate.getFullYear(), pickedDate.getMonth(), pickedDate.getDate() + (6 - wd));
+    // Keyed by the week's Sunday, not the exact tapped day, so tapping any
+    // day within the same week reuses the same cached fetch.
+    const key = weekStart.toISOString().slice(0, 10);
     if (fuelData.elec?.pickedWeekFor !== key) {
       fuelData.elec = fuelData.elec || {};
-      const days = await lastNDaysElecSplit(7, pickedDate);
+      const days = await lastNDaysElecSplit(7, weekEnd);
       const standing = cachedElecStandingP ? cachedElecStandingP / 100 : 0;
       fuelData.elec.pickedWeek = days.map(d => ({ ...d, standing }));
       fuelData.elec.pickedWeekFor = key;
     }
     if (fuelData.gas?.pickedWeekFor !== key) {
       fuelData.gas = fuelData.gas || {};
-      const days = await lastNDaysCost('gas', 7, pickedDate);
+      const days = await lastNDaysCost('gas', 7, weekEnd);
       const standing = cachedGasStandingP ? cachedGasStandingP / 100 : 0;
       fuelData.gas.pickedWeek = days.map(d => ({ ...d, standing }));
       fuelData.gas.pickedWeekFor = key;
@@ -2296,7 +2311,7 @@ async function loadEVSmartFlex() {
   if (warnings.length) {
     warningsEl.classList.remove('hidden');
     const warnTriangleSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-    warningsEl.innerHTML = warnings.map(w => `<div class="ev-warning-line ${w.level}">${warnTriangleSvg} ${w.text}</div>`).join('');
+    warningsEl.innerHTML = warnings.map(w => `<div class="warning-line ${w.level}">${warnTriangleSvg} ${w.text}</div>`).join('');
   } else {
     warningsEl.classList.add('hidden');
     warningsEl.innerHTML = '';
@@ -2597,7 +2612,7 @@ async function setEVHistoryPeriod(period) {
     }
     result = buildEVMonthBuckets(monthData.sessions, now);
     if (monthData.hasMore) {
-      $('ev-week').insertAdjacentHTML('afterend', '<div class="ev-warning-line amber" id="ev-month-partial-note" style="margin-top:10px;margin-bottom:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Showing partial data — more sessions exist than fetched</div>');
+      $('ev-week').insertAdjacentHTML('afterend', '<div class="warning-line amber" id="ev-month-partial-note" style="margin-top:10px;margin-bottom:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Showing partial data — more sessions exist than fetched</div>');
     }
   }
 
