@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.129';
+const APP_VERSION = 'v2.130';
 
 const store = {
   get creds() {
@@ -558,7 +558,11 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
     // via flex, that shifted their bars down relative to labeled columns
     // by roughly the label's own height (confirmed live — a few px lower).
     const showThisLabel = !isDense || i % 5 === 0;
-    const label = `<span class="${isSelected ? 'active-day' : ''}">${showThisLabel ? labelText : ''}</span>`;
+    // A genuinely empty string (not even whitespace) can still collapse an
+    // inline element's line-height in some browsers despite font-size
+    // being set — a non-breaking space guarantees real content, so height
+    // stays consistent regardless of any browser-specific quirk there.
+    const label = `<span class="${isSelected ? 'active-day' : ''}">${showThisLabel ? labelText : '&nbsp;'}</span>`;
     return `<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${i}">${segHtml}</div>${label}</div>`;
   }).join('');
 }
@@ -2154,7 +2158,7 @@ function renderEVHistoryBars(buckets, labels) {
         ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
         ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
       </div>
-      <span data-i="${i}">${showThisLabel ? labels[i] : ''}</span>
+      <span data-i="${i}">${showThisLabel ? labels[i] : '&nbsp;'}</span>
     </div>`;
   }).join('');
   renderChartScale('ev-week-scale', max, v => v.toFixed(1));
