@@ -417,16 +417,6 @@ to spot the actual cause rather than guessing.
   fields (`savingSessions`, `joinSavingSessionsCampaign`) are deprecated on
   Octopus's side as of early 2026, with no confirmed working replacement.
   Not built.
-- **Octopoints panel** (balance + history + £ equivalent, mocked up as a
-  possible addition to Billing) — confirmed dead end via schema reference:
-  `octoplusRewards` (the query that would have provided this) is deprecated
-  as of 10 Feb 2026, scheduled for removal on or after 10 Aug 2026, and its
-  own docs state "this query is no longer available." A different, more
-  specific field than the Saving Sessions one above, but same outcome —
-  checked separately rather than assuming the earlier rejection covered it,
-  since Octopoints is a broader ledger (redemptions, Wheel of Fortune
-  spins, Saving Sessions rewards) than just Saving Sessions participation.
-  Not built.
 - **Native app wrapper with Lock Screen/Watch widgets** — technically
   possible via Capacitor, but genuine widgets need a separate native
   Swift/WidgetKit codebase and a paid ($99/year) Apple Developer account for
