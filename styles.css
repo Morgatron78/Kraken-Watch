@@ -276,6 +276,16 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-panel-foot{display:flex;justify-content:space-between;margin-top:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);flex-wrap:wrap;gap:4px;}
 .fuel-panel-foot b{color:var(--text);}
 
+/* Mini half-hourly chart inside the Week/Month breakdown box — electricity
+   only, since gas readings settle once per day with no intra-day shape to
+   show. Reuses .chart-scale/.seg-offpeak/.seg-peak so it matches the main
+   chart's look exactly rather than introducing a second visual language. */
+.mini-chart{margin-bottom:14px;}
+.mini-chart-scale{height:40px;padding-bottom:14px;}
+.mini-bars{display:flex;align-items:flex-end;gap:1.5px;height:40px;overflow:hidden;}
+.mini-bar{flex:1;border-radius:1.5px 1.5px 0 0;min-width:1px;}
+.mini-axis{display:flex;justify-content:space-between;font-size:9px;color:var(--text-dim);margin-top:4px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;}
+
 .fuel-split{margin-top:18px;margin-bottom:18px;display:flex;flex-direction:column;gap:9px;}
 
 .bill-history-toggle{

@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.133';
+const APP_VERSION = 'v2.134';
 
 const store = {
   get creds() {
@@ -400,24 +400,32 @@ async function lastNDaysElecSplit(n) {
     const buckets = bucketReadingsByDay(consData.results || [], n, now);
     return buckets.map((readings, i) => {
       let offPeakKwh = 0, offPeakCostP = 0, peakKwh = 0, peakCostP = 0;
+      // Kept alongside the day totals below (not discarded) so the Week/Month
+      // breakdown box can render a mini half-hourly bar chart with zero extra
+      // fetch — this same wide-range call already pulled every slot.
+      const slots = [];
       for (const r of readings) {
         const rate = rateAt(rates, +new Date(r.interval_start));
         if (rate === null) continue;
-        if (rate <= threshold) { offPeakKwh += r.consumption; offPeakCostP += r.consumption * rate; }
+        const cost = r.consumption * rate / 100;
+        const offpeak = rate <= threshold;
+        if (offpeak) { offPeakKwh += r.consumption; offPeakCostP += r.consumption * rate; }
         else { peakKwh += r.consumption; peakCostP += r.consumption * rate; }
+        slots.push({ start: r.interval_start, kwh: r.consumption, rate, cost, isOffpeak: offpeak });
       }
+      slots.sort((a, b) => +new Date(a.start) - +new Date(b.start));
       return {
         offPeakKwh, peakKwh, offPeakCost: offPeakCostP / 100, peakCost: peakCostP / 100,
         // Same reasoning as before: a placeholder reading-period with rows
         // present but kwh totalling zero is treated as not-yet-settled
         // rather than a genuine zero-usage day.
         hasData: readings.length > 0 && (offPeakKwh + peakKwh) > 0.001,
-        date: dates[i]
+        date: dates[i], slots
       };
     });
   } catch (err) {
     logIssue('Electricity week breakdown', err);
-    return dates.map(date => ({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false, date }));
+    return dates.map(date => ({ offPeakKwh: 0, peakKwh: 0, offPeakCost: 0, peakCost: 0, hasData: false, date, slots: [] }));
   }
 }
 
@@ -622,7 +630,23 @@ function renderBillYearBreakdown(index) {
     + linkHtml;
 }
 
-function renderBreakdown(fuel, periodData, index) {
+// Mini half-hourly bar chart inside the Week/Month breakdown box —
+// electricity only. Reuses renderChartScale (same 3-label max/half/zero
+// y-axis every other chart uses) and the existing seg-offpeak/seg-peak
+// color classes, so this doesn't introduce any new visual language.
+function renderMiniDayChart(fuel, slots, unit) {
+  const barsEl = $(`${fuel}-breakdown-bars`);
+  if (!barsEl) return;
+  const values = slots.map(s => unit === 'cost' ? s.cost : s.kwh);
+  const max = Math.max(...values, 0.001);
+  renderChartScale(`${fuel}-breakdown-scale`, max, unit === 'cost' ? fmtGBP : fmtKwh);
+  barsEl.innerHTML = slots.map((s, i) => {
+    const h = Math.max(2, Math.round((values[i] / max) * 40));
+    return `<div class="mini-bar ${s.isOffpeak ? 'seg-offpeak' : 'seg-peak'}" style="height:${h}px"></div>`;
+  }).join('');
+}
+
+function renderBreakdown(fuel, periodData, index, unit) {
   const box = $(`${fuel}-breakdown`);
   if (!box) return;
   if (index === null || !periodData || !periodData[index]) {
@@ -635,17 +659,42 @@ function renderBreakdown(fuel, periodData, index) {
   const date = dateForPeriodIndex(index, periodData.length);
   const dateLabel = date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
 
+  const isCost = (unit || 'cost') === 'cost';
   let rows;
   if (fuel === 'elec') {
-    rows = breakdownRow('Standing charge', 'seg-standing', fmtGBP(day.standing || 0), null)
-      + breakdownRow('Off-peak', 'seg-offpeak', fmtGBP(day.offPeakCost || 0), fmtKwh(day.offPeakKwh || 0))
-      + breakdownRow('Peak', 'seg-peak', fmtGBP(day.peakCost || 0), fmtKwh(day.peakKwh || 0));
+    rows = (isCost ? breakdownRow('Standing charge', 'seg-standing', fmtGBP(day.standing || 0), null) : '')
+      + (isCost
+        ? breakdownRow('Off-peak', 'seg-offpeak', fmtGBP(day.offPeakCost || 0), fmtKwh(day.offPeakKwh || 0))
+          + breakdownRow('Peak', 'seg-peak', fmtGBP(day.peakCost || 0), fmtKwh(day.peakKwh || 0))
+        : breakdownRow('Off-peak', 'seg-offpeak', fmtKwh(day.offPeakKwh || 0), null)
+          + breakdownRow('Peak', 'seg-peak', fmtKwh(day.peakKwh || 0), null));
   } else {
-    rows = breakdownRow('Standing charge', 'seg-gas-standing', fmtGBP(day.standing || 0), null)
-      + breakdownRow('Usage', 'seg-gas-usage', fmtGBP(day.cost || 0), fmtKwh(day.kwh || 0));
+    rows = (isCost ? breakdownRow('Standing charge', 'seg-gas-standing', fmtGBP(day.standing || 0), null) : '')
+      + (isCost
+        ? breakdownRow('Usage', 'seg-gas-usage', fmtGBP(day.cost || 0), fmtKwh(day.kwh || 0))
+        : breakdownRow('Usage', 'seg-gas-usage', fmtKwh(day.kwh || 0), null));
   }
-  const total = dayTotal(fuel, day, 'cost');
-  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${fmtGBP(total)}</span></div>`;
+  const total = dayTotal(fuel, day, isCost ? 'cost' : 'kwh');
+  const totalStr = isCost ? fmtGBP(total) : fmtKwh(total);
+
+  // Electricity only, and only once real half-hourly slots came back for
+  // this particular day — a settlement-lag day or a fetch failure both
+  // leave slots empty, and an empty chart would be more confusing than no
+  // chart at all.
+  const hasSlots = fuel === 'elec' && Array.isArray(day.slots) && day.slots.length > 0;
+  const miniChartHtml = hasSlots
+    ? `<div class="chart-row mini-chart">
+         <div class="chart-scale mini-chart-scale" id="${fuel}-breakdown-scale"></div>
+         <div class="mini-chart-main">
+           <div class="mini-bars" id="${fuel}-breakdown-bars"></div>
+           <div class="mini-axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+         </div>
+       </div>`
+    : '';
+
+  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${miniChartHtml}${rows}<div class="breakdown-total"><span>Total</span><span>${totalStr}</span></div>`;
+
+  if (hasSlots) renderMiniDayChart(fuel, day.slots, unit || 'cost');
 }
 
 // Turns one day's split figures into stacked-bar segments, bottom-to-top.
@@ -776,7 +825,7 @@ function renderFuelPanel(fuel) {
   if (periodData) {
     const dayStacks = periodData.map(day => buildDaySegments(fuel, day, unit));
     renderStackedBars(`${fuel}-week`, dayStacks, fmt, 58, `${fuel}-week-scale`, selectedDay[fuel], periodMode === 'month');
-    renderBreakdown(fuel, periodData, selectedDay[fuel]);
+    renderBreakdown(fuel, periodData, selectedDay[fuel], unit);
   }
 }
 
