@@ -116,7 +116,7 @@ font-family in the target category, not just grepping for the old value.
 
 ## Icons
 
-Every icon in the app (v2.136) is a hand-inlined SVG — no icon font, no
+Every icon in the app (v2.137) is a hand-inlined SVG — no icon font, no
 icon library, no CDN dependency, matching the project's zero-external-
 dependency approach for offline PWA reliability (the same reasoning behind
 Google Fonts being the only external asset the app ever loads). All icons
@@ -125,16 +125,46 @@ share one stroke style: `viewBox="0 0 24 24"`, `stroke="currentColor"`,
 `fill="none"` — sized per context via the `<svg>` element's own
 `width`/`height` attributes rather than a wrapping font-size. This wasn't a
 new convention invented for this pass — the sync button's icon has always
-been a hand-copied Feather Icons path; v2.136 just extended that same
-approach to every icon that was previously an emoji (card titles, fuel
-identity icons, settings, diagnostics, connect-account state, and a couple
-of smaller inline ones). EV charging deliberately got its own
-battery-charging icon rather than reusing Current Rate's zap, now that
-they're not just visually identical characters. Standing charges (Insights)
-reuses the exact same calendar icon as the (not yet built) date-picker
-mockup. Balance runway kept the literal fuel-pump shape over a trending-up
-alternative — a deliberate choice, not a default; the emoji was already a
-visual pun on "running low" that the pump icon preserves.
+been a hand-copied Feather Icons path; v2.136 extended that same approach
+to every icon that was previously an emoji.
+
+**Sizing**: every card-title/fuel-panel-title/live30-title icon is 26px,
+applied uniformly. Small supporting/inline icons (settings, diagnostics
+title, connect-account state, gas-day-unavailable, EV warning lines,
+session checkmarks) stay smaller, matching their inline/dense context
+rather than acting as standalone panel identity icons. The per-line glyphs
+inside the diagnostics log itself (info/warning/pass/fail markers in the
+sync history and issue list) were deliberately left as plain characters
+rather than converted to SVGs — a dense technical readout reads better with
+simple glyphs than with 10+ repeated icon instances.
+
+**Color**: follows the app's own documented color language above rather
+than a new rule. Electricity-specific icons (Current rate, Live usage, EV
+charging, the Electricity fuel-icon) are pink; the Gas fuel-icon is blue;
+Balance runway's icon is dynamic — mint when the headline says payments
+look sufficient, coral when it doesn't, same logic the headline's own text
+color already used. Fuel-agnostic icons (Consumption, Billing, Insights,
+Standing charges, Settings, Diagnostics, Connect-account) stay neutral
+(inherit the surrounding text color) since they don't represent one fuel.
+
+**A real bug worth remembering**: the Insights electricity trajectory icon
+and the Balance runway status icon are both set entirely via JS
+(`.textContent`/`.innerHTML` at render time, never present in the static
+HTML) — the initial emoji-removal pass only swept static markup and missed
+both, so they kept showing emoji after that release shipped. Same root
+cause hit the Diagnostics panel title a second way: the static HTML had
+the right SVG, but a JS function overwrote it via `.textContent` on every
+render, which wipes child nodes (the SVG) and replaces them with plain
+text. The lesson: an emoji sweep needs to check *rendered* output, or at
+minimum grep the JS file for emoji too, not just the HTML template —
+`.textContent` assignments are exactly the kind of thing that silently
+undoes a static fix.
+
+Standing charges (Insights) reuses the exact same calendar icon as the
+(not yet built) date-picker mockup. Balance runway kept the literal
+fuel-pump shape over a trending-up alternative — a deliberate choice, not
+a default; the emoji was already a visual pun on "running low" that the
+pump icon preserves.
 
 ## Performance
 

@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.136';
+const APP_VERSION = 'v2.137';
 
 const store = {
   get creds() {
@@ -465,7 +465,11 @@ function renderDiagnostics() {
   const syncLog = getSyncLog();
   if (!showDiagnostics || (!syncIssues.length && !debugNotes.length && !syncLog.length)) { card.style.display = 'none'; return; }
   card.style.display = 'block';
-  $('diagnostics-title').textContent = syncIssues.length ? '⚠ Diagnostics' : 'ℹ Diagnostics (debug info)';
+  const hasIssues = syncIssues.length > 0;
+  const diagIconSvg = hasIssues
+    ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+  $('diagnostics-title').innerHTML = `${diagIconSvg} ${hasIssues ? 'Diagnostics' : 'Diagnostics (debug info)'}`;
   $('diagnostics-title').style.color = syncIssues.length ? 'var(--coral)' : 'var(--text-dim)';
   const lines = [
     `ℹ App version: ${APP_VERSION}`,
@@ -1098,7 +1102,10 @@ function renderInsightsElec() {
       const firstAvg = firstHalf.reduce((s, d) => s + dayTotal('elec', d, 'cost'), 0) / firstHalf.length;
       const secondAvg = secondHalf.reduce((s, d) => s + dayTotal('elec', d, 'cost'), 0) / secondHalf.length;
       const diffPct = firstAvg > 0 ? ((secondAvg - firstAvg) / firstAvg) * 100 : 0;
-      $('insights-elec-trajectory-icon').textContent = diffPct >= 0 ? '📈' : '📉';
+      const trendUpSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>';
+      const trendDownSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>';
+      $('insights-elec-trajectory-icon').innerHTML = diffPct >= 0 ? trendUpSvg : trendDownSvg;
+      $('insights-elec-trajectory-icon').style.color = diffPct >= 0 ? 'var(--coral)' : 'var(--mint)';
       $('insights-elec-trajectory-text').innerHTML = Math.abs(diffPct) < 5
         ? 'Fairly steady so far this month — no clear upward or downward trend'
         : `More recent days running <b>${Math.abs(diffPct).toFixed(0)}% ${diffPct >= 0 ? 'higher' : 'lower'}</b> than earlier this month`;
@@ -1339,7 +1346,8 @@ function renderInsightsBilling() {
   const allPositive = balanceForecastData.every(c => c.cumulative >= 0);
   if (allPositive) {
     const lastMonth = balanceForecastData[balanceForecastData.length - 1];
-    icon.textContent = '📈';
+    icon.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>';
+    icon.style.color = 'var(--mint)';
     headline.className = 'runway-headline ok';
     headline.textContent = 'Payments look sufficient';
     detail.textContent = `Projected to stay in credit through ${lastMonth.label}`;
@@ -1348,7 +1356,8 @@ function renderInsightsBilling() {
     const recoverIdx = balanceForecastData.findIndex((c, i) => i > dipIdx && c.cumulative >= 0);
     let lowIdx = 0;
     balanceForecastData.forEach((c, i) => { if (c.cumulative < balanceForecastData[lowIdx].cumulative) lowIdx = i; });
-    icon.textContent = '⚠️';
+    icon.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    icon.style.color = 'var(--coral)';
     headline.className = 'runway-headline warn';
     if (recoverIdx !== -1) {
       headline.textContent = `Payments may be tight — dips into debit around ${balanceForecastData[dipIdx].label}, recovers by ${balanceForecastData[recoverIdx].label}`;

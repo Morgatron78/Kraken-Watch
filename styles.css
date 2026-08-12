@@ -254,7 +254,7 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-panel-head{font-size:12px;font-weight:600;letter-spacing:0.2px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;}
 .fuel-panel-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;letter-spacing:0.3px;}
 #insights-body .fuel-panel-title{margin-bottom:14px;}
-.fuel-icon{font-size:15px;line-height:1;}
+.fuel-icon{display:inline-flex;align-items:center;line-height:1;}
 .unit-toggle{display:flex;background:var(--bg);border-radius:100px;padding:2px;flex-shrink:0;}
 .unit-toggle-btn{
   border:none;background:transparent;color:var(--text-dim);font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;
@@ -408,7 +408,7 @@ button{font-family:inherit;cursor:pointer;}
 .seasonal-note .icon{font-size:14px;flex-shrink:0;}
 
 .runway-row{display:flex;align-items:center;gap:12px;}
-.runway-icon{font-size:22px;flex-shrink:0;}
+.runway-icon{flex-shrink:0;}
 .runway-headline{font-size:13px;font-weight:600;}
 .runway-headline.warn{color:var(--coral);}
 .runway-headline.ok{color:var(--mint);}
@@ -445,7 +445,7 @@ button{font-family:inherit;cursor:pointer;}
 .minmax-date{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
 
 .trajectory-row{display:flex;align-items:center;gap:10px;}
-.trajectory-icon{font-size:18px;}
+.trajectory-icon{flex-shrink:0;}
 .trajectory-text{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);line-height:1.5;}
 .trajectory-text b{color:var(--text);}
 
