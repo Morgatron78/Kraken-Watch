@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.146">
+<link rel="stylesheet" href="styles.css?v=2.148">
 </head>
 <body>
 <div class="wrap">
@@ -293,7 +293,7 @@
 
         <div class="fuel-panel gas">
           <div class="fuel-panel-head">
-            <span class="fuel-panel-title"><span class="fuel-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gas-blue)"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.146-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span> Gas — Flexible Octopus</span>
+            <span class="fuel-panel-title"><span class="fuel-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gas-blue)"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.148-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span> Gas — Flexible Octopus</span>
             <div class="unit-toggle" data-fuel="gas">
               <button type="button" class="unit-toggle-btn active" data-unit="cost">£</button>
               <button type="button" class="unit-toggle-btn" data-unit="kwh">kWh</button>
@@ -406,6 +406,20 @@
         </div>
       </div>
 
+      <div class="fuel-split hidden" id="octo-block">
+        <div class="bh-row" style="border-bottom:none;">
+          <div class="bh-top">
+            <div class="bh-date">Octopoints</div>
+            <div class="bh-total" style="font-size:20px;" id="octo-balance">—</div>
+          </div>
+          <div class="bh-total-row">
+            <button type="button" class="bh-breakdown-toggle" id="octo-toggle" aria-expanded="false"><span>Show history</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+            <span class="octo-gbp" id="octo-balance-gbp"></span>
+          </div>
+          <div class="bh-items hidden" id="octo-history"></div>
+        </div>
+      </div>
+
     </div>
 
 
@@ -485,7 +499,7 @@
         </div>
 
         <div class="fuel-panel gas">
-          <div class="fuel-panel-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gas-blue)"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.146-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> Gas — Flexible Octopus</div>
+          <div class="fuel-panel-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gas-blue)"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.148-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> Gas — Flexible Octopus</div>
 
           <div class="insight-block">
             <div class="insight-label" id="insights-gas-trend-label">Latest available day</div>
@@ -660,6 +674,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.146"></script>
+<script src="app.js?v=2.148"></script>
 </body>
 </html>

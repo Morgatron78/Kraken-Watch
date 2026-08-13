@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.146';
+const APP_VERSION = 'v2.148';
 
 const store = {
   get creds() {
@@ -133,6 +133,7 @@ async function octRest(path) {
 }
 
 let krakenToken = null;
+let krakenAccountUserId = null;
 async function getKrakenToken() {
   if (krakenToken) return krakenToken;
   const { email, password } = store.creds || {};
@@ -148,6 +149,16 @@ async function getKrakenToken() {
   const token = json?.data?.obtainKrakenToken?.token;
   if (!token) throw new Error('Kraken auth failed');
   krakenToken = token;
+  // The token's own `sub` claim is formatted `kraken|account-user:<id>` —
+  // confirmed by decoding a real token during development — so the id
+  // needed for loyaltyPointLedgers is available for free from a token
+  // already fetched on every sync, no separate lookup query required.
+  // Only the one claim is read, never logged, never stored beyond memory.
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    const match = /^kraken\|account-user:(\d+)$/.exec(payload.sub || '');
+    krakenAccountUserId = match ? match[1] : null;
+  } catch { krakenAccountUserId = null; }
   return token;
 }
 
@@ -3173,6 +3184,63 @@ async function loadBilling() {
     $('bill-year-block').style.display = 'none';
   }
 
+  // --- Octopoints ---
+  // Both queries confirmed live via schema reference — a similarly named
+  // field, octoplusRewards, is deprecated, but that's a different system
+  // (the Octoplus Rewards marketplace) entirely. loyaltyPointsBalance
+  // takes accountNumber, already on hand everywhere else in this app;
+  // loyaltyPointLedgers needs accountUserId instead, which getKrakenToken()
+  // already extracts from the login JWT's own sub claim, so no separate
+  // lookup query is needed for it. Kept independent of anyLive/the rest of
+  // this function's error handling — a points-fetch failure shouldn't be
+  // treated as a billing-wide outage, it just hides this one section.
+  try {
+    const balanceData = await krakenGQL(`
+      query LoyaltyPointsBalance($input: LoyaltyPointsBalanceInput!) {
+        loyaltyPointsBalance(input: $input) { loyaltyPoints totalMonetaryAmount }
+      }`, { input: { accountNumber: store.creds.accountNumber } });
+    const bal = balanceData?.loyaltyPointsBalance;
+    if (bal && typeof bal.loyaltyPoints === 'number') {
+      $('octo-balance').textContent = `${bal.loyaltyPoints.toLocaleString('en-GB')} pts`;
+      $('octo-balance-gbp').textContent = typeof bal.totalMonetaryAmount === 'number'
+        ? `≈ £${(bal.totalMonetaryAmount / 100).toFixed(2)}` : '';
+      $('octo-block').classList.remove('hidden');
+
+      if (krakenAccountUserId) {
+        try {
+          const ledgerData = await krakenGQL(`
+            query LoyaltyPointLedgers($input: LoyaltyPointLedgersInput!) {
+              loyaltyPointLedgers(input: $input) { value ledgerType reasonCode postedAt }
+            }`, { input: { accountUserId: krakenAccountUserId } });
+          // Capped at 25 rather than shown in full — a reasonable ceiling
+          // for a long-standing account without risking an unbounded list,
+          // and generous since this only ever renders once the person has
+          // deliberately expanded it.
+          const entries = (ledgerData?.loyaltyPointLedgers || [])
+            .slice()
+            .sort((a, b) => +new Date(b.postedAt) - +new Date(a.postedAt))
+            .slice(0, 25);
+          $('octo-history').innerHTML = entries.map(e => {
+            const isCredit = e.ledgerType === 'CREDIT';
+            const pts = Math.abs(parseInt(e.value, 10) || 0);
+            const label = (e.reasonCode || '').replace(/[_-]+/g, ' ').toLowerCase().replace(/^./, c => c.toUpperCase())
+              || (isCredit ? 'Points earned' : 'Points redeemed');
+            const date = new Date(e.postedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            return `<div class="bh-item"><span class="l">${label} — ${date}</span><span class="v${isCredit ? ' credit' : ''}"${isCredit ? '' : ' style="color:var(--text-dim);"'}>${isCredit ? '+' : '−'}${pts} pts</span></div>`;
+          }).join('');
+        } catch (err) {
+          logIssue('Octopoints history', err);
+          $('octo-history').innerHTML = '';
+        }
+      }
+    } else {
+      $('octo-block').classList.add('hidden');
+    }
+  } catch (err) {
+    logIssue('Octopoints balance', err);
+    $('octo-block').classList.add('hidden');
+  }
+
   return anyLive;
 }
 
@@ -3430,6 +3498,7 @@ async function saveSettings() {
 
   store.creds = { ...store.creds, apiKey, accountNumber, email, password, manualElecMpan, manualElecSerial, manualGasMprn, manualGasSerial, calorificValue, showDiagnostics, useDemoFallback };
   krakenToken = null;
+  krakenAccountUserId = null;
 
   // Best-effort: look up meter points + tariff codes automatically from the account.
   // Accounts can have more than one electricity/gas meter point on record (e.g.
@@ -3542,6 +3611,15 @@ function init() {
   $('connect-btn').addEventListener('click', openSettings);
   $('settings-cancel').addEventListener('click', closeSettings);
   $('settings-save').addEventListener('click', saveSettings);
+  // Single static row, unlike bill-history's per-row toggles which get
+  // rebuilt (and re-delegated) every sync — this one only ever needs
+  // wiring once, since #octo-history itself is what gets refreshed.
+  $('octo-toggle').addEventListener('click', () => {
+    const open = $('octo-toggle').getAttribute('aria-expanded') === 'true';
+    $('octo-toggle').setAttribute('aria-expanded', String(!open));
+    $('octo-toggle').querySelector('span').textContent = open ? 'Show history' : 'Hide history';
+    $('octo-history').classList.toggle('hidden', open);
+  });
   $('toggle-api-key-visibility').addEventListener('click', () => {
     const field = $('input-api-key');
     const btn = $('toggle-api-key-visibility');
