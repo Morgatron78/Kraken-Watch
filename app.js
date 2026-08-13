@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.148';
+const APP_VERSION = 'v2.149';
 
 const store = {
   get creds() {
@@ -170,7 +170,18 @@ async function krakenGQL(query, variables) {
     body: JSON.stringify({ query, variables })
   });
   const json = await res.json();
-  if (json.errors) throw new Error(json.errors[0]?.message || 'GraphQL error');
+  if (json.errors) {
+    // GraphQL errors often carry a specific machine code in `extensions`
+    // (e.g. KT-CT-1111 vs KT-CT-9216 — both surface as the same bare
+    // "Unauthorized" message, but mean different things) — previously
+    // discarded, keeping only the generic message. Appending the code
+    // when present means the next failure is actually diagnosable from
+    // the diagnostics panel alone, not just "something's unauthorized."
+    const err = json.errors[0];
+    const code = err?.extensions?.errorCode || err?.extensions?.code;
+    const message = err?.message || 'GraphQL error';
+    throw new Error(code ? `${message} (${code})` : message);
+  }
   return json.data;
 }
 
