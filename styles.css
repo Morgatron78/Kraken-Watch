@@ -579,7 +579,12 @@ button{font-family:inherit;cursor:pointer;}
 
 /* EV panel rewrite: battery gauge, view toggle, session/dispatch badges,
    stacked week chart with tap-to-breakdown */
-.battery-row{display:flex;align-items:center;gap:12px;margin-top:14px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
+/* v2.150: restructured to a two-row layout — meter goes full width on its
+   own row, target/countdown moved to a line below rather than squeezing
+   the gauge from the right. */
+.battery-row{display:flex;flex-direction:column;gap:8px;margin-top:14px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
+.battery-row-top{display:flex;align-items:center;gap:12px;}
+.battery-row-meta{display:flex;justify-content:space-between;align-items:baseline;}
 .battery-pct{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;flex-shrink:0;}
 .battery-gauge{flex:1;height:8px;background:rgba(255,255,255,0.14);border:1px solid var(--line);border-radius:100px;overflow:hidden;position:relative;}
 .battery-gauge-limit{position:absolute;top:0;bottom:0;width:2px;background:var(--amber);z-index:2;}
@@ -610,9 +615,8 @@ button{font-family:inherit;cursor:pointer;}
 .slot-badge{font-family:'Inter', sans-serif;font-size:9.5px;padding:2px 7px;border-radius:100px;flex-shrink:0;margin-left:6px;}
 .badge-smart{color:var(--mint);background:var(--mint-soft);border:1px solid rgba(61,220,151,0.35);}
 .badge-boost{color:var(--pink);background:var(--pink-soft);border:1px solid rgba(255,79,163,0.4);}
-.battery-target-col{flex-shrink:0;text-align:right;}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
-.battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;margin-top:2px;}
+.battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;}
 
 .schedule-preview{display:flex;gap:4px;margin-top:10px;margin-bottom:16px;padding:0 2px;}
 .schedule-day{flex:1;text-align:center;}
