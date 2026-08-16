@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.152';
+const APP_VERSION = 'v2.153';
 
 const store = {
   get creds() {
@@ -2260,13 +2260,6 @@ async function loadEVSmartFlex() {
   const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
   const schedules = vehicle.preferences?.schedules || [];
 
-  // TEMPORARY v2.150 diagnostic for the "schedule repeats/wrong day" bug
-  // report — dumps the raw schedules array exactly as Octopus returned it,
-  // so we can confirm whether it genuinely holds 7 distinct per-day
-  // entries or something more repetitive, before touching the matching/
-  // highlighting logic below. Remove once the real shape is confirmed.
-  logDebug('EV schedule raw data', JSON.stringify(schedules));
-
   const todaySchedule = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
   if (todaySchedule && todaySchedule.max != null && todaySchedule.time) {
     $('ev-battery-target').textContent = `Target ${Math.round(todaySchedule.max)}% by ${todaySchedule.time.slice(0, 5)}`;
@@ -2301,14 +2294,26 @@ async function loadEVSmartFlex() {
   // so "set vs unset" barely varies while the actual target *time* is
   // the genuinely useful thing to compare across days. Days with no
   // schedule entry show "—" rather than a blank gap.
+  // v2.153: highlight whichever target is still upcoming, not blindly
+  // "today" — a day's entry represents an overnight charge completing
+  // that morning, so once today's target time has passed, today's own
+  // entry is already done and the next one that actually matters is
+  // tomorrow's. Renamed the CSS hook from .today to .upcoming to match.
+  let upcomingIdx = now.getDay();
+  const todayEntryForHighlight = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
+  if (todayEntryForHighlight?.time) {
+    const [uh, um] = todayEntryForHighlight.time.split(':').map(Number);
+    const todayTargetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), uh, um);
+    if (todayTargetDate <= now) upcomingIdx = (upcomingIdx + 1) % 7;
+  }
   if (schedules.length) {
     $('ev-schedule-preview').classList.remove('hidden');
     $('ev-schedule-preview').innerHTML = dayNames.map((d, i) => {
       const entry = schedules.find(s => s.dayOfWeek === d);
-      const isToday = i === now.getDay();
+      const isUpcoming = i === upcomingIdx;
       const label = ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i];
       const timeText = entry?.time ? entry.time.slice(0, 5) : '—';
-      return `<div class="schedule-day${isToday ? ' today' : ''}"><div class="schedule-day-label">${label}</div><div class="schedule-day-time">${timeText}</div></div>`;
+      return `<div class="schedule-day${isUpcoming ? ' upcoming' : ''}"><div class="schedule-day-label">${label}</div><div class="schedule-day-time">${timeText}</div></div>`;
     }).join('');
   } else {
     $('ev-schedule-preview').classList.add('hidden');

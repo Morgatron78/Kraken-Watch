@@ -622,8 +622,8 @@ button{font-family:inherit;cursor:pointer;}
 .schedule-day{flex:1;text-align:center;}
 .schedule-day-label{font-family:'Inter', sans-serif;font-size:8.5px;color:var(--text-dim);margin-bottom:4px;}
 .schedule-day-time{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text);}
-.schedule-day.today .schedule-day-label,
-.schedule-day.today .schedule-day-time{color:var(--pink);font-weight:600;}
+.schedule-day.upcoming .schedule-day-label,
+.schedule-day.upcoming .schedule-day-time{color:var(--pink);font-weight:600;}
 
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}
 
