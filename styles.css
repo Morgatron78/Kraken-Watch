@@ -155,6 +155,17 @@ button{font-family:inherit;cursor:pointer;}
 .ev-mini{flex:1;min-width:110px;background:var(--bg-panel-2);border-radius:12px;padding:10px 12px;}
 .ev-mini-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}
 .ev-mini-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;}
+/* v2.154: estimated-range caption under "This session", and an "(est.)"
+   tag reused on both the range caption and the Cost mini box label — same
+   visual language, so an estimate always reads as an estimate regardless
+   of which of the two it's attached to. */
+.ev-mini-sub{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--text-dim);margin-top:2px;}
+.ev-mini-est{font-size:8.5px;font-weight:400;text-transform:none;letter-spacing:0;}
+/* v2.154: Smart/Boost split caption under the Charge history stat row —
+   makes the split explicit rather than requiring a visual read of the
+   stacked bar colors below. */
+.split-line{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:8px;text-align:center;}
+.split-line b{color:var(--mint);}
 
 .slot-list{display:flex;flex-direction:column;gap:8px;margin-top:14px;}
 .slot{

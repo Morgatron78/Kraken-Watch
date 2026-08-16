@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.153">
+<link rel="stylesheet" href="styles.css?v=2.154">
 </head>
 <body>
 <div class="wrap">
@@ -148,9 +148,10 @@
         </div>
 
         <div class="ev-mini-row">
-          <div class="ev-mini" id="ev-added-box"><div class="ev-mini-label">This session</div><div class="ev-mini-value" id="ev-added">—</div></div>
+          <div class="ev-mini" id="ev-added-box"><div class="ev-mini-label">This session</div><div class="ev-mini-value" id="ev-added">—</div><div class="ev-mini-sub" id="ev-added-range"></div></div>
           <div class="ev-mini hidden" id="ev-power-box"><div class="ev-mini-label">Charging power</div><div class="ev-mini-value" id="ev-power">—</div></div>
           <div class="ev-mini hidden" id="ev-sessions-box"><div class="ev-mini-label">Sessions today</div><div class="ev-mini-value" id="ev-sessions-count">—</div></div>
+          <div class="ev-mini hidden" id="ev-cost-box"><div class="ev-mini-label">Cost <span class="ev-mini-est">(est.)</span></div><div class="ev-mini-value" id="ev-cost">—</div></div>
         </div>
 
         <div class="ev-subpanel">
@@ -178,6 +179,7 @@
             <div class="stat"><div class="stat-label" id="ev-history-period-label">This week</div><div class="stat-value-sm" id="ev-week-kwh-total">—</div></div>
             <div class="stat"><div class="stat-label">Sessions</div><div class="stat-value-sm" id="ev-week-session-count">—</div></div>
           </div>
+          <div class="split-line hidden" id="ev-split-line"></div>
           <div class="chart-row">
             <div class="chart-scale" id="ev-week-scale"></div>
             <div class="week-bars" id="ev-week"></div>
@@ -676,6 +678,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.153"></script>
+<script src="app.js?v=2.154"></script>
 </body>
 </html>

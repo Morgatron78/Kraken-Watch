@@ -16,7 +16,18 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.153';
+const APP_VERSION = 'v2.154';
+
+// v2.154: used only for the EV panel's estimated-range-added figure.
+// Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
+// usable, 322mi WLTP on the 2024+ battery — sourced from Polestar's own
+// published specs) — 322/67 ≈ 4.8 mi/kWh. WLTP is a lab figure, real-world
+// efficiency is normally lower, so this is a rough estimate labeled as
+// such wherever it's shown, not a precise range calculation. Specific to
+// whichever vehicle is actually on this account — would need updating if
+// the vehicle ever changes, or if the exact model year/battery differs
+// from what's assumed here.
+const EV_RANGE_MI_PER_KWH = 4.8;
 
 const store = {
   get creds() {
@@ -233,6 +244,7 @@ function clearRateCacheIfNewDay() {
 }
 let cachedOffPeakRateP = null; // cheapest electricity rate seen today — fallback rate for Live Usage's £/hr estimate when the current rate hasn't loaded yet
 let cachedCurrentRateP = null; // right-now electricity rate — used for the live-usage £/hr estimate
+let cachedStandardRateP = null; // most expensive electricity rate seen today — v2.154: used to estimate Boost-session charging cost, since Boost charges happen outside the smart dispatch schedule and so are assumed to land at standard rate, not off-peak
 let cachedElecStandingP = null;
 let cachedGasStandingP = null;
 
@@ -1772,6 +1784,7 @@ async function loadRates() {
 
     cachedOffPeakRateP = Math.min(...points);
     cachedCurrentRateP = current;
+    cachedStandardRateP = Math.max(...points);
 
     $('rate-value').innerHTML = `${Math.round(current)}<span>p/kWh</span>`;
     $('elec-unit-rate').textContent = `${current.toFixed(1)}p`;
@@ -1798,6 +1811,7 @@ async function loadRates() {
     if (demoFallbackEnabled()) {
       cachedOffPeakRateP = 7.5;
       cachedCurrentRateP = 7.5;
+      cachedStandardRateP = 28.9;
       $('rate-value').innerHTML = `8<span>p/kWh</span>`;
       $('rate-value').style.color = 'var(--mint)';
       $('elec-unit-rate').textContent = '7.5p (demo)';
@@ -2376,6 +2390,20 @@ async function loadEVSmartFlex() {
     if (a?.message) warnings.push({ level: 'amber', text: a.message });
   });
 
+  // v2.154: flag Boost sessions from the last 7 days — a lightweight
+  // insight rather than a device-status warning, but reuses this area's
+  // existing styling since the user approved that placement. Boost is a
+  // manual charge outside the smart dispatch schedule, so it's a reliable
+  // type-based signal without needing the rate-matching this app already
+  // ruled out (see EV cost investigation notes) — deliberately not trying
+  // to detect "charged during a peak window" directly.
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+  const boostSessionsThisWeek = sessions.filter(s => s.type === 'BOOST' && new Date(s.start) >= weekStart);
+  if (boostSessionsThisWeek.length) {
+    const n = boostSessionsThisWeek.length;
+    warnings.push({ level: 'amber', text: `${n} Boost session${n === 1 ? '' : 's'} this week charged outside off-peak hours — likely cost more than a Smart dispatch would have` });
+  }
+
   const warningsEl = $('ev-warnings');
   if (warnings.length) {
     warningsEl.classList.remove('hidden');
@@ -2466,6 +2494,41 @@ async function loadEVSmartFlex() {
   const sessionKwh = todaysSessions.reduce((sum, s) => sum + Math.abs(s.energyAdded?.value || 0), 0);
   $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
 
+  // v2.154: estimated range added, inline with the kWh figure. Real cost
+  // was ruled out (see above), but range is a straightforward unit
+  // conversion using EV_RANGE_MI_PER_KWH — no rate-matching involved, so
+  // none of the reasons cost was dropped apply here. Only shown once
+  // there's something to show; kept out of the DOM rather than showing
+  // "0 mi" for a genuinely empty day.
+  const rangeEl = $('ev-added-range');
+  if (rangeEl) {
+    rangeEl.textContent = sessionKwh > 0 ? `≈ ${Math.round(sessionKwh * EV_RANGE_MI_PER_KWH)} mi (est.)` : '';
+  }
+
+  // v2.154: estimated cost, third mini box. Real per-dispatch rate can't
+  // be matched (confirmed dead end — see EV cost investigation notes), so
+  // this uses a simple type-based assumption instead: Smart sessions are
+  // priced at today's known off-peak rate, Boost sessions at today's known
+  // standard rate, since Boost charging happens outside the smart dispatch
+  // schedule. Deliberately approximate and labeled as such — same honesty
+  // convention as every other estimate in this app. Hidden entirely if
+  // today's rates haven't loaded yet, rather than guessing with stale or
+  // absent figures.
+  const costBox = $('ev-cost-box');
+  if (costBox) {
+    if (todaysSessions.length && cachedOffPeakRateP != null && cachedStandardRateP != null) {
+      const estCostP = todaysSessions.reduce((sum, s) => {
+        const kwh = Math.abs(s.energyAdded?.value || 0);
+        const rateP = s.type === 'BOOST' ? cachedStandardRateP : cachedOffPeakRateP;
+        return sum + kwh * rateP;
+      }, 0);
+      costBox.classList.remove('hidden');
+      $('ev-cost').textContent = fmtGBP(estCostP / 100);
+    } else {
+      costBox.classList.add('hidden');
+    }
+  }
+
   // Second box: charging power while actually charging (immediately useful
   // in that moment), sessions-today count otherwise (a plain, always-
   // reliable metric — unlike cost, which turned out to be consistently
@@ -2528,6 +2591,24 @@ function renderEVHistoryBars(buckets, labels) {
   const sessionCount = buckets.reduce((s, b) => s + b.sessions.length, 0);
   $('ev-week-kwh-total').textContent = `${kwhTotal.toFixed(1)} kWh`;
   $('ev-week-session-count').textContent = `${sessionCount}`;
+
+  // v2.154: Smart/Boost split, as an explicit percentage rather than only
+  // visible in the stacked bar colors — makes the cost-efficiency story
+  // legible at a glance instead of requiring a visual read of bar segments.
+  // Period-agnostic wording (no "this week"/"today" baked in) so it reads
+  // correctly under Day/Week/Month alike without extra plumbing. Hidden
+  // for a genuinely empty period rather than showing "0% Smart · 0% Boost".
+  const splitEl = $('ev-split-line');
+  if (splitEl) {
+    if (kwhTotal > 0) {
+      const smartTotal = buckets.reduce((s, b) => s + b.smart, 0);
+      const smartPct = Math.round((smartTotal / kwhTotal) * 100);
+      splitEl.innerHTML = `<b>${smartPct}%</b> Smart · ${100 - smartPct}% Boost`;
+      splitEl.classList.remove('hidden');
+    } else {
+      splitEl.classList.add('hidden');
+    }
+  }
 }
 
 // Week — unchanged logic, 7 daily buckets from the sessions already loaded
