@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.151';
+const APP_VERSION = 'v2.152';
 
 const store = {
   get creds() {
@@ -602,7 +602,18 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
     // below only correctly handles up to a 7-bar span (a single +7
     // wraparound correction), so a longer month array pushed it negative
     // and printed literal "undefined".
-    const labelText = isMonthMode ? String(i + 1) : labels[(today - (dayStacks.length - 1 - i) + 7) % 7];
+    // v2.151 fix: a picked week (weekdayAnchor set) is always fetched as an
+    // exact snapped Sun–Sat span (see loadPickedPeriodData) — index i IS
+    // the weekday directly, no rotation needed. The rotation formula below
+    // is only correct for the default *rolling* 7-day window (last bar =
+    // today, wrapping backward from whatever weekday today happens to be);
+    // applying it to a picked week used the raw tapped day as if it were
+    // the array's last entry, mislabeling every bar whenever the tapped
+    // day wasn't a Saturday — same root cause as the v2.143/v2.144 fetch
+    // and breakdown-date bugs, just in the axis labels this time.
+    const labelText = isMonthMode ? String(i + 1)
+      : weekdayAnchor ? labels[i]
+      : labels[(today - (dayStacks.length - 1 - i) + 7) % 7];
     // Showing every one of ~28-31 month labels overflows a mobile-width
     // chart (confirmed live) — every label stays legible alone, but that
     // many crammed together doesn't fit. Every 5th only once dense.
