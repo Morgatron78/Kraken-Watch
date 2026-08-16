@@ -126,6 +126,7 @@ button{font-family:inherit;cursor:pointer;}
 .sub b{font-weight:600;}
 
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--mint);display:inline-block;margin-right:4px;animation:live-pulse 1.6s ease-in-out infinite;}
+.live-dot.pink{background:var(--pink);}
 @keyframes live-pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
 .rate-value span{font-size:18px;color:var(--text-dim);font-weight:500;margin-left:4px;}
 .pill{
@@ -559,7 +560,7 @@ button{font-family:inherit;cursor:pointer;}
 .forecast-zero-line{position:absolute;left:0;right:0;border-top:1px solid var(--line);}
 .forecast-bars{display:flex;height:100%;gap:3px;}
 .forecast-col{flex:1;position:relative;display:flex;min-width:0;}
-.forecast-bar-wrap{position:relative;width:100%;height:100%;cursor:pointer;}
+.forecast-bar-wrap{position:relative;width:100%;height:100%;cursor:pointer;touch-action:pan-y;}
 .forecast-bar{position:absolute;left:10%;right:10%;border-radius:2px;background:var(--mint);opacity:0.85;}
 .forecast-bar.neg{background:var(--coral);}
 .forecast-bar.fallback{background-image:repeating-linear-gradient(135deg,rgba(255,255,255,0.28) 0 3px,rgba(255,255,255,0.08) 3px 6px);}

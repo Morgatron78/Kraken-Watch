@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.149';
+const APP_VERSION = 'v2.150';
 
 const store = {
   get creds() {
@@ -2248,12 +2248,26 @@ async function loadEVSmartFlex() {
   // the way a wrong GraphQL field/fragment guess would).
   const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
   const schedules = vehicle.preferences?.schedules || [];
+
+  // TEMPORARY v2.150 diagnostic for the "schedule repeats/wrong day" bug
+  // report — dumps the raw schedules array exactly as Octopus returned it,
+  // so we can confirm whether it genuinely holds 7 distinct per-day
+  // entries or something more repetitive, before touching the matching/
+  // highlighting logic below. Remove once the real shape is confirmed.
+  logDebug('EV schedule raw data', JSON.stringify(schedules));
+
   const todaySchedule = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
   if (todaySchedule && todaySchedule.max != null && todaySchedule.time) {
     $('ev-battery-target').textContent = `Target ${Math.round(todaySchedule.max)}% by ${todaySchedule.time.slice(0, 5)}`;
     // Countdown — only shown if today's target time hasn't passed yet;
     // once it has, "X hours until target" would be nonsensical (negative
     // or referring to a target that's already come and gone).
+    // v2.150: if the battery has actually reached (or passed) the target
+    // %, say so plainly instead of either a stale countdown or, once the
+    // target time passes, blank text that reads as broken.
+    if (soc != null && soc >= todaySchedule.max) {
+      $('ev-battery-countdown').textContent = 'Target reached';
+    } else {
     const [th, tm] = todaySchedule.time.split(':').map(Number);
     const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), th, tm);
     if (targetDate > now) {
@@ -2262,6 +2276,7 @@ async function loadEVSmartFlex() {
       $('ev-battery-countdown').textContent = `${h > 0 ? h + 'h ' : ''}${m}m to go`;
     } else {
       $('ev-battery-countdown').textContent = '';
+    }
     }
   } else {
     $('ev-battery-target').textContent = '';
@@ -2324,7 +2339,14 @@ async function loadEVSmartFlex() {
   } else if (state === 'SMART_CONTROL_OFF') {
     warnings.push({ level: 'amber', text: 'Smart control is currently off' });
   } else if (state === 'SMART_CONTROL_NOT_AVAILABLE') {
-    warnings.push({ level: 'amber', text: 'Smart control is not available for this vehicle right now' });
+    // v2.150: this fires constantly whenever the vehicle is simply
+    // disconnected — genuinely just means "no vehicle currently plugged
+    // in to control," not a fault. Suppressed while the panel's own tag
+    // reads IDLE (no active or planned dispatch); still shown if it fires
+    // while a dispatch is scheduled/active, where it would be a real problem.
+    if (activeDispatch || planned.length) {
+      warnings.push({ level: 'amber', text: 'Smart control is not available for this vehicle right now' });
+    }
   }
 
   if (vehicle.status?.stateOfChargeLimit?.isLimitViolated) {
@@ -2359,13 +2381,16 @@ async function loadEVSmartFlex() {
   allDispatches.sort((a, b) => new Date(a.start) - new Date(b.start));
 
   const dispatchSlots = $('ev-slots-dispatch');
-  dispatchSlots.classList.remove('hidden');
+  dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
   dispatchSlots.innerHTML = allDispatches.map(d =>
     `<div class="slot done"><span>✓ ${fmtT(d.start)} – ${fmtT(d.end)}${badgeHtml(d.type)}</span><b>Completed · ${Math.abs(d.energyAddedKwh || 0).toFixed(1)} kWh</b></div>`
   ).join('');
   planned.forEach(d => {
     const isActive = now >= new Date(d.start) && now < new Date(d.end);
-    const label = isActive ? '● Dispatching now' : 'Planned';
+    // v2.150: swapped the static "●" character for the same pulsating dot
+    // already used in the live usage view, in pink to match this panel's
+    // electricity-adjacent identity.
+    const label = isActive ? '<span class="live-dot pink"></span>Dispatching now' : 'Planned';
     const cls = isActive ? ' active' : ' scheduled';
     dispatchSlots.insertAdjacentHTML('beforeend', `<div class="slot${cls}"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${label}</b></div>`);
   });
@@ -2400,6 +2425,16 @@ async function loadEVSmartFlex() {
     </div>`;
   }).join('');
   if (!sessionSlots.children.length) sessionSlots.innerHTML = '<div class="slot">No charging sessions this week</div>';
+
+  // v2.150 fix: reapply whichever tab the user actually has selected. Every
+  // render above unconditionally shows dispatchSlots (rebuilding it needs
+  // it un-hidden), which previously left it visibly on top of Sessions
+  // view after any auto-refresh — this restores the correct tab instead of
+  // defaulting back to Dispatch every time.
+  $('ev-slots-dispatch').classList.toggle('hidden', evViewMode !== 'dispatch');
+  $('ev-slots-session').classList.toggle('hidden', evViewMode !== 'session');
+  $('ev-view-dispatch-btn').classList.toggle('active', evViewMode === 'dispatch');
+  $('ev-view-session-btn').classList.toggle('active', evViewMode === 'session');
 
   $('ev-view-toggle').classList.remove('hidden');
   $('ev-week-legend').classList.remove('hidden');
@@ -2528,23 +2563,46 @@ function renderEVInsights(sessions, now) {
   }
 }
 
-// Day — hourly buckets using dispatches (not sessions), since a single
-// day's shape needs finer detail than a whole session gives. Reuses
-// evLoadedSessions (the same rolling window already fetched for the live
-// card) — today is always within that window, so no new fetch at all.
+// Day — hourly buckets, built from sessions directly (same source Week
+// uses via energyAdded.value), not from each session's nested dispatches
+// array. v2.150 fix: the original version bucketed purely off `dispatches`,
+// which is empty for Boost-type manual charges (only Smart/scheduled
+// dispatches appear to generate dispatch records) — so a day charged only
+// via Boost showed real data in Week (session-level) but nothing at all in
+// Day (dispatch-level). Falls back to dispatches only when present, for
+// slightly finer within-session detail on Smart charging days; a session
+// with no dispatches is bucketed as one lump at its own start hour instead
+// of silently vanishing. Reuses evLoadedSessions (the same rolling window
+// already fetched for the live card) — today is always within that
+// window, so no new fetch at all.
 function buildEVDayBuckets(sessions, now) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTomorrow = new Date(startOfToday.getTime() + 86400000);
   const buckets = Array.from({ length: 24 }, () => ({ smart: 0, boost: 0, sessions: [] }));
   const dates = Array.from({ length: 24 }, (_, h) => new Date(startOfToday.getTime() + h * 3600000));
   sessions.forEach(s => {
-    (s.dispatches || []).forEach(d => {
+    const todaysDispatches = (s.dispatches || []).filter(d => {
       const start = new Date(d.start);
-      if (start < startOfToday || start >= new Date(startOfToday.getTime() + 86400000)) return;
-      const hour = start.getHours();
-      const kwh = Math.abs(d.energyAddedKwh || 0);
-      if (d.type === 'BOOST') buckets[hour].boost += kwh; else buckets[hour].smart += kwh;
-      buckets[hour].sessions.push(s);
+      return start >= startOfToday && start < startOfTomorrow;
     });
+    if (todaysDispatches.length) {
+      todaysDispatches.forEach(d => {
+        const hour = new Date(d.start).getHours();
+        const kwh = Math.abs(d.energyAddedKwh || 0);
+        if (d.type === 'BOOST') buckets[hour].boost += kwh; else buckets[hour].smart += kwh;
+        buckets[hour].sessions.push(s);
+      });
+      return;
+    }
+    // No dispatch records for this session (Boost charges typically have
+    // none) — fall back to the session itself, bucketed at its start hour
+    // using its own total kWh, same as Week/Month already do.
+    const sessionStart = new Date(s.start);
+    if (sessionStart < startOfToday || sessionStart >= startOfTomorrow) return;
+    const hour = sessionStart.getHours();
+    const kwh = Math.abs(s.energyAdded?.value || 0);
+    if (s.type === 'BOOST') buckets[hour].boost += kwh; else buckets[hour].smart += kwh;
+    buckets[hour].sessions.push(s);
   });
   const labels = dates.map(d => `${d.getHours()}`);
   return { buckets, labels, dates, dateFormat: 'hour' };
@@ -2688,6 +2746,7 @@ let evLoadedSessions = null;
 let evMonthCache = null; // { key: 'YYYY-M', sessions: [...] } — avoids refetching when toggling back to a month already viewed
 let evHistoryDates = null;
 let evHistoryDateFormat = 'weekday';
+let evViewMode = 'dispatch'; // v2.150: tracks the user's Dispatch/Sessions tab choice so re-renders (auto-refresh) can reapply it instead of hardcoding dispatch visible
 
 function populateDemoEV() {
     applyEvCollapse(true);
@@ -3195,62 +3254,18 @@ async function loadBilling() {
     $('bill-year-block').style.display = 'none';
   }
 
-  // --- Octopoints ---
-  // Both queries confirmed live via schema reference — a similarly named
-  // field, octoplusRewards, is deprecated, but that's a different system
-  // (the Octoplus Rewards marketplace) entirely. loyaltyPointsBalance
-  // takes accountNumber, already on hand everywhere else in this app;
-  // loyaltyPointLedgers needs accountUserId instead, which getKrakenToken()
-  // already extracts from the login JWT's own sub claim, so no separate
-  // lookup query is needed for it. Kept independent of anyLive/the rest of
-  // this function's error handling — a points-fetch failure shouldn't be
-  // treated as a billing-wide outage, it just hides this one section.
-  try {
-    const balanceData = await krakenGQL(`
-      query LoyaltyPointsBalance($input: LoyaltyPointsBalanceInput!) {
-        loyaltyPointsBalance(input: $input) { loyaltyPoints totalMonetaryAmount }
-      }`, { input: { accountNumber: store.creds.accountNumber } });
-    const bal = balanceData?.loyaltyPointsBalance;
-    if (bal && typeof bal.loyaltyPoints === 'number') {
-      $('octo-balance').textContent = `${bal.loyaltyPoints.toLocaleString('en-GB')} pts`;
-      $('octo-balance-gbp').textContent = typeof bal.totalMonetaryAmount === 'number'
-        ? `≈ £${(bal.totalMonetaryAmount / 100).toFixed(2)}` : '';
-      $('octo-block').classList.remove('hidden');
-
-      if (krakenAccountUserId) {
-        try {
-          const ledgerData = await krakenGQL(`
-            query LoyaltyPointLedgers($input: LoyaltyPointLedgersInput!) {
-              loyaltyPointLedgers(input: $input) { value ledgerType reasonCode postedAt }
-            }`, { input: { accountUserId: krakenAccountUserId } });
-          // Capped at 25 rather than shown in full — a reasonable ceiling
-          // for a long-standing account without risking an unbounded list,
-          // and generous since this only ever renders once the person has
-          // deliberately expanded it.
-          const entries = (ledgerData?.loyaltyPointLedgers || [])
-            .slice()
-            .sort((a, b) => +new Date(b.postedAt) - +new Date(a.postedAt))
-            .slice(0, 25);
-          $('octo-history').innerHTML = entries.map(e => {
-            const isCredit = e.ledgerType === 'CREDIT';
-            const pts = Math.abs(parseInt(e.value, 10) || 0);
-            const label = (e.reasonCode || '').replace(/[_-]+/g, ' ').toLowerCase().replace(/^./, c => c.toUpperCase())
-              || (isCredit ? 'Points earned' : 'Points redeemed');
-            const date = new Date(e.postedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-            return `<div class="bh-item"><span class="l">${label} — ${date}</span><span class="v${isCredit ? ' credit' : ''}"${isCredit ? '' : ' style="color:var(--text-dim);"'}>${isCredit ? '+' : '−'}${pts} pts</span></div>`;
-          }).join('');
-        } catch (err) {
-          logIssue('Octopoints history', err);
-          $('octo-history').innerHTML = '';
-        }
-      }
-    } else {
-      $('octo-block').classList.add('hidden');
-    }
-  } catch (err) {
-    logIssue('Octopoints balance', err);
-    $('octo-block').classList.add('hidden');
-  }
+  // --- Octopoints: archived v2.150, deactivated pending Octopus forum ---
+  // Live testing returned Unauthorized (KT-CT-1111) — most likely an
+  // account reader-permission gap rather than a code bug (a lead worth
+  // checking: the JWT may carry the account's permission scopes directly).
+  // Deactivated here to stop spending API calls on a feature that isn't
+  // working, without deleting it — the full working implementation
+  // (queries, ledger rendering, capping/sorting) is preserved in full in
+  // octopoints-archive.js, a new file alongside this release, kept
+  // separate from the pre-existing ev-legacy-archive.js since it's an
+  // unrelated feature. Reinstate by moving this block back in and
+  // un-hiding #octo-block once permissions are confirmed.
+  $('octo-block').classList.add('hidden');
 
   return anyLive;
 }
@@ -3653,6 +3668,7 @@ function init() {
     const btn = e.target.closest('.unit-toggle-btn');
     if (!btn) return;
     const view = btn.dataset.view;
+    evViewMode = view; // v2.150: persisted so re-renders (auto-refresh) reapply the chosen tab instead of resetting to Dispatch
     $('ev-view-dispatch-btn').classList.toggle('active', view === 'dispatch');
     $('ev-view-session-btn').classList.toggle('active', view === 'session');
     $('ev-slots-dispatch').classList.toggle('hidden', view !== 'dispatch');
