@@ -86,9 +86,20 @@ button{font-family:inherit;cursor:pointer;}
    from the title text itself once the caption line was present. */
 #ev-header .card-head{margin-bottom:4px;}
 .head-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
-#ev-card.ev-collapsed #ev-battery-row{margin-bottom:0;}
-#ev-card.ev-collapsed #ev-schedule-preview{margin-bottom:0;}
-#ev-card.ev-collapsed #ev-warnings{margin-bottom:0;}
+/* v2.156: replaced the v2.155 transition-on-margin patch with a structural
+   fix. #ev-stack wraps battery-row/schedule-preview/ev-warnings/ev-body in
+   a flex column with `gap` for spacing between them, instead of each
+   carrying its own margin-bottom. CSS gap only inserts space between
+   children that are actually rendered — a `.hidden` (display:none) child
+   contributes zero gap automatically — so there's no stray trailing margin
+   to zero out when collapsed in the first place, and nothing needs to
+   animate on expand/collapse at all. The three `.ev-collapsed` margin
+   overrides this replaces are gone; .battery-row/.schedule-preview/
+   .ev-warnings no longer carry their own margin-top/margin-bottom (gap
+   handles it), and #ev-stack's own margin-top preserves the original
+   14px gap from the header.
+*/
+#ev-stack{display:flex;flex-direction:column;gap:16px;margin-top:14px;}
 .card-title{font-size:16px;font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;gap:8px;}
 /* EV title wraps icon+text in their own inner span (to sit alongside the
    separate #ev-name span for the vehicle name) — that inner span isn't a
@@ -593,11 +604,10 @@ button{font-family:inherit;cursor:pointer;}
 /* v2.150: restructured to a two-row layout — meter goes full width on its
    own row, target/countdown moved to a line below rather than squeezing
    the gauge from the right. */
-/* v2.155: transition on margin-bottom so collapsing/expanding (which zeroes
-   these margins via the .ev-collapsed rules below) animates smoothly
-   instead of snapping instantly — that instant snap was the "jumps down a
-   few pixels" reported on expand. */
-.battery-row{display:flex;flex-direction:column;gap:8px;margin-top:14px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;transition:margin-bottom 0.2s ease;}
+/* v2.156: margin-top/margin-bottom removed — spacing now comes from
+   #ev-stack's flex `gap` (see above), which handles the collapsed/expanded
+   states correctly without any transition needed. */
+.battery-row{display:flex;flex-direction:column;gap:8px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
 .battery-row-top{display:flex;align-items:center;gap:12px;}
 .battery-row-meta{display:flex;justify-content:space-between;align-items:baseline;}
 .battery-pct{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;flex-shrink:0;}
@@ -608,7 +618,8 @@ button{font-family:inherit;cursor:pointer;}
   background:repeating-linear-gradient(135deg,rgba(255,184,77,0.35) 0 2px,rgba(255,184,77,0.12) 2px 4px);
 }
 
-.ev-warnings{margin-top:10px;margin-bottom:16px;transition:margin-bottom 0.2s ease;}
+/* v2.156: margin-top/margin-bottom removed — spacing now comes from
+   #ev-stack's flex gap. */
 .warning-line{
   display:flex;align-items:flex-start;gap:6px;font-family:'Inter', sans-serif;font-size:11px;
   padding:8px 12px;border-radius:10px;margin-bottom:6px;
@@ -633,7 +644,9 @@ button{font-family:inherit;cursor:pointer;}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
 .battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;}
 
-.schedule-preview{display:flex;gap:4px;margin-top:10px;margin-bottom:16px;padding:0 2px;transition:margin-bottom 0.2s ease;}
+/* v2.156: margin-top/margin-bottom removed — spacing now comes from
+   #ev-stack's flex gap. */
+.schedule-preview{display:flex;gap:4px;padding:0 2px;}
 .schedule-day{flex:1;text-align:center;}
 .schedule-day-label{font-family:'Inter', sans-serif;font-size:8.5px;color:var(--text-dim);margin-bottom:4px;}
 .schedule-day-time{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text);}
