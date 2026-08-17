@@ -60,10 +60,8 @@ off again — it's a pattern that's bitten this codebase three times.
 
 **Electricity history floor**: going back further than roughly 2 months
 returns genuinely empty data for electricity specifically — see
-Approximations below for the full detail. The in-app warning that section
-used to describe never actually worked (removed in the v2.157 cleanup
-pass, see there) — if this ever needs surfacing to the user directly
-rather than just showing an empty chart, that's the gap to fill.
+Approximations below for the full detail, including the honest in-app
+warning that surfaces this case.
 
 ## Color language
 
@@ -373,24 +371,29 @@ a safe position before every risky reassignment, not just once.
   differs by more than a few pence/day even when it does.
 - **Date-picker's electricity history has a real, observed floor —
   roughly two months back — that gas doesn't share.** Confirmed via
-  testing: picking a week further back than that shows an empty chart with
-  no error logged anywhere (checked diagnostics specifically) — meaning
-  the REST call itself succeeds normally, it just comes back with zero
-  consumption readings for that range. So this isn't a rates problem and
-  isn't a bug in how the request is built — the electricity meter's own
-  consumption history via the public REST API genuinely doesn't reach back
-  that far on this account, while the gas meter's does. Octopus's own app
-  can still show older electricity data in some cases, likely because it
-  can draw on internal read history the public consumption endpoint
-  doesn't expose the same way. Nothing to fix in the data itself — just a
-  real limit of what this app's data source can offer. A dedicated "No
-  data available for this period" warning was built early on for exactly
-  this case, but was never actually wired up to any condition and so never
-  fired even once, live or in testing — caught and removed as genuinely
-  dead markup during the v2.157 code review, rather than left in place
-  looking functional. Worth building properly (an empty-response check
-  after the fetch) if this gap ever actually needs surfacing to the user,
-  rather than the current silent empty chart.
+  testing: picking a week further back than that shows the app's own
+  honest "No data available for this period" warning, with no error
+  logged anywhere (checked diagnostics specifically) — meaning the REST
+  call itself succeeds normally, it just comes back with zero consumption
+  readings for that range. So this isn't a rates problem and isn't a bug
+  in how the request is built — the electricity meter's own consumption
+  history via the public REST API genuinely doesn't reach back that far
+  on this account, while the gas meter's does. Octopus's own app can
+  still show older electricity data in some cases, likely because it can
+  draw on internal read history the public consumption endpoint doesn't
+  expose the same way. Nothing to fix here — just a real limit of what
+  this app's data source can offer. **v2.157 near-miss**: this warning
+  element (`${fuel}-period-nodata`, referenced via a template-literal
+  `$()` call) was briefly misdiagnosed as dead markup during a code
+  review — a literal-string-only search for `$('...')`/
+  `getElementById('...')` doesn't catch a fuel-templated reference like
+  this one, the exact same blind spot already known from `${fuel}-week`
+  and others. Removed, then immediately caught live (a real error plus
+  gas silently failing to render at all, since the thrown exception
+  halted the rest of that render pass) and restored in v2.158. Lesson for
+  any future dead-code sweep in this file: always grep for
+  `` `${fuel}- `` (and any other template-literal prefix) specifically,
+  not just literal-string calls, before concluding an id is unused.
 - **Gas m³→kWh conversion** uses the standard industry approximation
   (×1.02264 correction factor). **Calorific value is configurable** in
   Settings → Advanced (defaults to 40.0) — Octopus's own calorific value

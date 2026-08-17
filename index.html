@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.157">
+<link rel="stylesheet" href="styles.css?v=2.158">
 </head>
 <body>
 <div class="wrap">
@@ -273,6 +273,10 @@
               <span><i style="background:var(--mint)"></i>Off-peak</span>
               <span><i style="background:var(--pink)"></i>Peak</span>
             </div>
+            <div class="warning-line amber hidden" id="elec-period-nodata" style="margin-top:10px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              No data available for this period
+            </div>
             <div class="breakdown-box hidden" id="elec-breakdown"></div>
           </div>
           <div class="day-chart-wrap hidden" id="elec-day-chart">
@@ -321,6 +325,10 @@
             <div class="chart-legend" id="gas-wmy-legend">
               <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
               <span><i style="background:var(--gas-blue)"></i>Usage</span>
+            </div>
+            <div class="warning-line amber hidden" id="gas-period-nodata" style="margin-top:10px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              No data available for this period
             </div>
             <div class="breakdown-box hidden" id="gas-breakdown"></div>
           </div>
@@ -672,6 +680,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.157"></script>
+<script src="app.js?v=2.158"></script>
 </body>
 </html>

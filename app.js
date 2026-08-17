@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.157';
+const APP_VERSION = 'v2.158';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
