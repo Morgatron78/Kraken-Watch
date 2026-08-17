@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.158';
+const APP_VERSION = 'v2.160';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2423,6 +2423,18 @@ async function loadEVSmartFlex() {
   const allDispatches = [];
   sessions.forEach(s => (s.dispatches || []).forEach(d => allDispatches.push(d)));
   allDispatches.sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  // TEMPORARY v2.159 diagnostic for the "completed windows missing" bug
+  // report — Sessions tab shows recent Smart sessions fine, but Windows
+  // shows nothing for them, meaning `dispatches` is coming back empty for
+  // sessions where it shouldn't (Smart, not Boost). Dumps each of the last
+  // 3 sessions' own type/start plus how many nested dispatches came back,
+  // so we can see directly whether Octopus itself is returning an empty
+  // array (a settlement-lag theory) rather than guessing blind. Remove
+  // once the real cause is confirmed.
+  logDebug('EV recent sessions dispatch counts', JSON.stringify(
+    [...sessions].slice(-3).map(s => ({ type: s.type, start: s.start, dispatchCount: (s.dispatches || []).length }))
+  ));
 
   const dispatchSlots = $('ev-slots-dispatch');
   dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
