@@ -593,7 +593,11 @@ button{font-family:inherit;cursor:pointer;}
 /* v2.150: restructured to a two-row layout — meter goes full width on its
    own row, target/countdown moved to a line below rather than squeezing
    the gauge from the right. */
-.battery-row{display:flex;flex-direction:column;gap:8px;margin-top:14px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
+/* v2.155: transition on margin-bottom so collapsing/expanding (which zeroes
+   these margins via the .ev-collapsed rules below) animates smoothly
+   instead of snapping instantly — that instant snap was the "jumps down a
+   few pixels" reported on expand. */
+.battery-row{display:flex;flex-direction:column;gap:8px;margin-top:14px;margin-bottom:16px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;transition:margin-bottom 0.2s ease;}
 .battery-row-top{display:flex;align-items:center;gap:12px;}
 .battery-row-meta{display:flex;justify-content:space-between;align-items:baseline;}
 .battery-pct{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;flex-shrink:0;}
@@ -604,7 +608,7 @@ button{font-family:inherit;cursor:pointer;}
   background:repeating-linear-gradient(135deg,rgba(255,184,77,0.35) 0 2px,rgba(255,184,77,0.12) 2px 4px);
 }
 
-.ev-warnings{margin-top:10px;margin-bottom:16px;}
+.ev-warnings{margin-top:10px;margin-bottom:16px;transition:margin-bottom 0.2s ease;}
 .warning-line{
   display:flex;align-items:flex-start;gap:6px;font-family:'Inter', sans-serif;font-size:11px;
   padding:8px 12px;border-radius:10px;margin-bottom:6px;
@@ -629,7 +633,7 @@ button{font-family:inherit;cursor:pointer;}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
 .battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;}
 
-.schedule-preview{display:flex;gap:4px;margin-top:10px;margin-bottom:16px;padding:0 2px;}
+.schedule-preview{display:flex;gap:4px;margin-top:10px;margin-bottom:16px;padding:0 2px;transition:margin-bottom 0.2s ease;}
 .schedule-day{flex:1;text-align:center;}
 .schedule-day-label{font-family:'Inter', sans-serif;font-size:8.5px;color:var(--text-dim);margin-bottom:4px;}
 .schedule-day-time{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text);}
