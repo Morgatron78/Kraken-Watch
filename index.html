@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.160">
+<link rel="stylesheet" href="styles.css?v=2.161">
 </head>
 <body>
 <div class="wrap">
@@ -180,14 +180,13 @@
             <div class="stat"><div class="stat-label" id="ev-history-period-label">This week</div><div class="stat-value-sm" id="ev-week-kwh-total">—</div></div>
             <div class="stat"><div class="stat-label">Sessions</div><div class="stat-value-sm" id="ev-week-session-count">—</div></div>
           </div>
-          <div class="split-line hidden" id="ev-split-line"></div>
           <div class="chart-row">
             <div class="chart-scale" id="ev-week-scale"></div>
             <div class="week-bars" id="ev-week"></div>
           </div>
           <div class="week-legend hidden" id="ev-week-legend">
-            <span><i style="background:var(--mint)"></i>Smart</span>
-            <span><i style="background:var(--pink)"></i>Boost</span>
+            <span><i style="background:var(--mint)"></i>Smart · <b id="ev-week-legend-smart-pct"></b></span>
+            <span><i style="background:var(--pink)"></i>Boost · <b id="ev-week-legend-boost-pct"></b></span>
           </div>
           <div class="breakdown-box hidden" id="ev-week-breakdown"></div>
         </div>
@@ -680,6 +679,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.160"></script>
+<script src="app.js?v=2.161"></script>
 </body>
 </html>

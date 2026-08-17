@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.160';
+const APP_VERSION = 'v2.161';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2608,17 +2608,25 @@ function renderEVHistoryBars(buckets, labels) {
   // visible in the stacked bar colors — makes the cost-efficiency story
   // legible at a glance instead of requiring a visual read of bar segments.
   // Period-agnostic wording (no "this week"/"today" baked in) so it reads
-  // correctly under Day/Week/Month alike without extra plumbing. Hidden
-  // for a genuinely empty period rather than showing "0% Smart · 0% Boost".
-  const splitEl = $('ev-split-line');
-  if (splitEl) {
+  // correctly under Day/Week/Month alike without extra plumbing.
+  // v2.161: merged directly into the legend labels (was a separate
+  // `.split-line` element above the chart) — one fewer line on screen,
+  // and the percentage now sits right next to the swatch it describes
+  // instead of being stated twice in two different places. Left blank
+  // (not hidden) for a genuinely empty period, since the legend itself
+  // still needs to show — "Smart"/"Boost" with no trailing number reads
+  // fine on its own.
+  const smartPctEl = $('ev-week-legend-smart-pct');
+  const boostPctEl = $('ev-week-legend-boost-pct');
+  if (smartPctEl && boostPctEl) {
     if (kwhTotal > 0) {
       const smartTotal = buckets.reduce((s, b) => s + b.smart, 0);
       const smartPct = Math.round((smartTotal / kwhTotal) * 100);
-      splitEl.innerHTML = `<b>${smartPct}%</b> Smart · ${100 - smartPct}% Boost`;
-      splitEl.classList.remove('hidden');
+      smartPctEl.textContent = `${smartPct}%`;
+      boostPctEl.textContent = `${100 - smartPct}%`;
     } else {
-      splitEl.classList.add('hidden');
+      smartPctEl.textContent = '';
+      boostPctEl.textContent = '';
     }
   }
 }

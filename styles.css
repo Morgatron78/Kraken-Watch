@@ -665,5 +665,13 @@ button{font-family:inherit;cursor:pointer;}
 .ev-week-seg.boost{background:var(--pink);opacity:0.85;}
 .ev-week-seg.neutral{background:var(--line);opacity:0.6;}
 .week-legend{display:flex;justify-content:center;gap:14px;margin-top:8px;font-family:'Inter', sans-serif;font-size:10px;color:var(--text-dim);}
+/* v2.161: bold percentage merged into each legend label (used by the EV
+   Charge History legend specifically — the plain elec/gas week-legend
+   elsewhere never sets these <b> tags, so they're simply absent there and
+   this rule has no effect). Deliberately not tinted per-swatch-color
+   (mint/pink) to avoid competing with the swatch itself for attention —
+   plain bright text reads as "the number that matters" regardless of
+   which row it's in. */
+.week-legend b{color:var(--text);font-weight:600;}
 .week-legend span{display:inline-flex;align-items:center;gap:5px;}
 .week-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;}
