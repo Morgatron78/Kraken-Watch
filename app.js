@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.165';
+const APP_VERSION = 'v2.166';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -1484,11 +1484,13 @@ function computeBalanceForecast() {
     }
 
     const payment = billingState.nextPaymentAmount;
+    const carriedForward = running;
     running += payment - elecCost - gasCost;
     cycles.push({
       label: d.toLocaleDateString('en-GB', { month: 'short' }),
       full: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
       fallback,
+      carriedForward,
       elec: -elecCost,
       gas: -gasCost,
       payment,
@@ -1514,9 +1516,11 @@ function renderBalanceForecastBreakdown(index) {
     : `Based on ${d.sourceMonthLabel} ${d.sourceYear} usage, priced at today's rates`;
   box.innerHTML = `<div class="breakdown-date">${d.full}</div>`
     + `<div class="breakdown-source">${source}</div>`
-    + breakdownRow('Payment', 'seg-payment', fmtGBP(d.payment), null)
-    + breakdownRow('Electricity', 'seg-peak', fmtGBP(d.elec), null)
-    + breakdownRow('Gas', 'seg-gas-usage', fmtGBP(d.gas), null)
+    + `<div class="carried-row"><span class="l">Balance carried forward</span><span class="v">${fmtGBP(d.carriedForward)}</span></div>`
+    + `<div class="bh-item"><span class="l">Electricity</span><span class="v">${d.elec < 0 ? '−' : '+'}${fmtGBP(d.elec)}</span></div>`
+    + `<div class="bh-item"><span class="l">Gas</span><span class="v">${d.gas < 0 ? '−' : '+'}${fmtGBP(d.gas)}</span></div>`
+    + `<div class="energy-subtotal"><span class="l">Total energy costs</span><span class="v">−${fmtGBP(Math.abs(d.elec) + Math.abs(d.gas))}</span></div>`
+    + `<div class="bh-item" style="margin-top:10px;"><span class="l">Payment</span><span class="v credit">+${fmtGBP(d.payment)}</span></div>`
     + `<div class="breakdown-total"><span>Projected balance</span><span style="color:${d.cumulative < 0 ? 'var(--coral)' : 'var(--mint)'}">${fmtGBP(d.cumulative)}</span></div>`;
 }
 
@@ -1575,13 +1579,14 @@ function renderInsightsBilling() {
     return;
   }
 
-  if (selectedForecastCycle === null) {
-    // Default to the lowest point — the number the headline itself refers
-    // to, so tapping isn't required to see what "lowest point" means.
-    let lowIdx = 0;
-    balanceForecastData.forEach((c, i) => { if (c.cumulative < balanceForecastData[lowIdx].cumulative) lowIdx = i; });
-    selectedForecastCycle = lowIdx;
-  }
+  // v2.166: no longer auto-selects the lowest-balance month on load. Was
+  // previously deliberate ("so tapping isn't required to see what 'lowest
+  // point' means"), but the user found it more useful for the breakdown to
+  // only ever open on an actual tap — especially now that it's a richer
+  // ledger (ledger structure below) rather than a 3-line summary, auto-
+  // opening one felt like more content appearing than was asked for.
+  // selectedForecastCycle now stays null until a bar is tapped, so
+  // renderBalanceForecastBreakdown(null) just keeps the box hidden.
 
   const allPositive = balanceForecastData.every(c => c.cumulative >= 0);
   if (allPositive) {

@@ -433,6 +433,22 @@ button{font-family:inherit;cursor:pointer;}
 .bh-item .v.credit{color:var(--mint);}
 .bh-item-sub{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;display:block;font-size:10.5px;opacity:0.7;margin-top:1px;}
 
+/* v2.166: Balance runway breakdown, restructured as a ledger — reuses
+   .bh-item directly for Electricity/Gas/Payment (same coral-charge/
+   mint-credit convention as Billing's bill breakdown, per the user's own
+   request to reuse that structure). These two are new: .carried-row is
+   the opening balance — deliberately neutral (var(--text), not coral or
+   mint), since it's a starting fact rather than a charge or credit.
+   .energy-subtotal totals the two .bh-item costs above it, set off with a
+   dashed top border so it reads as "sum of the above" rather than another
+   line item at the same level. */
+.carried-row{display:flex;justify-content:space-between;font-size:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line);}
+.carried-row .l{color:var(--text-dim);}
+.carried-row .v{color:var(--text);font-weight:600;}
+.energy-subtotal{display:flex;justify-content:space-between;font-size:11.5px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;margin-top:4px;padding-top:6px;border-top:1px dashed var(--line);}
+.energy-subtotal .l{color:var(--text-dim);}
+.energy-subtotal .v{color:var(--coral);font-weight:600;}
+
 .bt-label{margin-bottom:18px;}
 .bt-bars{display:flex;align-items:flex-end;gap:6px;height:100px;padding-top:10px;}
 .bt-bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0;}
