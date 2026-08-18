@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.163">
+<link rel="stylesheet" href="styles.css?v=2.164">
 </head>
 <body>
 <div class="wrap">
@@ -536,12 +536,36 @@
             <div class="seasonal-note hidden" id="insights-gas-seasonal-note"><span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></span><span id="insights-gas-seasonal-text"></span></div>
           </div>
 
+          <div class="insight-block" id="insights-gas-weekday-block">
+            <div class="insight-label">Weekday vs weekend, this month</div>
+            <div class="split2-legend">
+              <div class="split2-side weekday">
+                <div class="split2-label weekday"><span class="dot"></span>Weekday</div>
+                <div class="split2-value" id="insights-gas-weekday-value">—</div>
+              </div>
+              <div class="split2-side weekend">
+                <div class="split2-label weekend">Weekend<span class="dot"></span></div>
+                <div class="split2-value" id="insights-gas-weekend-value">—</div>
+              </div>
+            </div>
+            <div class="split2-bar">
+              <div class="split2-seg weekday" id="insights-gas-weekday-bar"></div>
+              <div class="split2-seg weekend" id="insights-gas-weekend-bar"></div>
+            </div>
+            <div class="trend-pill" id="insights-gas-pattern-headline"></div>
+          </div>
+
           <div class="insight-block" id="insights-gas-extremes-block">
             <div class="insight-label">This month's extremes</div>
             <div class="minmax-row">
               <div class="minmax-col"><div class="minmax-tag high">Priciest</div><div class="minmax-value" id="insights-gas-high-value">—</div><div class="minmax-date" id="insights-gas-high-date">—</div></div>
               <div class="minmax-col"><div class="minmax-tag low">Cheapest</div><div class="minmax-value" id="insights-gas-low-value">—</div><div class="minmax-date" id="insights-gas-low-date">—</div></div>
             </div>
+          </div>
+
+          <div class="insight-block" id="insights-gas-trajectory-block">
+            <div class="insight-label">This month's trajectory</div>
+            <div class="trajectory-row"><span class="trajectory-icon" id="insights-gas-trajectory-icon">—</span><span class="trajectory-text" id="insights-gas-trajectory-text">—</span></div>
           </div>
         </div>
 
@@ -679,6 +703,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.163"></script>
+<script src="app.js?v=2.164"></script>
 </body>
 </html>

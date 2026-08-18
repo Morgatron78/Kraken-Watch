@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.163';
+const APP_VERSION = 'v2.164';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -1334,6 +1334,7 @@ function renderInsightsGas() {
     const now1 = new Date();
     const todayMidnight1 = new Date(now1.getFullYear(), now1.getMonth(), now1.getDate());
     let standing = 0, usage = 0, high = null, low = null;
+    let weekdayTotal = 0, weekdayCount = 0, weekendTotal = 0, weekendCount = 0;
     month.forEach((d, i) => {
       const date = insightsMonthDate(i);
       if (date >= todayMidnight1 || d.hasData === false) return;
@@ -1341,6 +1342,9 @@ function renderInsightsGas() {
       const total = dayTotal('gas', d, 'cost');
       if (!high || total > high.total) high = { total, date };
       if (!low || total < low.total) low = { total, date };
+      const dow = date.getDay();
+      if (dow === 0 || dow === 6) { weekendTotal += total; weekendCount++; }
+      else { weekdayTotal += total; weekdayCount++; }
     });
     const total = standing + usage;
     if (total > 0) {
@@ -1358,6 +1362,53 @@ function renderInsightsGas() {
       $('insights-gas-extremes-block').classList.remove('hidden');
     } else {
       $('insights-gas-extremes-block').classList.add('hidden');
+    }
+
+    // v2.164: weekday/weekend and trajectory — gas equivalents of the two
+    // elec-only Insights features, mirrored exactly (same thresholds, same
+    // wording, same fmtGBP/trend-pill conventions) so the two fuels read
+    // consistently. These were never carried over when gas's Insights
+    // panel was originally built; no reason found for the gap on review.
+    if (weekdayCount > 0 && weekendCount > 0) {
+      const weekdayAvg = weekdayTotal / weekdayCount, weekendAvg = weekendTotal / weekendCount;
+      const totalAvg = weekdayAvg + weekendAvg || 1;
+      const weekdayPct = Math.min(88, Math.max(12, Math.round((weekdayAvg / totalAvg) * 100)));
+      $('insights-gas-weekday-value').textContent = fmtGBP(weekdayAvg);
+      $('insights-gas-weekend-value').textContent = fmtGBP(weekendAvg);
+      $('insights-gas-weekday-bar').style.width = weekdayPct + '%';
+      $('insights-gas-weekend-bar').style.width = (100 - weekdayPct) + '%';
+      const diffPct = weekdayAvg > 0 ? ((weekendAvg - weekdayAvg) / weekdayAvg) * 100 : 0;
+      const pill = $('insights-gas-pattern-headline');
+      if (Math.abs(diffPct) < 5) {
+        pill.className = 'trend-pill up';
+        pill.textContent = '≈ No significant weekday/weekend difference';
+      } else {
+        const pricier = diffPct > 0 ? 'Weekends' : 'Weekdays';
+        pill.className = 'trend-pill down';
+        pill.textContent = `↑ ${pricier} cost ${Math.abs(diffPct).toFixed(0)}% more on average`;
+      }
+      $('insights-gas-weekday-block').classList.remove('hidden');
+    } else {
+      $('insights-gas-weekday-block').classList.add('hidden'); // not enough of both kinds yet this month
+    }
+
+    const validDays = month.filter((d, i) => d.hasData !== false && insightsMonthDate(i) < todayMidnight1);
+    if (validDays.length >= 6) {
+      const mid = Math.floor(validDays.length / 2);
+      const firstHalf = validDays.slice(0, mid), secondHalf = validDays.slice(mid);
+      const firstAvg = firstHalf.reduce((s, d) => s + dayTotal('gas', d, 'cost'), 0) / firstHalf.length;
+      const secondAvg = secondHalf.reduce((s, d) => s + dayTotal('gas', d, 'cost'), 0) / secondHalf.length;
+      const diffPct = firstAvg > 0 ? ((secondAvg - firstAvg) / firstAvg) * 100 : 0;
+      const trendUpSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>';
+      const trendDownSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>';
+      $('insights-gas-trajectory-icon').innerHTML = diffPct >= 0 ? trendUpSvg : trendDownSvg;
+      $('insights-gas-trajectory-icon').style.color = diffPct >= 0 ? 'var(--coral)' : 'var(--mint)';
+      $('insights-gas-trajectory-text').innerHTML = Math.abs(diffPct) < 5
+        ? 'Fairly steady so far this month — no clear upward or downward trend'
+        : `More recent days running <b>${Math.abs(diffPct).toFixed(0)}% ${diffPct >= 0 ? 'higher' : 'lower'}</b> than earlier this month`;
+      $('insights-gas-trajectory-block').classList.remove('hidden');
+    } else {
+      $('insights-gas-trajectory-block').classList.add('hidden'); // too early in the month for this to mean much
     }
   }
 

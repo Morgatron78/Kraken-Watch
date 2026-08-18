@@ -133,7 +133,27 @@ button{font-family:inherit;cursor:pointer;}
 .big-value.mint{color:var(--mint);}
 .meta{margin-top:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);line-height:1.7;}
 .meta b{color:var(--text);font-weight:600;}
-.sub{margin-top:4px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;line-height:1.3;color:var(--text-dim);}
+/* v2.164: reverted two blind margin/line-height guesses (v2.162, v2.163)
+   that didn't fix the mismatch against .meta and made it look worse. This
+   version matches .meta's actual mechanism instead of approximating it:
+   .meta gets ALL of its line-to-line spacing from line-height alone (no
+   margin between its <br>-separated lines) — the leading above and below
+   each line is what creates the gap. .sub is two separate block elements
+   rather than one text block, so it can't just copy line-height:1.7 and
+   call it done: with margin-top also set, the two effects compound. The
+   fix here removes margin between lines entirely (margin-top:0) and uses
+   the identical line-height:1.7, so the gap comes from the exact same
+   half-leading-above + half-leading-below mechanism .meta relies on — the
+   adjacent-sibling rule below (.sub + .sub) removes that top offset only
+   when a .sub immediately follows another .sub, so the first one keeps a
+   12px gap from the value above (matching .meta's own block offset) while
+   consecutive .sub lines rely purely on line-height. (Note: originally
+   tried `.sub:first-of-type`, but that pseudo-class counts by element tag
+   across ALL sibling <div>s, not by class — it would have matched
+   big-label, the actual first div child, not either .sub. The adjacent-
+   sibling combinator sidesteps that entirely.) */
+.sub{margin-top:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;line-height:1.7;color:var(--text-dim);}
+.sub + .sub{margin-top:0;}
 .sub b{font-weight:600;}
 
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--mint);display:inline-block;margin-right:4px;animation:live-pulse 1.6s ease-in-out infinite;}
