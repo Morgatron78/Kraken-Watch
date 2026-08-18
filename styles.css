@@ -133,7 +133,7 @@ button{font-family:inherit;cursor:pointer;}
 .big-value.mint{color:var(--mint);}
 .meta{margin-top:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);line-height:1.7;}
 .meta b{color:var(--text);font-weight:600;}
-.sub{margin-top:8px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);}
+.sub{margin-top:6px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);}
 .sub b{font-weight:600;}
 
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--mint);display:inline-block;margin-right:4px;animation:live-pulse 1.6s ease-in-out infinite;}
