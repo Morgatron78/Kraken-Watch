@@ -10,7 +10,7 @@ one screen, with your own API credentials stored only on your device.
 |---|---|---|
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
 | Live usage | Current draw (W), £/hr estimate, color-coded by level. A "Last 30 min" toggle expands a pink Wh bar chart below the half-row — lazy-loaded only on expand, refreshes every 30s while open, stops the moment it's closed. Uses `smartMeterTelemetry` at `TEN_SECONDS` grouping, bucketed into 1-minute bars client-side (goes through Kraken GraphQL, so it never counts against the REST-call diagnostic) | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
-| EV charging | Built on Octopus's SmartFlex API (`devices` → `SmartFlexVehicle` → `chargingSessions`). Live battery gauge with target-SoC/countdown below it, a striped "restricted zone" marker beyond `stateOfChargeLimit.upperSocLimit`, and estimated range added (`EV_RANGE_MI_PER_KWH`, a single named constant — currently set for a Polestar 2 Standard Range Single Motor's 2024+ spec; update if the vehicle on the account ever changes). A weekly schedule strip highlights whichever target is still upcoming (today's if not yet passed, otherwise tomorrow's) rather than blindly "today". A single consolidated warnings area covers `isSuspended`, `testDispatchFailureReason` (excluding its `NONE` sentinel), `currentState` (LOST_CONNECTION/SMART_CONTROL_OFF/SMART_CONTROL_NOT_AVAILABLE — the last one suppressed while genuinely Idle, since it fires on simple disconnection and isn't a fault — other `currentState` values are one-time onboarding milestones, not shown), `stateOfChargeLimit.isLimitViolated`, device `alerts`, and a lightweight "Boost session this week" flag (type-based, not time-window-based — Boost is a manual charge outside the smart dispatch schedule, a reliable signal without needing rate-matching). Battery meter/schedule/warnings sit in a shared `#ev-stack` flex container using `gap` for spacing between them rather than individual margins — a hidden child contributes zero gap automatically, so collapsing/expanding the card never needs a margin override or transition to look clean. Two subpanels: **Charging Activity** (Windows/Sessions toggle — 30-min dispatch windows or whole-session view, both derived from one query, SMART=mint/BOOST=pink badges, active dispatch shown with a pulsating dot matching Live Usage's; the selected tab is tracked in a variable and reapplied after every render, since the render function itself needs to temporarily un-hide the Dispatch panel to rebuild it) and **Charge History**, a genuine consumption-style chart matching the exact pattern elec/gas Usage already uses — Day/Week/Month toggle (Year deliberately not built: EV charging doesn't have a real seasonal story the way heating does), real kWh scale, tap-to-breakdown, a Smart/Boost split caption under the period stats. Day falls back to bucketing a session at its own start hour when it has no nested dispatch records (Boost-type charges don't generate them the way Smart/scheduled ones do — the earlier version relied on dispatches alone and silently showed nothing for a Boost-only day). Month uses its own wider-range query, deliberately dropping the `dispatches` sub-field for a lighter payload, with a real `pageInfo.hasNextPage` check that surfaces an honest "partial data" note. Estimated cost (third mini box, hidden until today's rates have loaded) prices Smart sessions at today's known off-peak rate and Boost at today's standard rate — a type-based assumption, not real rate-matching, which was investigated separately and confirmed a dead end (see Approximations below); a shown £0.00 or omitted figure would misleadingly read as free rather than an estimate. No fallback to the old dispatch-only path on failure — shows a genuine Unavailable state instead, recovering on the next auto-sync | **Live**, via Kraken GraphQL |
+| EV charging | Built on Octopus's SmartFlex API (`devices` → `SmartFlexVehicle` → `chargingSessions`). Live battery gauge with target-SoC/countdown below it, a striped "restricted zone" marker beyond `stateOfChargeLimit.upperSocLimit`, and estimated range added (`EV_RANGE_MI_PER_KWH`, a single named constant — currently set for a Polestar 2 Standard Range Single Motor's 2024+ spec; update if the vehicle on the account ever changes). A weekly schedule strip highlights whichever target is still upcoming (today's if not yet passed, otherwise tomorrow's) rather than blindly "today". A single consolidated warnings area covers `isSuspended`, `testDispatchFailureReason` (excluding its `NONE` sentinel), `currentState` (LOST_CONNECTION/SMART_CONTROL_OFF/SMART_CONTROL_NOT_AVAILABLE — the last one suppressed while genuinely Idle, since it fires on simple disconnection and isn't a fault — other `currentState` values are one-time onboarding milestones, not shown), `stateOfChargeLimit.isLimitViolated`, device `alerts`, and a lightweight "Boost session this week" flag (type-based, not time-window-based — Boost is a manual charge outside the smart dispatch schedule, a reliable signal without needing rate-matching). Battery meter/schedule/warnings sit in a shared `#ev-stack` flex container using `gap` for spacing between them rather than individual margins — a hidden child contributes zero gap automatically, so collapsing/expanding the card never needs a margin override or transition to look clean. Two subpanels: **Charging Activity** (Windows/Sessions toggle — 30-min dispatch windows or whole-session view, both derived from one query, SMART=mint/BOOST=pink badges, active dispatch shown with a pulsating dot matching Live Usage's; the selected tab is tracked in a variable and reapplied after every render, since the render function itself needs to temporarily un-hide the Dispatch panel to rebuild it) and **Charge History**, a genuine consumption-style chart matching the exact pattern elec/gas Usage already uses — Day/Week/Month toggle (Year deliberately not built: EV charging doesn't have a real seasonal story the way heating does), real kWh scale, tap-to-breakdown, the Smart/Boost split merged directly into the chart legend labels ("Smart · 92%" / "Boost · 8%", v2.161 — previously a separate caption line above the chart, removed once the legend could show the same information without a second element). Day falls back to bucketing a session at its own start hour when it has no nested dispatch records (Boost-type charges don't generate them the way Smart/scheduled ones do — the earlier version relied on dispatches alone and silently showed nothing for a Boost-only day). Month uses its own wider-range query, deliberately dropping the `dispatches` sub-field for a lighter payload, with a real `pageInfo.hasNextPage` check that surfaces an honest "partial data" note. Estimated cost (third mini box, hidden until today's rates have loaded) prices Smart sessions at today's known off-peak rate and Boost at today's standard rate — a type-based assumption, not real rate-matching, which was investigated separately and confirmed a dead end (see Approximations below); a shown £0.00 or omitted figure would misleadingly read as free rather than an estimate. No fallback to the old dispatch-only path on failure — shows a genuine Unavailable state instead, recovering on the next auto-sync. **Open risk if the account ever switches to charger-based smart charging** (e.g. an Ohme charger integrated with Octopus instead of the car): this whole panel is built against Octopus's `SmartFlexVehicle` device type via an inline GraphQL fragment — if charger-integrated charging shows up as a different device type, that fragment won't match and the panel will likely fall into Unavailable until the queries are rebuilt against whatever the real device shape turns out to be, discovered via live introspection the same way everything else in this schema was | **Live**, via Kraken GraphQL |
 | Usage (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown — for electricity, the Week/Month breakdown box also shows that day's own half-hourly bar chart (mint/pink, matching the Day view's own colors, no legend needed since the card already has one), with a y-axis scale that switches between £ and kWh together with the rest of the box. Zero extra fetch — the same wide-range call that builds the Week/Month totals already pulls every half-hourly reading, this just keeps them instead of discarding them after summing. Gas doesn't get this, since gas readings settle once per day with no intra-day shape to show. **Date picker** (v2.139–v2.152): a calendar icon next to the Day/Week/Month/Year toggle (hidden in Year, which has no single date to anchor to) opens a compact month grid — picking a day snaps Week to the Sun–Sat week around it, Month to that day's whole month, or Day to that exact date, with a small pill showing the current pick and a one-tap way back to today. Both fuels move together, since it's one shared toggle above both panels. Three separate bugs shipped and were fixed across v2.143/v2.144/v2.152, all the same root cause in different code paths — see the date-picker section below for the full story | **Live** |
 | Billing | Account balance and projected balance as two neutral side-by-side boxes with a CREDIT/DEBIT pill; account number shown as a header pill. Direct Debit (estimated) and Spend this month/Predicted as two side-by-side columns. Bill history: fetches the last 15 bills (see below for why), most recent always expanded with its breakdown collapsible, the rest behind a toggle and always shown expanded — each row shows billing period, real total (matching the bill's own "Total charges for bill"), itemized per-fuel charges with kWh and that fuel's own sub-period, and a link to the actual bill. Below that, a bill-total-over-time chart grouped by calendar month (not one bar per bill — see below), stacked gas (blue)/electricity (pink), capped to the most recent 12 distinct months. **Octopoints — archived, deactivated as of v2.150** (built v2.147, redesigned v2.148): live device testing returned an Unauthorized error, most likely an account permissions gap rather than a code bug. Deactivated to stop spending API calls on it; the full implementation is preserved in `octopoints-archive.js` and can be reinstated if the permissions question gets resolved | **Live** |
 | Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, annual standing charge total, a standalone **EV Charging** panel (charging streak dots, busiest day highlight — placed right after Gas, ahead of Balance runway/Standing charges, since EV data is more dynamic week-to-week), and a 12-month season-aware balance runway forecast (see below) | **Live**, lazy-loads a month of data on first expand |
@@ -62,6 +62,34 @@ off again — it's a pattern that's bitten this codebase three times.
 returns genuinely empty data for electricity specifically — see
 Approximations below for the full detail, including the honest in-app
 warning that surfaces this case.
+
+**The Current rate/Live usage spacing saga (v2.162–v2.165), a real CSS
+lesson worth keeping.** Current rate's three lines (Standard/Off-peak/
+Next) are one text block joined by `<br>`, using `.meta`'s
+`line-height:1.7` — the gap between its lines comes *entirely* from that
+leading, with zero margin involved. Live usage's equivalent lines
+(`.sub`) are separate block elements, and the first two attempts to match
+the spacing (v2.162: nudge the margin down a couple of px; v2.163: add an
+explicit but mismatched `line-height` on top of a margin) both missed
+because they treated margin and line-height as interchangeable — they
+compound instead of replacing each other, so tweaking one while the other
+is still present doesn't reliably converge on the target. The fix that
+actually worked (v2.164) matched `.meta`'s mechanism exactly: the same
+`line-height:1.7`, with margin removed *between* consecutive `.sub`
+elements specifically (`.sub + .sub{margin-top:0}`) so the gap comes from
+shared leading the same way `.meta`'s internal lines do, while the first
+line keeps an explicit gap from the value above it. v2.165 applied the
+identical logic to the "Last 30 min" toggle button below the two `.sub`
+lines, which had its own disconnected flat margin. The general lesson:
+when matching the visual rhythm of one CSS block (line-height-driven)
+from a different structure (separate elements with margins), reproduce
+the *mechanism*, not just the visible gap — guessing pixel values against
+the wrong mechanism can miss entirely or overcorrect unpredictably. Also
+worth remembering: this sandbox's mockup renderer can't load the real
+font (no network access), so a mockup comparison that looks convincing
+here doesn't guarantee it'll hold on the real device — confirmed
+literally happened once in this saga (v2.162's mockup looked like a fix,
+the live device showed no change at all).
 
 ## Color language
 
@@ -179,8 +207,12 @@ Standing charges, Settings, Diagnostics, Connect-account) stay neutral
 and the Balance runway status icon are both set entirely via JS
 (`.textContent`/`.innerHTML` at render time, never present in the static
 HTML) — the initial emoji-removal pass only swept static markup and missed
-both, so they kept showing emoji after that release shipped. Same root
-cause hit the Diagnostics panel title a second way: the static HTML had
+both, so they kept showing emoji after that release shipped. Gas's own
+trajectory icon (added v2.164, mirrored from electricity's) uses the
+identical `.innerHTML`-at-render pattern, so it carries the same risk —
+worth remembering for either fuel, not just electricity, if this class of
+bug ever needs checking for again. Same root cause hit the Diagnostics
+panel title a second way: the static HTML had
 the right SVG, but a JS function overwrote it via `.textContent` on every
 render, which wipes child nodes (the SVG) and replaces them with plain
 text. The lesson: an emoji sweep needs to check *rendered* output, or at
@@ -516,6 +548,30 @@ to spot the actual cause rather than guessing.
   type, never resolved via introspection; not chased further once the other
   candidates in the same investigation (`currentState`, `stateOfChargeLimit`)
   panned out.
+- **A "Today" home-screen summary card**, plus four analytics ideas from an
+  external review of the project (EV annual stats, personal records,
+  baseload, a replay-based tariff comparison) — all fully designed and
+  mocked up, all ultimately declined. The dashboard card was dropped first,
+  on its own simpler ground: everything in it duplicated what was already
+  one scroll or tap away, so it didn't reduce any real friction regardless
+  of how it looked. The other four were mocked as pure text/number stat
+  blocks — no chart, no gauge, nothing visual — and every existing panel in
+  this app pairs a number with something visual. Reviewing the mockups
+  side by side against the rest of the dashboard made that mismatch
+  obvious, and the decision was to hold the line on visual consistency
+  rather than ship four panels that would read as a different app bolted
+  on. If any of these come back later, the bar is a genuinely visual
+  treatment, not just a leaner version of the same text-only shape.
+  Feasibility notes if ever revisited: EV annual stats' data was confirmed
+  clean (away-from-home charging never appears in `chargingSessions`, so
+  no location-mixing risk); personal records would need a new
+  daily-resolution year-long fetch (Year view currently only pulls monthly
+  totals) and would be unreliable for electricity specifically beyond the
+  ~2-month history floor; baseload can reuse the existing half-hourly fetch
+  but needs to exclude any slot overlapping an EV charging session or it
+  just measures charging activity, not baseload; tariff comparison has no
+  existing plumbing for any tariff other than the account's own and would
+  need ongoing maintenance as Octopus retires/replaces tariff products.
 - **`current`** (a device lifecycle-status field) — confirmed via
   introspection to exist, but it's a one-time onboarding milestone, static
   for an already-established device. Not useful to surface.
