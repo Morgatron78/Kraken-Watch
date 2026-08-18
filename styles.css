@@ -571,6 +571,14 @@ button{font-family:inherit;cursor:pointer;}
 .hidden{display:none !important;}
 
 /* Live usage — last 30 minutes */
+/* v2.165: was a flat margin-top:10px, disconnected from the line-height-
+   based rhythm the two .sub rows above it now use (v2.164) — looked like
+   a bigger gap than the .sub-to-.sub spacing right above it. This button
+   isn't a .sub itself (needs its own click/hover styling), so it can't
+   just join the .sub + .sub rule, but the same logic applies: let the
+   preceding .sub's own line-height leading do the work instead of adding
+   a separate margin on top of it. */
+.sub + .live30-toggle{margin-top:0;}
 .live30-toggle{
   margin-top:10px;display:inline-flex;align-items:center;gap:5px;
   font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--pink);
