@@ -91,6 +91,39 @@ here doesn't guarantee it'll hold on the real device — confirmed
 literally happened once in this saga (v2.162's mockup looked like a fix,
 the live device showed no change at all).
 
+**UTC-vs-local date-boundary bug (v2.167), only visible for about an hour
+a night.** Two rate-fetching call sites (`loadRates()` for electricity,
+and gas's "today's unit rate" fetch in `loadBilling()`) built their day
+window using `isoDate(now)` — `now.toISOString().slice(0,10)`, always the
+*UTC* calendar date — with a literal `Z` appended to both boundaries. The
+intent was "today, local midnight to midnight"; the actual effect was
+"today, UTC midnight to midnight". Those are the same thing for almost
+the entire day, but during BST (UTC+1) local time crosses into a new
+calendar day up to an hour before UTC does — so for roughly that hour
+every night, `todayISO` silently resolved to *yesterday's* UTC date, and
+the whole day's rate fetch was anchored to a window shifted about an hour
+early, cutting off well before the real end of local "today". Caught live
+via a screenshot taken at 00:21 BST: Standard and Off-peak both showed
+identically (the wrongly-scoped window happened to contain only off-peak
+data) and the panel read "No change today" despite a real transition
+being hours away — both symptoms of the one bug, not two. Fixed by
+building the boundary from local date components
+(`new Date(now.getFullYear(), now.getMonth(), now.getDate())`) and
+letting `.toISOString()` do the UTC conversion correctly itself, rather
+than assembling a UTC-labelled string from a UTC-derived date and
+treating it as local. Verified numerically before shipping, not just
+reasoned through — simulating the exact scenario showed the old window as
+`Aug 17 01:00 BST → Aug 18 00:59 BST` (missing the whole rest of the real
+day) against the fixed `Aug 18 00:00 BST → Aug 18 23:59 BST`. The general
+lesson: `Date.prototype.toISOString()` is always UTC — pairing its output
+with a literal `Z` is only "today" if UTC and local agree on what day it
+is right now, which isn't guaranteed for up to an hour a day whenever the
+local timezone has a non-zero UTC offset. `isoDate()`'s one other call
+site (a payment-date string comparison in `loadBilling`) has the same
+theoretical exposure but wasn't touched — far lower real-world impact (a
+date-only compare, not a fetch-window boundary), and nothing was actually
+observed wrong there.
+
 ## Color language
 
 Each color means one specific thing, consistently, everywhere it appears —
