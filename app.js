@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.166';
+const APP_VERSION = 'v2.167';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -1820,15 +1820,35 @@ async function fetchYearMonthly(fuel) {
 async function loadRates() {
   try {
     const now = new Date();
-    const todayISO = isoDate(now);
-    const fromISO = `${todayISO}T00:00Z`;
-    const toISO = `${todayISO}T23:59Z`;
+    // v2.167: was `isoDate(now)` (= now.toISOString().slice(0,10), always
+    // the UTC calendar date) with a literal Z appended to both boundaries
+    // — meant to mean "today, local midnight to midnight" but actually
+    // meaning "today, UTC midnight to midnight". During BST (UTC+1), local
+    // time crosses into a new day up to an hour before UTC does — so for
+    // roughly that hour every night, todayISO silently resolved to
+    // yesterday's UTC date, and the whole day's rate fetch was anchored to
+    // the wrong 24-hour window: shifted roughly an hour early, and not
+    // reaching far enough into what was genuinely still "later today"
+    // locally. Confirmed live: at 00:21 BST, this showed Standard and
+    // Off-peak as identical (the fetched window had rolled into a stretch
+    // containing only off-peak rate data) and "No change today" (nothing
+    // in that wrongly-scoped array was later than `now`), even though a
+    // real change back to standard rate was still hours away. Fixed by
+    // building the boundary from local date components (`dayStart`, which
+    // this function already computed a few lines below for its own
+    // half-hourly expansion — pulled up here so both uses share it) and
+    // letting `.toISOString()` do the correct UTC conversion itself,
+    // rather than assembling a UTC-labelled string from a UTC-derived date
+    // and treating it as local.
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayEnd = new Date(+dayStart + 24 * 60 * 60 * 1000 - 60000);
+    const fromISO = dayStart.toISOString();
+    const toISO = dayEnd.toISOString();
     const rows = await fetchElecRates(fromISO, toISO);
     if (!rows.length) throw new Error('No rate data returned');
 
     // Still expand into 48 half-hourly points — not drawn as a curve anymore,
     // but used for today's average/max and the off-peak threshold check.
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const points = Array.from({ length: 48 }, (_, i) => {
       const t = +dayStart + i * 30 * 60 * 1000;
       return rateAt(rows, t) ?? rows[0].rate;
@@ -3103,8 +3123,13 @@ async function loadBilling() {
       fuelData.gas.predicted = { cost: gasPredictedCost, kwh: gasPredictedKwh };
       if (gasStanding) $('gas-standing').textContent = `£${(gasStanding / 100).toFixed(2)}/day`;
       try {
-        const todayISO = isoDate(now);
-        const gasRatesToday = await fetchGasRates(`${todayISO}T00:00Z`, `${todayISO}T23:59Z`);
+        // v2.167: same UTC-vs-local date-boundary bug as loadRates() above
+        // (see that fix's comment for the full explanation) — was using
+        // isoDate(now) with a literal Z, which silently resolves to
+        // yesterday's date for roughly an hour each night during BST.
+        const dayStart1 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const dayEnd1 = new Date(+dayStart1 + 24 * 60 * 60 * 1000 - 60000);
+        const gasRatesToday = await fetchGasRates(dayStart1.toISOString(), dayEnd1.toISOString());
         const currentGasRate = rateAt(gasRatesToday, Date.now());
         if (currentGasRate !== null) $('gas-unit-rate').textContent = `${currentGasRate.toFixed(2)}p`;
       } catch { /* keep whatever was already showing (demo or "—") */ }
