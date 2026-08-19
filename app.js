@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.183';
+const APP_VERSION = 'v2.184';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2278,6 +2278,48 @@ async function loadEV() {
 // — only plannedDispatches stays as its own call, since chargingSessions
 // is explicitly historical.
 async function loadEVSmartFlex() {
+  // TEMPORARY diagnostic — checking SmartFlexChargingProblem's real shape
+  // before building the "per-session issue" feature idea (see README/
+  // memory). Not yet selected anywhere in the real query below. Unwraps
+  // ofType 5 levels deep per this project's own standing lesson (a
+  // shallower unwrap has printed just "LIST"/"NON_NULL" instead of the
+  // real type twice before). Remove once the shape is confirmed and the
+  // real query/UI is built.
+  try {
+    const probData = await krakenGQL(`{
+      t: __type(name: "SmartFlexChargingProblem") {
+        kind
+        fields { name
+          type { name kind
+            ofType { name kind
+              ofType { name kind
+                ofType { name kind
+                  ofType { name kind
+                    ofType { name kind }
+                  }
+                }
+              }
+            }
+          }
+        }
+        enumValues { name }
+      }
+    }`);
+    const t = probData?.t;
+    const unwrap = (ty) => !ty ? '?' : (ty.name || unwrap(ty.ofType) || ty.kind);
+    if (!t) {
+      logDebug('EV problems investigation — SmartFlexChargingProblem', '(type not found)');
+    } else if (t.kind === 'ENUM') {
+      logDebug('EV problems investigation — kind', 'ENUM');
+      logDebug('EV problems investigation — enum values', (t.enumValues || []).map(v => v.name).join(', '));
+    } else {
+      logDebug('EV problems investigation — kind', t.kind || '?');
+      logDebug('EV problems investigation — fields', (t.fields || []).map(f => f.name + ':' + unwrap(f.type)).join(', ') || '(none)');
+    }
+  } catch (err) {
+    logDebug('EV problems investigation — scan failed', err.message);
+  }
+
   const data = await krakenGQL(`
     query EVSmartFlexData($accountNumber: String!, $after: DateTime!) {
       devices(accountNumber: $accountNumber) {
