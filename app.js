@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.173';
+const APP_VERSION = 'v2.174';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2274,23 +2274,29 @@ async function loadEVSmartFlex() {
   // "the saving this specific dispatch produced," plausibly the
   // reconciled figure itself. It also has an unexplored
   // meta:UpsideDispatchMetaType sub-object.
-  // Step 3, v2.173: rather than guess where UpsideDispatchType is
-  // actually queryable from, check the FULL field list of
-  // SmartFlexChargingSession — the type this app already queries every
-  // load. If it has an `upsideDispatches` (or similarly-named) field not
-  // currently selected, that's the entry point handed to us directly, no
-  // more guessing needed. Combined with UpsideDispatchMetaType's own
-  // fields in the same call.
+  // Step 3 (v2.173) result: SmartFlexChargingSession's real fields are
+  // start, end, stateOfChargeChange, stateOfChargeFinal, energyAdded,
+  // cost (the same field already confirmed to return null — nothing new),
+  // type, targetType, dispatches, problems. No upsideDispatches field —
+  // that hypothesis was wrong. UpsideDispatchMetaType turned out to be
+  // just source:String, location:String — doesn't reveal its parent
+  // either.
+  // Step 4, v2.174: stop guessing intermediate nesting entirely and check
+  // the root Query and Account types' own field NAMES (not full nested
+  // shapes — same lightweight pattern as step 1) for anything matching
+  // upside/charges/dispatch. Whichever root field actually returns
+  // UpsideDispatchType will show up directly, telling us exactly how to
+  // query it instead of guessing another parent type.
   try {
-    const typeData = await krakenGQL(`{
-      a: __type(name: "SmartFlexChargingSession") { fields { name type { name kind ofType { name } } } }
-      b: __type(name: "UpsideDispatchMetaType") { fields { name type { name kind ofType { name } } } }
+    const rootData = await krakenGQL(`{
+      q: __type(name: "Query") { fields { name } }
+      acc: __type(name: "Account") { fields { name } }
     }`);
-    const describe = (t) => t ? (t.fields || []).map(f => f.name + ':' + (f.type?.name || f.type?.ofType?.name || f.type?.kind)).join(', ') : '(not found)';
-    logDebug('EV cost investigation — SmartFlexChargingSession fields', describe(typeData?.a));
-    logDebug('EV cost investigation — UpsideDispatchMetaType fields', describe(typeData?.b));
+    const matches = (t) => (t?.fields || []).map(f => f.name).filter(n => /upside|charges|dispatch/i.test(n));
+    logDebug('EV cost investigation — Query root fields matching', matches(rootData?.q).join(', ') || '(none)');
+    logDebug('EV cost investigation — Account fields matching', matches(rootData?.acc).join(', ') || '(none)');
   } catch (err) {
-    logDebug('EV cost investigation — field scan failed', err.message);
+    logDebug('EV cost investigation — root field scan failed', err.message);
   }
 
   const data = await krakenGQL(`
