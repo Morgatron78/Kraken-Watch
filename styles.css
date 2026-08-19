@@ -700,6 +700,11 @@ button{font-family:inherit;cursor:pointer;}
    taking priority) in with real issues, and only the real ones get this
    badge — see isRealChargingProblem() in app.js for the classification. */
 .badge-problem{color:var(--coral);background:rgba(255,107,91,0.12);border:1px solid rgba(255,107,91,0.35);}
+/* v2.189: the SVG spacing/alignment rule existed in the mockup this badge
+   was built from, but only the SVG markup itself got copied into the real
+   app, not this rule — confirmed live via screenshot (icon flush against
+   the text, misaligned). */
+.badge-problem svg{vertical-align:-1px;margin-right:3px;}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
 .battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;}
 
@@ -715,6 +720,15 @@ button{font-family:inherit;cursor:pointer;}
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}
 
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
+
+/* v2.189: fixed-width grid column for the kWh/SoC row — previously plain
+   flex space-between, which right-aligned the SoC block correctly but let
+   its own left-starting edge drift depending on how much text it held
+   (a full "95% → 100% (+5%)" vs a shorter placeholder row), reading as
+   ragged/inconsistent between sessions. A fixed second column means the
+   SoC info always starts at the same x-position regardless of content. */
+.slot-row-grid{display:grid;grid-template-columns:1fr 130px;align-items:baseline;}
+.slot-row-grid .soc-col{justify-self:start;white-space:nowrap;}
 
 .ev-week-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
 .ev-week-col span{font-family:'Inter', sans-serif;font-size:9px;color:var(--text-dim);}

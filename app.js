@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.188';
+const APP_VERSION = 'v2.189';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2277,6 +2277,131 @@ async function loadEV() {
 // from the same one query rather than needing completedDispatches at all
 // — only plannedDispatches stays as its own call, since chargingSessions
 // is explicitly historical.
+const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
+
+// v2.187: SmartFlexChargingProblem — a union of SmartFlexChargingError
+// (a `cause` enum) and SmartFlexChargingTruncation (a `truncationCause`
+// enum, plus original/achievable SoC — the charge was cut short before
+// reaching its planned target). Both enums mix genuinely benign outcomes
+// in with real problems, confirmed via live introspection: SOC_LIMIT_
+// REACHED/FULL_CHARGE/NO_SCHEDULED_CHARGE/POWER_TAPERING and BOOST_
+// CHARGING/CHARGING_OPTIMISATION_CREATED all just describe a normal or
+// intentional outcome, not a fault — showing a warning badge for those
+// would violate this app's own rule that coral only ever means a
+// genuine problem. Everything else in both enums is a real one.
+const BENIGN_CAUSES = new Set(['SOC_LIMIT_REACHED', 'FULL_CHARGE', 'NO_SCHEDULED_CHARGE', 'POWER_TAPERING', 'BOOST_CHARGING', 'CHARGING_OPTIMISATION_CREATED']);
+const CAUSE_LABELS = {
+  COMMUNICATION_ERROR: 'Comms error', THIRD_PARTY_CHARGING_INTERFERENCE: 'Charger interference',
+  POWER_DISCREPANCY: 'Power discrepancy', FAILURE_CAUSE_ERROR: 'Charging error',
+  CUSTOMER_ACTION_REQUIRED: 'Needs attention', NO_CHARGING: 'Didn\u2019t charge',
+  POST_CHARGE_BATTERY_DRAIN: 'Drained after charge', UNKNOWN_CHARGING_ERROR_CAUSE: 'Unknown error',
+  DISCONNECTED: 'Disconnected early', DEVICE_DEAUTH_SUCCESS: 'Device deauthorised',
+  SUSPENDED: 'Suspended', UNKNOWN_TRUNCATION_CAUSE: 'Charge cut short'
+};
+function realProblemLabel(session) {
+  for (const p of (session.problems || [])) {
+    const cause = p.cause || p.truncationCause;
+    if (cause && !BENIGN_CAUSES.has(cause)) return CAUSE_LABELS[cause] || cause;
+  }
+  return null;
+}
+const problemBadgeHtml = session => {
+  const label = realProblemLabel(session);
+  if (!label) return '';
+  const warnTriangleSvgSm = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  return `<div class="slot-row" style="margin-top:2px;"><span class="slot-badge badge-problem" style="margin-left:0;">${warnTriangleSvgSm}${label}</span></div>`;
+};
+
+// v2.189: Sessions-tab renderer, factored out so it can run against either
+// the default 8-day `sessions` array or a wider on-demand fetch (see
+// expandEVSessions) without duplicating the markup logic.
+function renderEVSessionSlots(sessions, now) {
+  sessions.forEach((s, i) => { s._startSoc = i > 0 ? sessions[i - 1].stateOfChargeFinal : null; });
+  const sessionSlots = $('ev-slots-session');
+  sessionSlots.innerHTML = [...sessions].reverse().map(s => {
+    const kwh = s.energyAdded?.value;
+    const startD = new Date(s.start);
+    const dayLabel = startD.toDateString() === now.toDateString() ? 'Today'
+      : startD.toDateString() === new Date(now - 86400000).toDateString() ? 'Yesterday'
+      : startD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    let socText = '';
+    if (s.stateOfChargeFinal != null) {
+      if (s._startSoc != null) {
+        const gain = Math.round(s.stateOfChargeFinal - s._startSoc);
+        socText = `<span class="slot-soc">${Math.round(s._startSoc)}% → ${Math.round(s.stateOfChargeFinal)}%</span> <span class="slot-soc-gain">(${gain >= 0 ? '+' : ''}${gain}%)</span>`;
+      } else {
+        // v2.189: was just "→ X%" — this is always the oldest session in
+        // whatever window is loaded (no prior session to derive a start
+        // % from), so it's expected, not an error. An em-dash placeholder
+        // keeps the same basic shape as a full row instead of silently
+        // shrinking to a shorter one.
+        socText = `<span class="slot-soc">— → ${Math.round(s.stateOfChargeFinal)}%</span>`;
+      }
+    }
+    return `<div class="slot">
+      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}</div>
+      <div class="slot-row-grid"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b><span class="soc-col">${socText}</span></div>
+      ${problemBadgeHtml(s)}
+    </div>`;
+  }).join('');
+  if (!sessionSlots.children.length) sessionSlots.innerHTML = '<div class="slot">No charging sessions this week</div>';
+}
+
+let evSessionsExpandBtnAdded = false;
+let evSessionsExpanded = false;
+
+// v2.189: on-demand fetch for "Show last 30 days" — deliberately separate
+// from the main 8-day query so nothing else that depends on that 8-day
+// scope (mini-stats, Windows tab) is affected by widening it. Reuses the
+// exact same session shape/fields as the main query.
+async function expandEVSessions(btn) {
+  if (evSessionsExpanded) return;
+  const original = btn.querySelector('span').textContent;
+  btn.querySelector('span').textContent = 'Loading…';
+  btn.disabled = true;
+  try {
+    const data = await krakenGQL(`
+      query EVSessions30d($accountNumber: String!, $after: DateTime!) {
+        devices(accountNumber: $accountNumber) {
+          ... on SmartFlexVehicle {
+            chargingSessions(after: $after, first: 100) {
+              edges { node {
+                ... on SmartFlexChargingSession {
+                  start end type
+                  energyAdded { value }
+                  stateOfChargeFinal
+                  problems {
+                    __typename
+                    ... on SmartFlexChargingError { cause }
+                    ... on SmartFlexChargingTruncation { truncationCause originalAchievableStateOfCharge achievableStateOfCharge }
+                  }
+                }
+              } }
+            }
+          }
+        }
+      }`, {
+      accountNumber: store.creds.accountNumber,
+      after: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    });
+    const vehicle = (data?.devices || []).find(d => d && d.chargingSessions);
+    const sessions30d = (vehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+    if (sessions30d.length) {
+      renderEVSessionSlots(sessions30d, new Date());
+      evSessionsExpanded = true;
+      btn.remove();
+    } else {
+      btn.querySelector('span').textContent = original;
+      btn.disabled = false;
+    }
+  } catch (err) {
+    logIssue('EV 30-day sessions', err);
+    btn.querySelector('span').textContent = original;
+    btn.disabled = false;
+  }
+}
+
 async function loadEVSmartFlex() {
   const data = await krakenGQL(`
     query EVSmartFlexData($accountNumber: String!, $after: DateTime!) {
@@ -2516,42 +2641,6 @@ async function loadEVSmartFlex() {
     warningsEl.innerHTML = '';
   }
 
-  const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
-
-  // v2.187: SmartFlexChargingProblem — a union of SmartFlexChargingError
-  // (a `cause` enum) and SmartFlexChargingTruncation (a `truncationCause`
-  // enum, plus original/achievable SoC — the charge was cut short before
-  // reaching its planned target). Both enums mix genuinely benign outcomes
-  // in with real problems, confirmed via live introspection: SOC_LIMIT_
-  // REACHED/FULL_CHARGE/NO_SCHEDULED_CHARGE/POWER_TAPERING and BOOST_
-  // CHARGING/CHARGING_OPTIMISATION_CREATED all just describe a normal or
-  // intentional outcome, not a fault — showing a warning badge for those
-  // would violate this app's own rule that coral only ever means a
-  // genuine problem. Everything else in both enums is a real one.
-  const BENIGN_CAUSES = new Set(['SOC_LIMIT_REACHED', 'FULL_CHARGE', 'NO_SCHEDULED_CHARGE', 'POWER_TAPERING', 'BOOST_CHARGING', 'CHARGING_OPTIMISATION_CREATED']);
-  const CAUSE_LABELS = {
-    COMMUNICATION_ERROR: 'Comms error', THIRD_PARTY_CHARGING_INTERFERENCE: 'Charger interference',
-    POWER_DISCREPANCY: 'Power discrepancy', FAILURE_CAUSE_ERROR: 'Charging error',
-    CUSTOMER_ACTION_REQUIRED: 'Needs attention', NO_CHARGING: 'Didn\u2019t charge',
-    POST_CHARGE_BATTERY_DRAIN: 'Drained after charge', UNKNOWN_CHARGING_ERROR_CAUSE: 'Unknown error',
-    DISCONNECTED: 'Disconnected early', DEVICE_DEAUTH_SUCCESS: 'Device deauthorised',
-    SUSPENDED: 'Suspended', UNKNOWN_TRUNCATION_CAUSE: 'Charge cut short'
-  };
-  function realProblemLabel(session) {
-    for (const p of (session.problems || [])) {
-      const cause = p.cause || p.truncationCause;
-      if (cause && !BENIGN_CAUSES.has(cause)) return CAUSE_LABELS[cause] || cause;
-    }
-    return null;
-  }
-  const problemBadgeHtml = session => {
-    const label = realProblemLabel(session);
-    if (!label) return '';
-    const warnTriangleSvgSm = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-    return `<div class="slot-row" style="margin-top:2px;"><span class="slot-badge badge-problem" style="margin-left:0;">${warnTriangleSvgSm}${label}</span></div>`;
-  };
-
   // Dispatch-window view — derived from each session's nested dispatches,
   // flattened and sorted oldest-first (same chronological-timeline
   // convention as before), now with a real SMART/BOOST badge per window.
@@ -2581,30 +2670,34 @@ async function loadEVSmartFlex() {
   // ≈ the previous session's end %) — an assumption that only breaks if
   // charging happened elsewhere in between (e.g. a public charger), in
   // which case the delta is just slightly off, not broken.
-  sessions.forEach((s, i) => { s._startSoc = i > 0 ? sessions[i - 1].stateOfChargeFinal : null; });
-  const sessionSlots = $('ev-slots-session');
-  sessionSlots.innerHTML = [...sessions].reverse().map(s => {
-    const kwh = s.energyAdded?.value;
-    const startD = new Date(s.start);
-    const dayLabel = startD.toDateString() === now.toDateString() ? 'Today'
-      : startD.toDateString() === new Date(now - 86400000).toDateString() ? 'Yesterday'
-      : startD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-    let socText = '';
-    if (s.stateOfChargeFinal != null) {
-      if (s._startSoc != null) {
-        const gain = Math.round(s.stateOfChargeFinal - s._startSoc);
-        socText = `<span class="slot-soc">${Math.round(s._startSoc)}% → ${Math.round(s.stateOfChargeFinal)}%</span> <span class="slot-soc-gain">(${gain >= 0 ? '+' : ''}${gain}%)</span>`;
-      } else {
-        socText = `<span class="slot-soc">→ ${Math.round(s.stateOfChargeFinal)}%</span>`;
-      }
-    }
-    return `<div class="slot">
-      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}</div>
-      <div class="slot-row"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${socText}</div>
-      ${problemBadgeHtml(s)}
-    </div>`;
-  }).join('');
-  if (!sessionSlots.children.length) sessionSlots.innerHTML = '<div class="slot">No charging sessions this week</div>';
+  // v2.189: factored into its own function, callable with either the
+  // default 8-day `sessions` or a wider on-demand fetch (see
+  // expandEVSessions below) — same rendering logic either way, just a
+  // different input list. Guarded on evSessionsExpanded: once the user
+  // has expanded to 30 days, later auto-refreshes (every 5 min) must not
+  // re-render with the narrow 8-day list, or the expanded view would
+  // silently revert on its own a few minutes after being requested. The
+  // real tradeoff: the expanded view then stays static (no fresh data)
+  // until the page is next fully reloaded — better than reverting a
+  // user's explicit choice without asking.
+  if (!evSessionsExpanded) renderEVSessionSlots(sessions, now);
+
+  // v2.189: "Show last 30 days" — deliberately a separate on-demand fetch
+  // rather than widening the default 8-day one, so nothing else that
+  // depends on that 8-day scope (the mini-stats above, the Windows tab)
+  // is affected. Button only appears once, added once per page life via
+  // evSessionsExpandBtnAdded guard so re-renders don't duplicate it.
+  const sessionSlotsContainer = $('ev-slots-session');
+  if (!evSessionsExpandBtnAdded && !evSessionsExpanded) {
+    evSessionsExpandBtnAdded = true;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'bh-breakdown-toggle';
+    btn.style.cssText = 'margin-top:12px;width:100%;justify-content:center;';
+    btn.innerHTML = '<span>Show last 30 days</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+    btn.addEventListener('click', () => expandEVSessions(btn));
+    sessionSlotsContainer.parentNode.insertBefore(btn, sessionSlotsContainer.nextSibling);
+  }
 
   // v2.150 fix: reapply whichever tab the user actually has selected. Every
   // render above unconditionally shows dispatchSlots (rebuilding it needs
