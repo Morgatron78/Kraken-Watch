@@ -35,14 +35,22 @@ number. Demo data is available for testing but is **off by default** —
 turn it on in Settings ("Show demo data when something fails to load") if
 you want to see placeholder values instead.
 
-**Balance runway "expanding" — by design, not a bug.** The runway chart
-auto-selects and opens the breakdown box for the lowest-balance month
-whenever nothing's been tapped yet, so you see what "lowest point" refers
-to without having to tap — and that selection stays sticky across
-re-renders (each refresh, each reopen) until a different bar is tapped.
-Confirmed with the user as intended after it was initially reported as a
-bug. A genuinely separate issue — accidental taps firing during a mobile
-scroll gesture on the same chart — was real and is fixed via
+**Balance runway breakdown — history worth knowing (v2.150/v2.166).**
+Originally auto-selected and opened the breakdown box for the
+lowest-balance month whenever nothing had been tapped yet, so "lowest
+point" was visible without a tap — confirmed with the user as intended
+after it was first reported as a bug. Later reconsidered: once the
+breakdown became a richer ledger (below), auto-opening one felt like more
+content appearing than was asked for, so v2.166 removed it —
+`selectedForecastCycle` now stays `null` until an actual tap, purely
+show/hide with no other behavior change. The breakdown itself was also
+restructured as a proper ledger (v2.166): balance carried forward →
+Electricity/Gas costs → energy subtotal → Payment → Projected balance,
+reusing Billing's own `.bh-item` styling (same coral-charge/mint-credit
+convention) rather than the original flat 3-line list, so the final
+balance reads as something derived rather than just stated. A genuinely
+separate issue from either of these — accidental taps firing during a
+mobile scroll gesture on the same chart — was real and is fixed via
 `touch-action:pan-y` on the bar elements.
 
 **The picked-week date bug family (v2.143/v2.144/v2.152).** Three separate
@@ -466,22 +474,30 @@ a safe position before every risky reassignment, not just once.
   check your latest bill's usage breakdown for the exact value it used and
   enter that.
 - **Real EV session cost isn't shown, and can't be derived from rate
-  history.** `SmartFlexChargingSession.cost` and the deprecated
-  `costOfCharge` aggregate both return null/empty for real data. A
-  follow-up theory — matching a session's dispatch times against this
-  app's own already-fetched rate history, the same way Polestar's own app
-  appears to show real £ costs — was tested directly against a real bill
-  and confirmed a dead end: IOG retroactively applies an off-peak rate to
+  history — though this is under active re-investigation.**
+  `SmartFlexChargingSession.cost` and the deprecated `costOfCharge`
+  aggregate both return null/empty for real data. A follow-up theory —
+  matching a session's dispatch times against this app's own
+  already-fetched rate history, the same way Polestar's own app appears
+  to show real £ costs — was tested directly against a real bill and
+  confirmed a dead end: IOG retroactively applies an off-peak rate to
   SmartFlex dispatches that land outside the normal off-peak window, but
-  that override never appears in standard rate history, no matter how
-  long you wait for settlement. **An *estimated* cost is shown instead**
-  (v2.154): Smart sessions priced at today's known off-peak rate, Boost at
-  today's known standard rate — a simple type-based assumption rather than
-  matching a session to its actual real-time rate, labeled "(est.)" in the
-  UI so it reads as an approximation rather than a confirmed figure. Same
-  type-based reasoning powers the "Boost session this week" warning-area
-  flag — Boost is a reliable signal of "charged outside the smart
-  schedule" without needing rate-matching at all.
+  that override never appears in standard rate history via the REST API,
+  no matter how long you wait for settlement. **An *estimated* cost is
+  shown instead** (v2.154): Smart sessions priced at today's known
+  off-peak rate, Boost at today's known standard rate — a simple
+  type-based assumption rather than matching a session to its actual
+  real-time rate, labeled "(est.)" in the UI so it reads as an
+  approximation rather than a confirmed figure. Same type-based reasoning
+  powers the "Boost session this week" warning-area flag — Boost is a
+  reliable signal of "charged outside the smart schedule" without needing
+  rate-matching at all. **Reopened later** after a screenshot of
+  Octopus's own app showed the reconciled off-peak rate genuinely visible
+  somewhere for a confirmed real dispatch — meaning the REST-side dead end
+  above still holds, but a *different* data source (Kraken GraphQL's
+  billing/ledger surface, live-introspected the same way everything else
+  in this schema was) might carry it instead. In progress as of v2.179 —
+  see memory for the full live blow-by-blow if picking this back up.
 - **Estimated range added is a single hardcoded conversion constant**
   (`EV_RANGE_MI_PER_KWH = 4.8`), based on a Polestar 2 Standard Range
   Single Motor's 2024+ spec (69kWh gross/67kWh usable, 322mi WLTP,
