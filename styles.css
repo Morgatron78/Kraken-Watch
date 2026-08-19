@@ -746,7 +746,7 @@ button{font-family:inherit;cursor:pointer;}
    genuinely enough real row width to fit both without wrapping. */
 .slot-row-inline{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;flex-shrink:0;}
-.slot-row-inline .left-group .soc-col{width:190px;white-space:nowrap;}
+.slot-row-inline .left-group .soc-col{min-width:190px;white-space:nowrap;}
 .slot-row-inline .problem-col{flex-shrink:0;}
 .slot-row-inline .problem-col .badge-problem{margin-left:0;white-space:nowrap;}
 
