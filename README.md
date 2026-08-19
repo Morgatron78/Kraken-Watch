@@ -474,13 +474,12 @@ a safe position before every risky reassignment, not just once.
   check your latest bill's usage breakdown for the exact value it used and
   enter that.
 - **Real EV session cost isn't shown, and can't be derived from rate
-  history — though this is under active re-investigation.**
-  `SmartFlexChargingSession.cost` and the deprecated `costOfCharge`
-  aggregate both return null/empty for real data. A follow-up theory —
-  matching a session's dispatch times against this app's own
-  already-fetched rate history, the same way Polestar's own app appears
-  to show real £ costs — was tested directly against a real bill and
-  confirmed a dead end: IOG retroactively applies an off-peak rate to
+  history.** `SmartFlexChargingSession.cost` and the deprecated
+  `costOfCharge` aggregate both return null/empty for real data. A
+  follow-up theory — matching a session's dispatch times against this
+  app's own already-fetched rate history, the same way Polestar's own app
+  appears to show real £ costs — was tested directly against a real bill
+  and confirmed a dead end: IOG retroactively applies an off-peak rate to
   SmartFlex dispatches that land outside the normal off-peak window, but
   that override never appears in standard rate history via the REST API,
   no matter how long you wait for settlement. **An *estimated* cost is
@@ -491,13 +490,31 @@ a safe position before every risky reassignment, not just once.
   approximation rather than a confirmed figure. Same type-based reasoning
   powers the "Boost session this week" warning-area flag — Boost is a
   reliable signal of "charged outside the smart schedule" without needing
-  rate-matching at all. **Reopened later** after a screenshot of
-  Octopus's own app showed the reconciled off-peak rate genuinely visible
-  somewhere for a confirmed real dispatch — meaning the REST-side dead end
-  above still holds, but a *different* data source (Kraken GraphQL's
-  billing/ledger surface, live-introspected the same way everything else
-  in this schema was) might carry it instead. In progress as of v2.179 —
-  see memory for the full live blow-by-blow if picking this back up.
+  rate-matching at all.
+
+  **Reopened and re-concluded a second time (v2.168–v2.183).** A
+  screenshot of Octopus's own app showed the reconciled off-peak rate
+  genuinely visible for a real EV dispatch, on Octopus's own Usage
+  screen — evidence the figure exists *somewhere*, even though the
+  REST-side conclusion above still held. Investigated Kraken GraphQL's
+  billing/ledger surface via live introspection instead of the REST rate
+  endpoint this time. Two real leads, both genuinely tested to
+  conclusion, not just assumed: `completedDispatches(accountNumber) ->
+  UpsideDispatchType` looked like the strongest candidate by field shape
+  (`start`/`end`/`delta`) but returned completely empty for this account —
+  most likely a different Octopus smart-device program (battery/solar
+  dispatches) that happens to share the platform's naming convention, not
+  functionally connected to EV charging here. `account.transactions(fromDate,
+  toDate)` — already-proven, already-working code that powers this app's
+  own Billing panel — does return real settled `Charge` transactions with
+  a genuine `consumption { startDate endDate }` window, but only at
+  *billed-period* granularity: one lump-sum electricity charge covering
+  several days, one for the whole month for gas. No per-dispatch or
+  per-half-hour resolution exists at that level either. Both realistic
+  GraphQL avenues are now genuinely exhausted, reinforcing the original
+  REST-based conclusion via a completely different path rather than
+  contradicting it. EV cost stays an estimate — see memory for the full
+  step-by-step if this ever needs revisiting.
 - **Estimated range added is a single hardcoded conversion constant**
   (`EV_RANGE_MI_PER_KWH = 4.8`), based on a Polestar 2 Standard Range
   Single Motor's 2024+ spec (69kWh gross/67kWh usable, 322mi WLTP,

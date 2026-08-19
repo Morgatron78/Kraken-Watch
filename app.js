@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.182';
+const APP_VERSION = 'v2.183';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2197,6 +2197,27 @@ async function loadVehicleInfoOnce() {
 // a dispatch, so rate-matching has no data to match against, regardless
 // of settlement time. Any future EV cost figure must use the
 // approximated-rate approach above, not rate-matching.
+//
+// Reopened and re-concluded a second time: a screenshot of Octopus's own
+// app showed the reconciled off-peak rate genuinely visible for a real
+// EV dispatch, on Octopus's own Usage screen — evidence the reconciled
+// figure exists *somewhere*, even though the REST-side conclusion above
+// still held. Investigated Kraken GraphQL's billing/ledger surface via
+// live introspection instead: `completedDispatches(accountNumber) ->
+// UpsideDispatchType` looked like the strongest lead by field shape
+// (start/end/delta) but returned genuinely empty for this account —
+// likely a different Octopus smart-device program (battery/solar
+// dispatches) sharing the naming convention, not functionally connected
+// to EV charging. The other real lead, `account.transactions(fromDate,
+// toDate)` — already proven, working code, used by the Billing panel
+// above — does return real settled Charge transactions with a
+// `consumption { startDate endDate }` window, but only at *billed-period*
+// granularity: one lump-sum electricity charge covering several days,
+// one for the whole month for gas. No per-dispatch or per-half-hour
+// resolution exists at that level either. Both realistic GraphQL avenues
+// are now genuinely tested and exhausted, not just assumed — reinforcing
+// the original conclusion via a completely different path. EV cost stays
+// an estimate; nothing found changes that.
 
 async function loadEV() {
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
@@ -2257,78 +2278,6 @@ async function loadEV() {
 // — only plannedDispatches stays as its own call, since chargingSessions
 // is explicitly historical.
 async function loadEVSmartFlex() {
-  // TEMPORARY diagnostic — EV real-cost investigation (Octopus's own app
-  // showed a specific 08:30 EV-dispatch slot reconciled to off-peak rate;
-  // this app's own cost fields and rate-matching were both already
-  // confirmed dead ends — see README/memory for that history). Condensed
-  // summary of steps so far, kept short since this is temporary code:
-  // schema type-name scan → 3 strong candidates (SmartFlexDispatch,
-  // ChargesBreakdownType, UpsideDispatchType) → field-level scan ruled
-  // out SmartFlexDispatch (same data already known) → found
-  // completedDispatches(accountNumber) -> UpsideDispatchType as the real
-  // entry point → called it for real → genuinely empty (count: 0) for
-  // this account. Likely a different Octopus smart-device program
-  // entirely (battery/solar dispatches sharing the naming convention),
-  // not functionally connected to EV charging.
-  // Step 9 result (v2.180, confirmed): blind schema guessing on Query's
-  // root fields turned up nothing relevant (prepay-meter ledgers, the
-  // already-known/ruled-out Octopoints fields, internal billing config).
-  // Real turning point: this app's OWN Billing panel already has a
-  // working, proven `account.transactions(fromDate, toDate)` query
-  // (see loadBilling below) that selects `title`, `amounts.gross`, and —
-  // for Charge-type transactions — `consumption { startDate endDate }`.
-  // A real settled amount AND a real start/end window, sitting in
-  // already-authenticated production code this whole time. Should have
-  // checked the app's own existing billing query before any blind schema
-  // guessing — genuine miss.
-  // Step 10 result (v2.181, confirmed): zero transactions for 15 Aug —
-  // genuinely informative, not a wall. Real theory: this `transactions`
-  // field almost certainly only reflects already-BILLED charges, not
-  // live/recent unbilled consumption — this account is Direct Debit with
-  // monthly billing, and 15 Aug is very recent, so no bill covering it
-  // has likely been issued yet. Octopus's own app probably computes the
-  // reconciled figure on-the-fly from raw consumption + internal rate
-  // data for display, while `transactions` only reflects what's actually
-  // been formally billed.
-  // Step 11, v2.182: test that theory directly. Fetch the most recent
-  // real bill's own date range (same `bills` query the Billing panel
-  // already uses successfully), then re-run the transaction check against
-  // THAT already-billed period instead of 15 Aug — logging any Charge
-  // transaction with a consumption window, to see whether an EV-charge
-  // transaction with a real settled amount shows up once a period is
-  // actually billed.
-  try {
-    const billData = await krakenGQL(`
-      query LatestBillRange($accountNumber: String!) {
-        account(accountNumber: $accountNumber) {
-          bills(first: 1) { edges { node { fromDate toDate issuedDate } } }
-        }
-      }`, { accountNumber: store.creds.accountNumber });
-    const latestBill = billData?.account?.bills?.edges?.[0]?.node;
-    if (!latestBill) {
-      logDebug('EV cost investigation — latest bill range', '(no bill found)');
-    } else {
-      logDebug('EV cost investigation — latest bill range', `${latestBill.fromDate}–${latestBill.toDate} (issued ${latestBill.issuedDate})`);
-      const txData = await krakenGQL(`
-        query BilledEVCheck($accountNumber: String!, $fromDate: Date, $toDate: Date) {
-          account(accountNumber: $accountNumber) {
-            transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-              edges { node { __typename id postedDate title amounts { gross }
-                ... on Charge { consumption { quantity unit startDate endDate } }
-              } }
-            }
-          }
-        }`, { accountNumber: store.creds.accountNumber, fromDate: latestBill.fromDate, toDate: latestBill.toDate });
-      const txns = (txData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.consumption);
-      logDebug('EV cost investigation — billed-period charge count', String(txns.length));
-      logDebug('EV cost investigation — billed-period charges', txns.slice(0, 8).map(t =>
-        `${t.title} £${t.amounts?.gross ?? '?'} [${t.consumption.startDate}–${t.consumption.endDate}, ${t.consumption.quantity}${t.consumption.unit}]`
-      ).join(' | ') || '(none)');
-    }
-  } catch (err) {
-    logDebug('EV cost investigation — billed-period check failed', err.message);
-  }
-
   const data = await krakenGQL(`
     query EVSmartFlexData($accountNumber: String!, $after: DateTime!) {
       devices(accountNumber: $accountNumber) {
@@ -2571,18 +2520,6 @@ async function loadEVSmartFlex() {
   const allDispatches = [];
   sessions.forEach(s => (s.dispatches || []).forEach(d => allDispatches.push(d)));
   allDispatches.sort((a, b) => new Date(a.start) - new Date(b.start));
-
-  // TEMPORARY v2.159 diagnostic for the "completed windows missing" bug
-  // report — Sessions tab shows recent Smart sessions fine, but Windows
-  // shows nothing for them, meaning `dispatches` is coming back empty for
-  // sessions where it shouldn't (Smart, not Boost). Dumps each of the last
-  // 3 sessions' own type/start plus how many nested dispatches came back,
-  // so we can see directly whether Octopus itself is returning an empty
-  // array (a settlement-lag theory) rather than guessing blind. Remove
-  // once the real cause is confirmed.
-  logDebug('EV recent sessions dispatch counts', JSON.stringify(
-    [...sessions].slice(-3).map(s => ({ type: s.type, start: s.start, dispatchCount: (s.dispatches || []).length }))
-  ));
 
   const dispatchSlots = $('ev-slots-dispatch');
   dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
