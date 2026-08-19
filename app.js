@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.169';
+const APP_VERSION = 'v2.170';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2278,7 +2278,12 @@ async function loadEVSmartFlex() {
     const schemaData = await krakenGQL('{ __schema { types { name } } }');
     const allNames = (schemaData?.__schema?.types || []).map(t => t.name);
     const promising = allNames.filter(n => /ledger|statement|bill|transaction|dispatch|charge/i.test(n));
-    logDebug('EV cost investigation — promising type names', JSON.stringify(promising));
+    // v2.170: was JSON.stringify(promising) — valid JSON has no space after
+    // each comma, so the whole array rendered as one unbroken string with
+    // nowhere for the browser to wrap, running off the edge of the screen.
+    // A plain comma-space join gives it natural break points, matching how
+    // every other diagnostic line here is already just a normal sentence.
+    logDebug('EV cost investigation — promising type names', promising.join(', '));
   } catch (err) {
     logDebug('EV cost investigation — schema scan failed', err.message);
   }

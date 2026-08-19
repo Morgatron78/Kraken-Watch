@@ -64,6 +64,14 @@ button{font-family:inherit;cursor:pointer;}
 .sync-history-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);padding:3px 0;}
 .sync-history-row.fail{color:var(--coral);}
 .sync-history-detail{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);opacity:0.85;padding:0 0 4px;word-break:break-word;}
+/* v2.170: safety net for the diagnostics info lines above (#diagnostics-list
+   had no dedicated rule at all before this — a comma-separated debug value
+   with no spaces, like a joined array, had nowhere to wrap and ran off the
+   screen edge). The immediate cause was fixed at the source (the value
+   itself now has real spaces), but nothing else here defends against a
+   future debug string with the same problem — genuinely reusable
+   protection, not just a patch for one temporary diagnostic. */
+#diagnostics-list{overflow-wrap:break-word;}
 .icon-btn{
   width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--bg-panel);
   color:var(--text-dim);display:flex;align-items:center;justify-content:center;font-size:16px;
