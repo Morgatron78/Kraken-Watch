@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.174';
+const APP_VERSION = 'v2.175';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2281,22 +2281,34 @@ async function loadEVSmartFlex() {
   // that hypothesis was wrong. UpsideDispatchMetaType turned out to be
   // just source:String, location:String — doesn't reveal its parent
   // either.
-  // Step 4, v2.174: stop guessing intermediate nesting entirely and check
-  // the root Query and Account types' own field NAMES (not full nested
-  // shapes — same lightweight pattern as step 1) for anything matching
-  // upside/charges/dispatch. Whichever root field actually returns
-  // UpsideDispatchType will show up directly, telling us exactly how to
-  // query it instead of guessing another parent type.
+  // Step 4 (v2.174) result: real root-level Query fields found —
+  // flexPlannedDispatches and completedDispatches. No match on Account —
+  // the entry point is Query directly, not nested under the account.
+  // completedDispatches is the obvious candidate for a settled/past
+  // dispatch (matching a real historical charge like the known 15 Aug
+  // 08:30 one).
+  // Step 5, v2.175: before actually calling it, find out what arguments
+  // it needs and what it returns — re-request Query's fields, this time
+  // with args + return type, filtered client-side to just these two
+  // fields (still one lightweight call, not a full-schema dump).
   try {
-    const rootData = await krakenGQL(`{
-      q: __type(name: "Query") { fields { name } }
-      acc: __type(name: "Account") { fields { name } }
+    const fieldData = await krakenGQL(`{
+      q: __type(name: "Query") {
+        fields {
+          name
+          args { name type { name kind ofType { name kind ofType { name } } } }
+          type { name kind ofType { name kind ofType { name } } }
+        }
+      }
     }`);
-    const matches = (t) => (t?.fields || []).map(f => f.name).filter(n => /upside|charges|dispatch/i.test(n));
-    logDebug('EV cost investigation — Query root fields matching', matches(rootData?.q).join(', ') || '(none)');
-    logDebug('EV cost investigation — Account fields matching', matches(rootData?.acc).join(', ') || '(none)');
+    const fields = (fieldData?.q?.fields || []).filter(f => f.name === 'completedDispatches' || f.name === 'flexPlannedDispatches');
+    const describeType = (t) => t ? (t.name || t.kind || (t.ofType && (t.ofType.name || t.ofType.kind + '/' + (t.ofType.ofType?.name || '')))) : '?';
+    fields.forEach(f => {
+      const argsStr = (f.args || []).map(a => a.name + ':' + describeType(a.type)).join(', ');
+      logDebug(`EV cost investigation — ${f.name} signature`, `(${argsStr}) -> ${describeType(f.type)}`);
+    });
   } catch (err) {
-    logDebug('EV cost investigation — root field scan failed', err.message);
+    logDebug('EV cost investigation — signature scan failed', err.message);
   }
 
   const data = await krakenGQL(`
