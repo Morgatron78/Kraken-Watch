@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.181';
+const APP_VERSION = 'v2.182';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2281,27 +2281,52 @@ async function loadEVSmartFlex() {
   // already-authenticated production code this whole time. Should have
   // checked the app's own existing billing query before any blind schema
   // guessing — genuine miss.
-  // Step 10, v2.181: the real test. Reusing that exact proven pattern,
-  // scoped to 15 Aug 2026 (the known dispatch day), logging every
-  // transaction in that window with its title/amount/consumption window.
+  // Step 10 result (v2.181, confirmed): zero transactions for 15 Aug —
+  // genuinely informative, not a wall. Real theory: this `transactions`
+  // field almost certainly only reflects already-BILLED charges, not
+  // live/recent unbilled consumption — this account is Direct Debit with
+  // monthly billing, and 15 Aug is very recent, so no bill covering it
+  // has likely been issued yet. Octopus's own app probably computes the
+  // reconciled figure on-the-fly from raw consumption + internal rate
+  // data for display, while `transactions` only reflects what's actually
+  // been formally billed.
+  // Step 11, v2.182: test that theory directly. Fetch the most recent
+  // real bill's own date range (same `bills` query the Billing panel
+  // already uses successfully), then re-run the transaction check against
+  // THAT already-billed period instead of 15 Aug — logging any Charge
+  // transaction with a consumption window, to see whether an EV-charge
+  // transaction with a real settled amount shows up once a period is
+  // actually billed.
   try {
-    const txData = await krakenGQL(`
-      query EVCostCheck($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+    const billData = await krakenGQL(`
+      query LatestBillRange($accountNumber: String!) {
         account(accountNumber: $accountNumber) {
-          transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-            edges { node { __typename id postedDate title amounts { gross }
-              ... on Charge { consumption { quantity unit startDate endDate } }
-            } }
-          }
+          bills(first: 1) { edges { node { fromDate toDate issuedDate } } }
         }
-      }`, { accountNumber: store.creds.accountNumber, fromDate: '2026-08-15', toDate: '2026-08-16' });
-    const txns = (txData?.account?.transactions?.edges || []).map(e => e.node);
-    logDebug('EV cost investigation — 15 Aug transactions count', String(txns.length));
-    logDebug('EV cost investigation — 15 Aug transactions', txns.map(t =>
-      `${t.title} £${t.amounts?.gross ?? '?'}` + (t.consumption ? ` [${t.consumption.startDate}–${t.consumption.endDate}, ${t.consumption.quantity}${t.consumption.unit}]` : '')
-    ).join(' | ') || '(none)');
+      }`, { accountNumber: store.creds.accountNumber });
+    const latestBill = billData?.account?.bills?.edges?.[0]?.node;
+    if (!latestBill) {
+      logDebug('EV cost investigation — latest bill range', '(no bill found)');
+    } else {
+      logDebug('EV cost investigation — latest bill range', `${latestBill.fromDate}–${latestBill.toDate} (issued ${latestBill.issuedDate})`);
+      const txData = await krakenGQL(`
+        query BilledEVCheck($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+          account(accountNumber: $accountNumber) {
+            transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
+              edges { node { __typename id postedDate title amounts { gross }
+                ... on Charge { consumption { quantity unit startDate endDate } }
+              } }
+            }
+          }
+        }`, { accountNumber: store.creds.accountNumber, fromDate: latestBill.fromDate, toDate: latestBill.toDate });
+      const txns = (txData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.consumption);
+      logDebug('EV cost investigation — billed-period charge count', String(txns.length));
+      logDebug('EV cost investigation — billed-period charges', txns.slice(0, 8).map(t =>
+        `${t.title} £${t.amounts?.gross ?? '?'} [${t.consumption.startDate}–${t.consumption.endDate}, ${t.consumption.quantity}${t.consumption.unit}]`
+      ).join(' | ') || '(none)');
+    }
   } catch (err) {
-    logDebug('EV cost investigation — 15 Aug transaction check failed', err.message);
+    logDebug('EV cost investigation — billed-period check failed', err.message);
   }
 
   const data = await krakenGQL(`
