@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.178';
+const APP_VERSION = 'v2.179';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2270,24 +2270,30 @@ async function loadEVSmartFlex() {
   // this account. Likely a different Octopus smart-device program
   // entirely (battery/solar dispatches sharing the naming convention),
   // not functionally connected to EV charging.
-  // Now chasing the other lead: ChargesBreakdownType. Already confirmed
-  // NOT reachable from Query, Account, or SmartFlexChargingSession — this
-  // step checks the most promising Bill-related types' field names
-  // (name-only, lightweight) for wherever it's actually nested.
+  // Step 7 result (v2.178, confirmed): BillInterface/BillRepresentationType
+  // /CollectiveBillType — no charges/breakdown field, BillRepresentationType
+  // is just a PDF/file descriptor, dead ends. StatementBillingDocumentType
+  // is the real lead: totalCharges, totalCredits, and critically a
+  // `transactions` field — almost certainly the itemized line items.
+  // BillTransactionType already showed up by name in the original full
+  // type-name scan, a strong bet for what `transactions` actually returns.
+  // Step 8, v2.179: check BillTransactionType's fields directly. Also
+  // fixing a gap in the earlier Account root-field check — that filter
+  // only tested for upside/charges/dispatch, dropping ledger/statement/
+  // bill/transaction even though they were in the original keyword list —
+  // re-checking Account's fields against the full set this time in case
+  // the real entry point (e.g. a `statements` or `bills` field) was missed.
   try {
-    const billTypeData = await krakenGQL(`{
-      a: __type(name: "BillInterface") { fields { name } }
-      b: __type(name: "BillRepresentationType") { fields { name } }
-      c: __type(name: "CollectiveBillType") { fields { name } }
-      d: __type(name: "StatementBillingDocumentType") { fields { name } }
+    const txData = await krakenGQL(`{
+      t: __type(name: "BillTransactionType") { fields { name } }
+      acc: __type(name: "Account") { fields { name } }
     }`);
     const names = (t) => (t?.fields || []).map(f => f.name).join(', ') || '(not found)';
-    logDebug('EV cost investigation — BillInterface fields', names(billTypeData?.a));
-    logDebug('EV cost investigation — BillRepresentationType fields', names(billTypeData?.b));
-    logDebug('EV cost investigation — CollectiveBillType fields', names(billTypeData?.c));
-    logDebug('EV cost investigation — StatementBillingDocumentType fields', names(billTypeData?.d));
+    logDebug('EV cost investigation — BillTransactionType fields', names(txData?.t));
+    const accMatches = (txData?.acc?.fields || []).map(f => f.name).filter(n => /ledger|statement|bill|transaction|charge/i.test(n));
+    logDebug('EV cost investigation — Account fields matching (broader)', accMatches.join(', ') || '(none)');
   } catch (err) {
-    logDebug('EV cost investigation — bill type scan failed', err.message);
+    logDebug('EV cost investigation — transaction type scan failed', err.message);
   }
 
   const data = await krakenGQL(`
