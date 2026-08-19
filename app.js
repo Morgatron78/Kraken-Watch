@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.194';
+const APP_VERSION = 'v2.195';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2499,6 +2499,12 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
   moreBtn.disabled = true;
   try {
     const sessions = await fetchEVSessionsWindow(nextDays);
+    // TEMPORARY diagnostic — "Show more" reported as not working, no error
+    // visible in Diagnostics (logIssue would surface one if the fetch had
+    // thrown), which points at a silent empty result rather than an
+    // exception. Logs the real count either way so the next click gives
+    // actual evidence instead of more guessing. Remove once resolved.
+    logDebug('EV show-more diagnostic', `nextDays=${nextDays}, sessions returned=${sessions.length}`);
     if (sessions.length) {
       evSessionsCache.set(nextDays, sessions);
       evSessionsWindowDays = nextDays;
