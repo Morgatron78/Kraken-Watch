@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.170';
+const APP_VERSION = 'v2.172';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2261,31 +2261,33 @@ async function loadEVSmartFlex() {
   // (screenshot showed Octopus's own app reconciling an 08:30 EV-dispatch
   // slot to off-peak rate; the standard-unit-rates REST endpoint was
   // already confirmed to never show this, so the search moved to Kraken
-  // GraphQL's ledger/billing surface). One-off scan of every type name in
-  // the schema, filtered client-side to the promising substrings, rather
-  // than a full nested-field dump — cheapest possible way to find
-  // candidate type names before spending calls on any of them.
-  // v2.169 fix: originally gated to run only once per page load via an
-  // in-memory flag — but `debugNotes` gets fully cleared at the start of
-  // every 5-min auto-refresh cycle (see loadBilling/init), so the one
-  // logged result was reliably wiped by the very next cycle with the
-  // once-only guard then preventing it from ever being regenerated. A
-  // single type-name-only scan is cheap enough to just run every cycle
-  // instead — this whole block gets removed once the investigation is
-  // answered anyway, so there's no need for the added complexity of
-  // surviving the reset properly.
+  // GraphQL's ledger/billing surface).
+  // Step 1 (v2.168/v2.169/v2.170, type-name scan) found many candidates.
+  // Step 2, v2.172: swapped in stronger picks once the full (previously
+  // truncated) list was visible — SmartFlexDispatch (a *top-level*
+  // dispatch type, separate from the nested `dispatches` sub-object
+  // already queried elsewhere — may expose fields that one doesn't),
+  // ChargesBreakdownType ("breakdown of charges" is about as on-the-nose
+  // a name as this gets), and UpsideDispatchType ("upside" suggests the
+  // savings/benefit calculation from a dispatch — plausibly the
+  // reconciled-rate figure itself). Dropped the original three
+  // (BillCharge/ChargeDetail/SupplyOrServiceCharge) as weaker, more
+  // generic guesses now that better-named options are visible.
+  // CostOfChargeType also appeared in the list but wasn't worth adding —
+  // it's just the type behind the already-tested-and-empty `costOfCharge`
+  // field (see the EV cost investigation comment above), not new ground.
   try {
-    const schemaData = await krakenGQL('{ __schema { types { name } } }');
-    const allNames = (schemaData?.__schema?.types || []).map(t => t.name);
-    const promising = allNames.filter(n => /ledger|statement|bill|transaction|dispatch|charge/i.test(n));
-    // v2.170: was JSON.stringify(promising) — valid JSON has no space after
-    // each comma, so the whole array rendered as one unbroken string with
-    // nowhere for the browser to wrap, running off the edge of the screen.
-    // A plain comma-space join gives it natural break points, matching how
-    // every other diagnostic line here is already just a normal sentence.
-    logDebug('EV cost investigation — promising type names', promising.join(', '));
+    const typeData = await krakenGQL(`{
+      a: __type(name: "SmartFlexDispatch") { fields { name type { name kind ofType { name } } } }
+      b: __type(name: "ChargesBreakdownType") { fields { name type { name kind ofType { name } } } }
+      c: __type(name: "UpsideDispatchType") { fields { name type { name kind ofType { name } } } }
+    }`);
+    const describe = (t) => t ? (t.fields || []).map(f => f.name + ':' + (f.type?.name || f.type?.ofType?.name || f.type?.kind)).join(', ') : '(not found)';
+    logDebug('EV cost investigation — SmartFlexDispatch fields', describe(typeData?.a));
+    logDebug('EV cost investigation — ChargesBreakdownType fields', describe(typeData?.b));
+    logDebug('EV cost investigation — UpsideDispatchType fields', describe(typeData?.c));
   } catch (err) {
-    logDebug('EV cost investigation — schema scan failed', err.message);
+    logDebug('EV cost investigation — field scan failed', err.message);
   }
 
   const data = await krakenGQL(`
