@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.168';
+const APP_VERSION = 'v2.169';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2256,30 +2256,31 @@ async function loadEV() {
 // from the same one query rather than needing completedDispatches at all
 // — only plannedDispatches stays as its own call, since chargingSessions
 // is explicitly historical.
-let evSchemaIntrospectionDone = false; // TEMPORARY — step 1 of the EV real-cost investigation, remove once answered
-
 async function loadEVSmartFlex() {
-  // TEMPORARY v2.168 diagnostic — step 1 of the EV real-cost investigation
+  // TEMPORARY v2.169 diagnostic — step 1 of the EV real-cost investigation
   // (screenshot showed Octopus's own app reconciling an 08:30 EV-dispatch
   // slot to off-peak rate; the standard-unit-rates REST endpoint was
   // already confirmed to never show this, so the search moved to Kraken
   // GraphQL's ledger/billing surface). One-off scan of every type name in
   // the schema, filtered client-side to the promising substrings, rather
   // than a full nested-field dump — cheapest possible way to find
-  // candidate type names before spending calls on any of them. Gated to
-  // run once per page load (not every 5-min auto-refresh) to avoid
-  // wasting API calls on a static schema. Remove this whole block once
-  // the real type name is confirmed or the search is abandoned.
-  if (!evSchemaIntrospectionDone) {
-    evSchemaIntrospectionDone = true;
-    try {
-      const schemaData = await krakenGQL('{ __schema { types { name } } }');
-      const allNames = (schemaData?.__schema?.types || []).map(t => t.name);
-      const promising = allNames.filter(n => /ledger|statement|bill|transaction|dispatch|charge/i.test(n));
-      logDebug('EV cost investigation — promising type names', JSON.stringify(promising));
-    } catch (err) {
-      logDebug('EV cost investigation — schema scan failed', err.message);
-    }
+  // candidate type names before spending calls on any of them.
+  // v2.169 fix: originally gated to run only once per page load via an
+  // in-memory flag — but `debugNotes` gets fully cleared at the start of
+  // every 5-min auto-refresh cycle (see loadBilling/init), so the one
+  // logged result was reliably wiped by the very next cycle with the
+  // once-only guard then preventing it from ever being regenerated. A
+  // single type-name-only scan is cheap enough to just run every cycle
+  // instead — this whole block gets removed once the investigation is
+  // answered anyway, so there's no need for the added complexity of
+  // surviving the reset properly.
+  try {
+    const schemaData = await krakenGQL('{ __schema { types { name } } }');
+    const allNames = (schemaData?.__schema?.types || []).map(t => t.name);
+    const promising = allNames.filter(n => /ledger|statement|bill|transaction|dispatch|charge/i.test(n));
+    logDebug('EV cost investigation — promising type names', JSON.stringify(promising));
+  } catch (err) {
+    logDebug('EV cost investigation — schema scan failed', err.message);
   }
 
   const data = await krakenGQL(`
