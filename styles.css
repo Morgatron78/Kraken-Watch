@@ -744,7 +744,13 @@ button{font-family:inherit;cursor:pointer;}
    flex-shrink:0 on either group let the browser squeeze it below its
    natural content width and wrap the text inside, even when there was
    genuinely enough real row width to fit both without wrapping. */
-.slot-row-inline{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+/* v2.192 fix: was missing width:100% — .slot itself is display:flex with
+   flex-wrap:wrap, so a row without an explicit full width just shrinks to
+   its own content size instead of spanning the row, meaning the
+   right-aligned badge sat short of the card's true right edge (row 1
+   above it uses .slot-row, which has always had width:100%, hence only
+   row 2 showed the misalignment — confirmed live via screenshot). */
+.slot-row-inline{width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;flex-shrink:0;}
 .slot-row-inline .left-group .soc-col{min-width:190px;white-space:nowrap;}
 .slot-row-inline .problem-col{flex-shrink:0;}
