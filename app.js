@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.177';
+const APP_VERSION = 'v2.178';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2257,79 +2257,37 @@ async function loadEV() {
 // — only plannedDispatches stays as its own call, since chargingSessions
 // is explicitly historical.
 async function loadEVSmartFlex() {
-  // TEMPORARY v2.169 diagnostic — step 1 of the EV real-cost investigation
-  // (screenshot showed Octopus's own app reconciling an 08:30 EV-dispatch
-  // slot to off-peak rate; the standard-unit-rates REST endpoint was
-  // already confirmed to never show this, so the search moved to Kraken
-  // GraphQL's ledger/billing surface).
-  // Step 1 (v2.168/v2.169/v2.170, type-name scan) found many candidates.
-  // Step 2 (v2.171/v2.172, field-level scan of the strongest three)
-  // results: SmartFlexDispatch was a dead end (same start/end/type/
-  // energyAddedKwh shape as the nested `dispatches` sub-object already
-  // queried elsewhere — no new information). ChargesBreakdownType is
-  // promising but coarse (periodStart/periodEnd are Date, not DateTime —
-  // day-level, not half-hourly) — a charge:Int field. UpsideDispatchType
-  // is the strongest lead: real DateTime start/end (dispatch-window
-  // precision) plus a delta:Decimal — "delta" is exactly the shape of
-  // "the saving this specific dispatch produced," plausibly the
-  // reconciled figure itself. It also has an unexplored
-  // meta:UpsideDispatchMetaType sub-object.
-  // Step 3 (v2.173) result: SmartFlexChargingSession's real fields are
-  // start, end, stateOfChargeChange, stateOfChargeFinal, energyAdded,
-  // cost (the same field already confirmed to return null — nothing new),
-  // type, targetType, dispatches, problems. No upsideDispatches field —
-  // that hypothesis was wrong. UpsideDispatchMetaType turned out to be
-  // just source:String, location:String — doesn't reveal its parent
-  // either.
-  // Step 4 (v2.174) result: real root-level Query fields found —
-  // flexPlannedDispatches and completedDispatches. No match on Account —
-  // the entry point is Query directly, not nested under the account.
-  // completedDispatches is the obvious candidate for a settled/past
-  // dispatch (matching a real historical charge like the known 15 Aug
-  // 08:30 one).
-  // Step 5, v2.175: before actually calling it, find out what arguments
-  // it needs and what it returns — re-request Query's fields, this time
-  // with args + return type, filtered client-side to just these two
-  // fields (still one lightweight call, not a full-schema dump).
-  // v2.176 fix: the query only requested `ofType` two levels deep, and
-  // GraphQL's own type-wrapping (NON_NULL around LIST around NON_NULL
-  // around the actual named type is a completely normal shape) needed
-  // more — so both signatures printed just "LIST" instead of "LIST of
-  // what", the one thing this step actually needed to know. Requesting
-  // ofType five levels deep now (safely more than any realistic nesting)
-  // and unwrapping recursively client-side instead of a fixed two-deep
-  // lookup, so this actually reaches the named type at the bottom
-  // regardless of how many NON_NULL/LIST wrappers sit around it.
-  // Step 5 result (v2.175/v2.176, confirmed): flexPlannedDispatches
-  // returns SmartFlexDispatch (data we already fully know — dead end).
-  // completedDispatches(accountNumber: String) -> UpsideDispatchType is
-  // the real entry point.
-  // Step 6, v2.177: the actual test. Calling completedDispatches for
-  // real (accountNumber is the only arg — no date range, so this likely
-  // returns the full history; filtering client-side rather than trying
-  // to bound it server-side, since the field doesn't offer that). Logs
-  // only the total count plus any entry whose start falls on 15 Aug 2026
-  // (the known real dispatch from the screenshot) — not the whole list,
-  // to keep the diagnostics panel readable regardless of how large the
-  // full history turns out to be.
+  // TEMPORARY diagnostic — EV real-cost investigation (Octopus's own app
+  // showed a specific 08:30 EV-dispatch slot reconciled to off-peak rate;
+  // this app's own cost fields and rate-matching were both already
+  // confirmed dead ends — see README/memory for that history). Condensed
+  // summary of steps so far, kept short since this is temporary code:
+  // schema type-name scan → 3 strong candidates (SmartFlexDispatch,
+  // ChargesBreakdownType, UpsideDispatchType) → field-level scan ruled
+  // out SmartFlexDispatch (same data already known) → found
+  // completedDispatches(accountNumber) -> UpsideDispatchType as the real
+  // entry point → called it for real → genuinely empty (count: 0) for
+  // this account. Likely a different Octopus smart-device program
+  // entirely (battery/solar dispatches sharing the naming convention),
+  // not functionally connected to EV charging.
+  // Now chasing the other lead: ChargesBreakdownType. Already confirmed
+  // NOT reachable from Query, Account, or SmartFlexChargingSession — this
+  // step checks the most promising Bill-related types' field names
+  // (name-only, lightweight) for wherever it's actually nested.
   try {
-    const upsideData = await krakenGQL(`
-      query CompletedDispatches($accountNumber: String!) {
-        completedDispatches(accountNumber: $accountNumber) {
-          start end delta
-          meta { source location }
-        }
-      }`, { accountNumber: store.creds.accountNumber });
-    const all = upsideData?.completedDispatches || [];
-    const aug15 = all.filter(d => (d.start || '').startsWith('2026-08-15'));
-    logDebug('EV cost investigation — completedDispatches total count', String(all.length));
-    if (aug15.length) {
-      logDebug('EV cost investigation — 15 Aug matches', aug15.map(d => `${d.start}–${d.end}: delta=${d.delta} (${d.meta?.source}/${d.meta?.location})`).join(' | '));
-    } else {
-      logDebug('EV cost investigation — 15 Aug matches', '(none found — showing first 3 of full list) ' + all.slice(0, 3).map(d => `${d.start}: delta=${d.delta}`).join(' | '));
-    }
+    const billTypeData = await krakenGQL(`{
+      a: __type(name: "BillInterface") { fields { name } }
+      b: __type(name: "BillRepresentationType") { fields { name } }
+      c: __type(name: "CollectiveBillType") { fields { name } }
+      d: __type(name: "StatementBillingDocumentType") { fields { name } }
+    }`);
+    const names = (t) => (t?.fields || []).map(f => f.name).join(', ') || '(not found)';
+    logDebug('EV cost investigation — BillInterface fields', names(billTypeData?.a));
+    logDebug('EV cost investigation — BillRepresentationType fields', names(billTypeData?.b));
+    logDebug('EV cost investigation — CollectiveBillType fields', names(billTypeData?.c));
+    logDebug('EV cost investigation — StatementBillingDocumentType fields', names(billTypeData?.d));
   } catch (err) {
-    logDebug('EV cost investigation — completedDispatches call failed', err.message);
+    logDebug('EV cost investigation — bill type scan failed', err.message);
   }
 
   const data = await krakenGQL(`
