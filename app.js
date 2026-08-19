@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.175';
+const APP_VERSION = 'v2.176';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2291,21 +2291,55 @@ async function loadEVSmartFlex() {
   // it needs and what it returns — re-request Query's fields, this time
   // with args + return type, filtered client-side to just these two
   // fields (still one lightweight call, not a full-schema dump).
+  // v2.176 fix: the query only requested `ofType` two levels deep, and
+  // GraphQL's own type-wrapping (NON_NULL around LIST around NON_NULL
+  // around the actual named type is a completely normal shape) needed
+  // more — so both signatures printed just "LIST" instead of "LIST of
+  // what", the one thing this step actually needed to know. Requesting
+  // ofType five levels deep now (safely more than any realistic nesting)
+  // and unwrapping recursively client-side instead of a fixed two-deep
+  // lookup, so this actually reaches the named type at the bottom
+  // regardless of how many NON_NULL/LIST wrappers sit around it.
   try {
     const fieldData = await krakenGQL(`{
       q: __type(name: "Query") {
         fields {
           name
-          args { name type { name kind ofType { name kind ofType { name } } } }
-          type { name kind ofType { name kind ofType { name } } }
+          args {
+            name
+            type {
+              name kind
+              ofType { name kind
+                ofType { name kind
+                  ofType { name kind
+                    ofType { name kind
+                      ofType { name kind }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          type {
+            name kind
+            ofType { name kind
+              ofType { name kind
+                ofType { name kind
+                  ofType { name kind
+                    ofType { name kind }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }`);
     const fields = (fieldData?.q?.fields || []).filter(f => f.name === 'completedDispatches' || f.name === 'flexPlannedDispatches');
-    const describeType = (t) => t ? (t.name || t.kind || (t.ofType && (t.ofType.name || t.ofType.kind + '/' + (t.ofType.ofType?.name || '')))) : '?';
+    const unwrap = (t) => !t ? '?' : (t.name || unwrap(t.ofType) || t.kind);
     fields.forEach(f => {
-      const argsStr = (f.args || []).map(a => a.name + ':' + describeType(a.type)).join(', ');
-      logDebug(`EV cost investigation — ${f.name} signature`, `(${argsStr}) -> ${describeType(f.type)}`);
+      const argsStr = (f.args || []).map(a => a.name + ':' + unwrap(a.type)).join(', ');
+      logDebug(`EV cost investigation — ${f.name} signature`, `(${argsStr}) -> ${unwrap(f.type)}`);
     });
   } catch (err) {
     logDebug('EV cost investigation — signature scan failed', err.message);
