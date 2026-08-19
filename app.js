@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.180';
+const APP_VERSION = 'v2.181';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2270,36 +2270,38 @@ async function loadEVSmartFlex() {
   // this account. Likely a different Octopus smart-device program
   // entirely (battery/solar dispatches sharing the naming convention),
   // not functionally connected to EV charging.
-  // Step 7 result (v2.178, confirmed): BillInterface/BillRepresentationType
-  // /CollectiveBillType — no charges/breakdown field, BillRepresentationType
-  // is just a PDF/file descriptor, dead ends. StatementBillingDocumentType
-  // is the real lead: totalCharges, totalCredits, and critically a
-  // `transactions` field — almost certainly the itemized line items.
-  // BillTransactionType already showed up by name in the original full
-  // type-name scan, a strong bet for what `transactions` actually returns.
-  // Step 8, v2.179: check BillTransactionType's fields directly. Also
-  // fixing a gap in the earlier Account root-field check — that filter
-  // only tested for upside/charges/dispatch, dropping ledger/statement/
-  // bill/transaction even though they were in the original keyword list —
-  // re-checking Account's fields against the full set this time in case
-  // the real entry point (e.g. a `statements` or `bills` field) was missed.
-  // Step 8 result (v2.179, confirmed): BillTransactionType is a real
-  // transaction line item (id, postedDate, createdAt, amounts, title,
-  // note, reasonCode) — but no obvious start/end window, so its
-  // precision for matching one specific half-hour dispatch is unclear.
-  // Account still has no ledger/statement/bill/transaction field —
-  // confirms it's not nested under Account at all.
-  // Step 9, v2.180: completedDispatches turned out to be a root Query
-  // field, not nested under Account — so the same broader keyword check
-  // that just ruled out Account needs to run against Query too, which
-  // was only ever checked against the narrower upside/charges/dispatch
-  // pattern back in step 4.
+  // Step 9 result (v2.180, confirmed): blind schema guessing on Query's
+  // root fields turned up nothing relevant (prepay-meter ledgers, the
+  // already-known/ruled-out Octopoints fields, internal billing config).
+  // Real turning point: this app's OWN Billing panel already has a
+  // working, proven `account.transactions(fromDate, toDate)` query
+  // (see loadBilling below) that selects `title`, `amounts.gross`, and —
+  // for Charge-type transactions — `consumption { startDate endDate }`.
+  // A real settled amount AND a real start/end window, sitting in
+  // already-authenticated production code this whole time. Should have
+  // checked the app's own existing billing query before any blind schema
+  // guessing — genuine miss.
+  // Step 10, v2.181: the real test. Reusing that exact proven pattern,
+  // scoped to 15 Aug 2026 (the known dispatch day), logging every
+  // transaction in that window with its title/amount/consumption window.
   try {
-    const rootData = await krakenGQL('{ q: __type(name: "Query") { fields { name } } }');
-    const matches = (rootData?.q?.fields || []).map(f => f.name).filter(n => /ledger|statement|bill|transaction/i.test(n));
-    logDebug('EV cost investigation — Query fields matching (broader)', matches.join(', ') || '(none)');
+    const txData = await krakenGQL(`
+      query EVCostCheck($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+        account(accountNumber: $accountNumber) {
+          transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
+            edges { node { __typename id postedDate title amounts { gross }
+              ... on Charge { consumption { quantity unit startDate endDate } }
+            } }
+          }
+        }
+      }`, { accountNumber: store.creds.accountNumber, fromDate: '2026-08-15', toDate: '2026-08-16' });
+    const txns = (txData?.account?.transactions?.edges || []).map(e => e.node);
+    logDebug('EV cost investigation — 15 Aug transactions count', String(txns.length));
+    logDebug('EV cost investigation — 15 Aug transactions', txns.map(t =>
+      `${t.title} £${t.amounts?.gross ?? '?'}` + (t.consumption ? ` [${t.consumption.startDate}–${t.consumption.endDate}, ${t.consumption.quantity}${t.consumption.unit}]` : '')
+    ).join(' | ') || '(none)');
   } catch (err) {
-    logDebug('EV cost investigation — root scan failed', err.message);
+    logDebug('EV cost investigation — 15 Aug transaction check failed', err.message);
   }
 
   const data = await krakenGQL(`
