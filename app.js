@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.193';
+const APP_VERSION = 'v2.194';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -4198,6 +4198,17 @@ function init() {
     $('ev-view-session-btn').classList.toggle('active', view === 'session');
     $('ev-slots-dispatch').classList.toggle('hidden', view !== 'dispatch');
     $('ev-slots-session').classList.toggle('hidden', view !== 'session');
+    // v2.194 fix: this handler gives immediate feedback on tab click,
+    // separate from loadEVSmartFlex()'s own periodic re-render (every
+    // 5 min) — but it predates the v2.191 show-more/show-less wrap and
+    // was never updated to know about it, so the wrap only ever got its
+    // visibility corrected on the next scheduled re-render, not on the
+    // actual click. Confirmed live: switching to Sessions showed the tab
+    // content immediately but left the button invisible until an
+    // auto-refresh happened to run minutes later. The element may not
+    // exist yet on the very first click before loadEVSmartFlex has ever
+    // run once, hence the optional-chaining guard.
+    $('ev-sessions-toggle-wrap')?.classList.toggle('hidden', view !== 'session');
   });
   $('ev-week').addEventListener('click', (e) => {
     const bar = e.target.closest('.ev-week-stack');
