@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.185';
+const APP_VERSION = 'v2.186';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2280,35 +2280,24 @@ async function loadEV() {
 async function loadEVSmartFlex() {
   // TEMPORARY diagnostic — checking SmartFlexChargingProblem's real shape
   // before building the "per-session issue" feature idea (see README/
-  // memory). First check (v2.184) found it's a UNION, not an object or
-  // enum — unions don't have their own `fields` at all (that's the
-  // correct response for that kind, not an error), the real member types
-  // live under `possibleTypes`. This check gets those member type names,
-  // then their own fields, in one combined call. Not yet selected
-  // anywhere in the real query below. Remove once the shape is confirmed
+  // memory). Confirmed a UNION of two real types: SmartFlexChargingError
+  // (a `cause` enum) and SmartFlexChargingTruncation (a `truncationCause`
+  // enum plus originalAchievableStateOfCharge/achievableStateOfCharge —
+  // a real before/after comparison of planned vs actually-achievable SoC).
+  // This check gets both enums' actual values, needed to write real
+  // human-readable labels for whatever UI gets built on top of this. Not
+  // yet selected anywhere in the real query below. Remove once confirmed
   // and the real query/UI is built.
   try {
-    const unionData = await krakenGQL(`{
-      t: __type(name: "SmartFlexChargingProblem") {
-        kind
-        possibleTypes { name }
-      }
+    const enumData = await krakenGQL(`{
+      a: __type(name: "SmartFlexChargingErrorCause") { enumValues { name } }
+      b: __type(name: "SmartFlexChargingTruncationCause") { enumValues { name } }
     }`);
-    const possibleTypes = unionData?.t?.possibleTypes || [];
-    logDebug('EV problems investigation — union member types', possibleTypes.map(pt => pt.name).join(', ') || '(none)');
-    if (possibleTypes.length) {
-      const aliasedQuery = possibleTypes.map((pt, i) =>
-        `p${i}: __type(name: "${pt.name}") { fields { name type { name kind ofType { name kind ofType { name kind } } } } }`
-      ).join('\n');
-      const fieldData = await krakenGQL(`{ ${aliasedQuery} }`);
-      const unwrap = (ty) => !ty ? '?' : (ty.name || unwrap(ty.ofType) || ty.kind);
-      possibleTypes.forEach((pt, i) => {
-        const fields = fieldData?.[`p${i}`]?.fields || [];
-        logDebug(`EV problems investigation — ${pt.name} fields`, fields.map(f => f.name + ':' + unwrap(f.type)).join(', ') || '(none)');
-      });
-    }
+    const names = (t) => (t?.enumValues || []).map(v => v.name).join(', ') || '(none)';
+    logDebug('EV problems investigation — SmartFlexChargingErrorCause values', names(enumData?.a));
+    logDebug('EV problems investigation — SmartFlexChargingTruncationCause values', names(enumData?.b));
   } catch (err) {
-    logDebug('EV problems investigation — scan failed', err.message);
+    logDebug('EV problems investigation — enum scan failed', err.message);
   }
 
   const data = await krakenGQL(`
