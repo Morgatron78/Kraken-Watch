@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.192';
+const APP_VERSION = 'v2.193';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -252,6 +252,23 @@ let cachedCurrentRateP = null; // right-now electricity rate — used for the li
 let cachedStandardRateP = null; // most expensive electricity rate seen today — v2.154: used to estimate Boost-session charging cost, since Boost charges happen outside the smart dispatch schedule and so are assumed to land at standard rate, not off-peak
 let cachedElecStandingP = null;
 let cachedGasStandingP = null;
+
+// v2.192: shared cost-estimate helper — same type-based assumption as the
+// existing "This session" mini-box (v2.154), now reused for the Sessions
+// tab and Charge History too, rather than duplicating the logic three
+// times. Uses TODAY's off-peak/standard rate for every session regardless
+// of how old it is, a deliberate simplification confirmed reasonable with
+// the user: their electricity tariff is fixed for 12-month periods and
+// rarely changes, so a genuine per-session historical-rate fetch (which
+// this app doesn't otherwise do) would add real complexity for a
+// difference that would only actually matter right at a tariff renewal
+// boundary. Returns null (not a guess) if today's rates haven't loaded.
+function estimateSessionCostP(session) {
+  if (cachedOffPeakRateP == null || cachedStandardRateP == null) return null;
+  const kwh = Math.abs(session.energyAdded?.value || 0);
+  const rateP = session.type === 'BOOST' ? cachedStandardRateP : cachedOffPeakRateP;
+  return kwh * rateP;
+}
 
 // Rate queries use a wider lookback window than the actual date range being
 // priced. Narrow single-day queries (used for the 7-day bars) were missing
@@ -2390,9 +2407,16 @@ function renderEVSessionSlots(sessions, now) {
     const detailRowHtml = isExpanded
       ? `<div class="slot-row" style="margin-top:2px;"><span class="slot-badge badge-problem" style="margin-left:0;">${warnTriangleSvgSm}${problem}</span></div>`
       : '';
+    // v2.192: estimated cost, paired with kWh (Option B, approved over
+    // appending it inline with SoC/miles — groups the two "amount"
+    // figures, energy and cost, together, while SoC/gain/miles stay their
+    // own logical group). Uses estimateSessionCostP() — see that function
+    // for the "why today's rate is fine even for older sessions" reasoning.
+    const costP = estimateSessionCostP(s);
+    const costText = costP != null ? `<span class="slot-cost">(Est. <b>${fmtGBP(costP / 100)}</b>)</span>` : '';
     return `<div class="slot">
       <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span>${badgeHtml(s.type)}</div>
-      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b><span class="soc-col">${socText}${milesText}</span></span>${miniPillHtml}</div>
+      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}<span class="soc-col">${socText}${milesText}</span></span>${miniPillHtml}</div>
       ${detailRowHtml}
     </div>`;
   }).join('');
@@ -2930,6 +2954,16 @@ function renderEVHistoryBars(buckets, labels) {
   $('ev-week-kwh-total').textContent = `${kwhTotal.toFixed(1)} kWh`;
   $('ev-week-session-count').textContent = `${sessionCount}`;
 
+  // v2.192: period-total estimated cost, same estimateSessionCostP() used
+  // in the Sessions tab and This-Session mini-box. Hidden as "—" rather
+  // than a wrong/zero figure if today's rates haven't loaded, or if any
+  // one session in the period is missing a cost estimate for the same
+  // reason — a partial total would be misleading, not just imprecise.
+  const allSessions = buckets.flatMap(b => b.sessions);
+  const costsP = allSessions.map(estimateSessionCostP);
+  const costTotalP = costsP.every(c => c != null) ? costsP.reduce((s, c) => s + c, 0) : null;
+  $('ev-week-cost-total').textContent = costTotalP != null ? fmtGBP(costTotalP / 100) : '—';
+
   // v2.154: Smart/Boost split, as an explicit percentage rather than only
   // visible in the stacked bar colors — makes the cost-efficiency story
   // legible at a glance instead of requiring a visual read of bar segments.
@@ -3172,14 +3206,27 @@ function renderEVWeekBreakdown(index) {
   const smartSessions = bucket.sessions.filter(s => s.type !== 'BOOST');
   const boostSessions = bucket.sessions.filter(s => s.type === 'BOOST');
   const total = bucket.smart + bucket.boost;
+  // v2.192: per-fuel-type and total estimated cost, same
+  // estimateSessionCostP() used elsewhere. A group (Smart or Boost) only
+  // shows its cost if every session in it has one — a partial sum inside
+  // a single fuel-type line would be misleading the same way a partial
+  // period total would be. The combined Total cost only shows if every
+  // session in the whole bucket has a cost, for the same reason.
+  const costSuffix = costP => costP != null ? ` · £${(costP / 100).toFixed(2)}` : '';
+  const smartCostsP = smartSessions.map(estimateSessionCostP);
+  const smartCostP = smartCostsP.every(c => c != null) ? smartCostsP.reduce((s, c) => s + c, 0) : null;
+  const boostCostsP = boostSessions.map(estimateSessionCostP);
+  const boostCostP = boostCostsP.every(c => c != null) ? boostCostsP.reduce((s, c) => s + c, 0) : null;
+  const allCostsP = bucket.sessions.map(estimateSessionCostP);
+  const totalCostP = allCostsP.every(c => c != null) ? allCostsP.reduce((s, c) => s + c, 0) : null;
   let rows = '';
   if (smartSessions.length) {
-    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--mint)"></span>Smart</span><span class="val">${smartSessions.length} session${smartSessions.length === 1 ? '' : 's'} · ${bucket.smart.toFixed(1)} kWh</span></div>`;
+    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--mint)"></span>Smart</span><span class="val">${smartSessions.length} session${smartSessions.length === 1 ? '' : 's'} · ${bucket.smart.toFixed(1)} kWh${costSuffix(smartCostP)}</span></div>`;
   }
   if (boostSessions.length) {
-    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--pink)"></span>Boost</span><span class="val">${boostSessions.length} session${boostSessions.length === 1 ? '' : 's'} · ${bucket.boost.toFixed(1)} kWh</span></div>`;
+    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--pink)"></span>Boost</span><span class="val">${boostSessions.length} session${boostSessions.length === 1 ? '' : 's'} · ${bucket.boost.toFixed(1)} kWh${costSuffix(boostCostP)}</span></div>`;
   }
-  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh</span></div>`;
+  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh${costSuffix(totalCostP)}</span></div>`;
 }
 
 let evWeekBuckets = null;

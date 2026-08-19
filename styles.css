@@ -730,6 +730,12 @@ button{font-family:inherit;cursor:pointer;}
 .schedule-day.upcoming .schedule-day-time{color:var(--pink);font-weight:600;}
 
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}
+/* v2.192: estimated session cost, paired with kWh per the approved
+   mockup — parenthetical, dimmed "Est." label with the actual figure in
+   normal text weight so it doesn't compete visually with the kWh value
+   right next to it. */
+.slot-cost{color:var(--text-dim);font-size:10px;margin-left:4px;}
+.slot-cost b{color:var(--text);font-weight:600;}
 
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
 
@@ -753,7 +759,14 @@ button{font-family:inherit;cursor:pointer;}
 .slot-row-inline{width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;flex-shrink:0;}
 .slot-row-inline .left-group .soc-col{min-width:190px;white-space:nowrap;}
-.slot-row-inline .problem-col{flex-shrink:0;}
+/* v2.192 fix: was floating oddly relative to the row's text content —
+   confirmed via render. .slot-row-inline uses align-items:baseline, which
+   suits the kWh/cost/SoC text next to it, but the mini warning button
+   contains only an icon with no text, so it has no meaningful baseline to
+   align to and the browser was positioning it unpredictably. align-self
+   here overrides just this one element back to vertical centering,
+   without disturbing the baseline alignment the text elements rely on. */
+.slot-row-inline .problem-col{flex-shrink:0;align-self:center;}
 .slot-row-inline .problem-col .badge-problem{margin-left:0;white-space:nowrap;}
 
 .ev-week-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
