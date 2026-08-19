@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.176';
+const APP_VERSION = 'v2.177';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2300,49 +2300,36 @@ async function loadEVSmartFlex() {
   // and unwrapping recursively client-side instead of a fixed two-deep
   // lookup, so this actually reaches the named type at the bottom
   // regardless of how many NON_NULL/LIST wrappers sit around it.
+  // Step 5 result (v2.175/v2.176, confirmed): flexPlannedDispatches
+  // returns SmartFlexDispatch (data we already fully know — dead end).
+  // completedDispatches(accountNumber: String) -> UpsideDispatchType is
+  // the real entry point.
+  // Step 6, v2.177: the actual test. Calling completedDispatches for
+  // real (accountNumber is the only arg — no date range, so this likely
+  // returns the full history; filtering client-side rather than trying
+  // to bound it server-side, since the field doesn't offer that). Logs
+  // only the total count plus any entry whose start falls on 15 Aug 2026
+  // (the known real dispatch from the screenshot) — not the whole list,
+  // to keep the diagnostics panel readable regardless of how large the
+  // full history turns out to be.
   try {
-    const fieldData = await krakenGQL(`{
-      q: __type(name: "Query") {
-        fields {
-          name
-          args {
-            name
-            type {
-              name kind
-              ofType { name kind
-                ofType { name kind
-                  ofType { name kind
-                    ofType { name kind
-                      ofType { name kind }
-                    }
-                  }
-                }
-              }
-            }
-          }
-          type {
-            name kind
-            ofType { name kind
-              ofType { name kind
-                ofType { name kind
-                  ofType { name kind
-                    ofType { name kind }
-                  }
-                }
-              }
-            }
-          }
+    const upsideData = await krakenGQL(`
+      query CompletedDispatches($accountNumber: String!) {
+        completedDispatches(accountNumber: $accountNumber) {
+          start end delta
+          meta { source location }
         }
-      }
-    }`);
-    const fields = (fieldData?.q?.fields || []).filter(f => f.name === 'completedDispatches' || f.name === 'flexPlannedDispatches');
-    const unwrap = (t) => !t ? '?' : (t.name || unwrap(t.ofType) || t.kind);
-    fields.forEach(f => {
-      const argsStr = (f.args || []).map(a => a.name + ':' + unwrap(a.type)).join(', ');
-      logDebug(`EV cost investigation — ${f.name} signature`, `(${argsStr}) -> ${unwrap(f.type)}`);
-    });
+      }`, { accountNumber: store.creds.accountNumber });
+    const all = upsideData?.completedDispatches || [];
+    const aug15 = all.filter(d => (d.start || '').startsWith('2026-08-15'));
+    logDebug('EV cost investigation — completedDispatches total count', String(all.length));
+    if (aug15.length) {
+      logDebug('EV cost investigation — 15 Aug matches', aug15.map(d => `${d.start}–${d.end}: delta=${d.delta} (${d.meta?.source}/${d.meta?.location})`).join(' | '));
+    } else {
+      logDebug('EV cost investigation — 15 Aug matches', '(none found — showing first 3 of full list) ' + all.slice(0, 3).map(d => `${d.start}: delta=${d.delta}`).join(' | '));
+    }
   } catch (err) {
-    logDebug('EV cost investigation — signature scan failed', err.message);
+    logDebug('EV cost investigation — completedDispatches call failed', err.message);
   }
 
   const data = await krakenGQL(`
