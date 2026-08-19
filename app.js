@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.179';
+const APP_VERSION = 'v2.180';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2283,17 +2283,23 @@ async function loadEVSmartFlex() {
   // bill/transaction even though they were in the original keyword list —
   // re-checking Account's fields against the full set this time in case
   // the real entry point (e.g. a `statements` or `bills` field) was missed.
+  // Step 8 result (v2.179, confirmed): BillTransactionType is a real
+  // transaction line item (id, postedDate, createdAt, amounts, title,
+  // note, reasonCode) — but no obvious start/end window, so its
+  // precision for matching one specific half-hour dispatch is unclear.
+  // Account still has no ledger/statement/bill/transaction field —
+  // confirms it's not nested under Account at all.
+  // Step 9, v2.180: completedDispatches turned out to be a root Query
+  // field, not nested under Account — so the same broader keyword check
+  // that just ruled out Account needs to run against Query too, which
+  // was only ever checked against the narrower upside/charges/dispatch
+  // pattern back in step 4.
   try {
-    const txData = await krakenGQL(`{
-      t: __type(name: "BillTransactionType") { fields { name } }
-      acc: __type(name: "Account") { fields { name } }
-    }`);
-    const names = (t) => (t?.fields || []).map(f => f.name).join(', ') || '(not found)';
-    logDebug('EV cost investigation — BillTransactionType fields', names(txData?.t));
-    const accMatches = (txData?.acc?.fields || []).map(f => f.name).filter(n => /ledger|statement|bill|transaction|charge/i.test(n));
-    logDebug('EV cost investigation — Account fields matching (broader)', accMatches.join(', ') || '(none)');
+    const rootData = await krakenGQL('{ q: __type(name: "Query") { fields { name } } }');
+    const matches = (rootData?.q?.fields || []).map(f => f.name).filter(n => /ledger|statement|bill|transaction/i.test(n));
+    logDebug('EV cost investigation — Query fields matching (broader)', matches.join(', ') || '(none)');
   } catch (err) {
-    logDebug('EV cost investigation — transaction type scan failed', err.message);
+    logDebug('EV cost investigation — root scan failed', err.message);
   }
 
   const data = await krakenGQL(`
