@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.172';
+const APP_VERSION = 'v2.173';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2263,29 +2263,32 @@ async function loadEVSmartFlex() {
   // already confirmed to never show this, so the search moved to Kraken
   // GraphQL's ledger/billing surface).
   // Step 1 (v2.168/v2.169/v2.170, type-name scan) found many candidates.
-  // Step 2, v2.172: swapped in stronger picks once the full (previously
-  // truncated) list was visible — SmartFlexDispatch (a *top-level*
-  // dispatch type, separate from the nested `dispatches` sub-object
-  // already queried elsewhere — may expose fields that one doesn't),
-  // ChargesBreakdownType ("breakdown of charges" is about as on-the-nose
-  // a name as this gets), and UpsideDispatchType ("upside" suggests the
-  // savings/benefit calculation from a dispatch — plausibly the
-  // reconciled-rate figure itself). Dropped the original three
-  // (BillCharge/ChargeDetail/SupplyOrServiceCharge) as weaker, more
-  // generic guesses now that better-named options are visible.
-  // CostOfChargeType also appeared in the list but wasn't worth adding —
-  // it's just the type behind the already-tested-and-empty `costOfCharge`
-  // field (see the EV cost investigation comment above), not new ground.
+  // Step 2 (v2.171/v2.172, field-level scan of the strongest three)
+  // results: SmartFlexDispatch was a dead end (same start/end/type/
+  // energyAddedKwh shape as the nested `dispatches` sub-object already
+  // queried elsewhere — no new information). ChargesBreakdownType is
+  // promising but coarse (periodStart/periodEnd are Date, not DateTime —
+  // day-level, not half-hourly) — a charge:Int field. UpsideDispatchType
+  // is the strongest lead: real DateTime start/end (dispatch-window
+  // precision) plus a delta:Decimal — "delta" is exactly the shape of
+  // "the saving this specific dispatch produced," plausibly the
+  // reconciled figure itself. It also has an unexplored
+  // meta:UpsideDispatchMetaType sub-object.
+  // Step 3, v2.173: rather than guess where UpsideDispatchType is
+  // actually queryable from, check the FULL field list of
+  // SmartFlexChargingSession — the type this app already queries every
+  // load. If it has an `upsideDispatches` (or similarly-named) field not
+  // currently selected, that's the entry point handed to us directly, no
+  // more guessing needed. Combined with UpsideDispatchMetaType's own
+  // fields in the same call.
   try {
     const typeData = await krakenGQL(`{
-      a: __type(name: "SmartFlexDispatch") { fields { name type { name kind ofType { name } } } }
-      b: __type(name: "ChargesBreakdownType") { fields { name type { name kind ofType { name } } } }
-      c: __type(name: "UpsideDispatchType") { fields { name type { name kind ofType { name } } } }
+      a: __type(name: "SmartFlexChargingSession") { fields { name type { name kind ofType { name } } } }
+      b: __type(name: "UpsideDispatchMetaType") { fields { name type { name kind ofType { name } } } }
     }`);
     const describe = (t) => t ? (t.fields || []).map(f => f.name + ':' + (f.type?.name || f.type?.ofType?.name || f.type?.kind)).join(', ') : '(not found)';
-    logDebug('EV cost investigation — SmartFlexDispatch fields', describe(typeData?.a));
-    logDebug('EV cost investigation — ChargesBreakdownType fields', describe(typeData?.b));
-    logDebug('EV cost investigation — UpsideDispatchType fields', describe(typeData?.c));
+    logDebug('EV cost investigation — SmartFlexChargingSession fields', describe(typeData?.a));
+    logDebug('EV cost investigation — UpsideDispatchMetaType fields', describe(typeData?.b));
   } catch (err) {
     logDebug('EV cost investigation — field scan failed', err.message);
   }
