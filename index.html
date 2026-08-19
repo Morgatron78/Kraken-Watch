@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.189">
+<link rel="stylesheet" href="styles.css?v=2.191">
 </head>
 <body>
 <div class="wrap">
@@ -687,6 +687,25 @@
       </div>
     </div>
 
+    <p class="desc" style="margin-top:14px;">EV vehicle — Octopus's own device record fills these in automatically; only edit if you'd rather show a different name, or if you want range estimates using your own vehicle's real WLTP figures.</p>
+    <div class="field">
+      <label for="input-ev-make">Vehicle make</label>
+      <input id="input-ev-make" type="text" maxlength="15" placeholder="e.g. Polestar">
+    </div>
+    <div class="field">
+      <label for="input-ev-model">Vehicle model</label>
+      <input id="input-ev-model" type="text" maxlength="30" placeholder="e.g. 2 Standard Range Single Motor">
+    </div>
+    <div class="field">
+      <label for="input-ev-wltp-miles">WLTP range (miles)</label>
+      <input id="input-ev-wltp-miles" type="number" step="1" placeholder="e.g. 322">
+    </div>
+    <div class="field">
+      <label for="input-ev-wltp-kwh">Usable battery capacity (kWh)</label>
+      <input id="input-ev-wltp-kwh" type="number" step="0.1" placeholder="e.g. 67">
+      <div class="hint">Both used only for the "range added" estimate on charging sessions — check your vehicle's own spec sheet for the real figures. Leave blank to use a generic estimate.</div>
+    </div>
+
     <div class="field" style="display:flex;align-items:center;gap:10px;">
       <input id="input-show-diagnostics" type="checkbox" style="width:auto;accent-color:var(--text-dim);">
       <label for="input-show-diagnostics" style="margin:0;text-transform:none;font-size:13px;color:var(--text);letter-spacing:0;">Show diagnostics panel when syncing</label>
@@ -703,6 +722,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.189"></script>
+<script src="app.js?v=2.191"></script>
 </body>
 </html>

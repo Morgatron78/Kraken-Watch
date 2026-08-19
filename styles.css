@@ -705,6 +705,18 @@ button{font-family:inherit;cursor:pointer;}
    app, not this rule — confirmed live via screenshot (icon flush against
    the text, misaligned). */
 .badge-problem svg{vertical-align:-1px;margin-right:3px;}
+/* v2.191: circular icon-only toggle, replacing the always-visible full
+   text pill — click reveals the full message as a third row below,
+   matching the "surface the key fact, drill down for detail" pattern
+   already used elsewhere in the app (breakdown boxes, bill history). A
+   real <button>, not a span, for proper keyboard/tap semantics. */
+.badge-problem-mini{
+  display:flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:50%;flex-shrink:0;
+  color:var(--coral);background:rgba(255,107,91,0.12);border:1px solid rgba(255,107,91,0.35);
+  padding:0;cursor:pointer;
+}
+.badge-problem-mini svg{margin:0;}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
 .battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;}
 
@@ -721,14 +733,22 @@ button{font-family:inherit;cursor:pointer;}
 
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
 
-/* v2.189: fixed-width grid column for the kWh/SoC row — previously plain
-   flex space-between, which right-aligned the SoC block correctly but let
-   its own left-starting edge drift depending on how much text it held
-   (a full "95% → 100% (+5%)" vs a shorter placeholder row), reading as
-   ragged/inconsistent between sessions. A fixed second column means the
-   SoC info always starts at the same x-position regardless of content. */
-.slot-row-grid{display:grid;grid-template-columns:1fr 130px;align-items:baseline;}
-.slot-row-grid .soc-col{justify-self:start;white-space:nowrap;}
+/* v2.190: replaces v2.189's .slot-row-grid — same fixed-width-column
+   reasoning (kept: the SoC info needs a stable x-position regardless of
+   content length, or it reads as ragged between sessions), but restructured
+   to a flex row so the problem badge (when present) can sit flush right on
+   the same line, per the user's own follow-up request, rather than the
+   badge needing its own row below (v2.188's original placement). Two
+   flex-shrink:0 groups — kWh+SoC together on the left, the badge alone on
+   the right — confirmed live during mockup review that omitting
+   flex-shrink:0 on either group let the browser squeeze it below its
+   natural content width and wrap the text inside, even when there was
+   genuinely enough real row width to fit both without wrapping. */
+.slot-row-inline{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.slot-row-inline .left-group{display:flex;align-items:baseline;flex-shrink:0;}
+.slot-row-inline .left-group .soc-col{width:190px;white-space:nowrap;}
+.slot-row-inline .problem-col{flex-shrink:0;}
+.slot-row-inline .problem-col .badge-problem{margin-left:0;white-space:nowrap;}
 
 .ev-week-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
 .ev-week-col span{font-family:'Inter', sans-serif;font-size:9px;color:var(--text-dim);}

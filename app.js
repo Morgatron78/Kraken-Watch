@@ -16,18 +16,23 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.189';
+const APP_VERSION = 'v2.191';
 
-// v2.154: used only for the EV panel's estimated-range-added figure.
-// Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
-// usable, 322mi WLTP on the 2024+ battery — sourced from Polestar's own
-// published specs) — 322/67 ≈ 4.8 mi/kWh. WLTP is a lab figure, real-world
-// efficiency is normally lower, so this is a rough estimate labeled as
-// such wherever it's shown, not a precise range calculation. Specific to
-// whichever vehicle is actually on this account — would need updating if
-// the vehicle ever changes, or if the exact model year/battery differs
-// from what's assumed here.
-const EV_RANGE_MI_PER_KWH = 4.8;
+// v2.191: this was the app's single biggest "only works for one specific
+// account" hardcode — replaced with a Settings-configurable pair (WLTP
+// range in miles, usable battery kWh), from which the actual mi/kWh ratio
+// is derived per-account instead of assuming everyone's on a Polestar 2.
+// This constant now only serves as the fallback for anyone who hasn't
+// filled in Settings yet, kept at the original Polestar 2 Standard Range
+// Single Motor figure (69kWh gross/67kWh usable, 322mi WLTP — 322/67≈4.8)
+// so existing behaviour doesn't silently change for users who never touch
+// the new fields.
+const EV_RANGE_MI_PER_KWH_FALLBACK = 4.8;
+function getEvRangeMiPerKwh() {
+  const c = store.creds || {};
+  if (c.wltpMiles > 0 && c.wltpBatteryKwh > 0) return c.wltpMiles / c.wltpBatteryKwh;
+  return EV_RANGE_MI_PER_KWH_FALLBACK;
+}
 
 const store = {
   get creds() {
@@ -2142,8 +2147,12 @@ function formatVehicleName(make, model) {
 async function loadVehicleInfoOnce() {
   const creds = store.creds || {};
   if (creds.vehicleChecked) {
-    if (creds.vehicleMake) {
-      const { title, caption } = formatVehicleName(creds.vehicleMake, creds.vehicleModel);
+    // v2.191: prefer the user's own custom name if they've set one,
+    // falling back to whichever value Octopus's device record returned.
+    const displayMake = creds.customVehicleMake || creds.vehicleMake;
+    const displayModel = creds.customVehicleModel || creds.vehicleModel;
+    if (displayMake) {
+      const { title, caption } = formatVehicleName(displayMake, displayModel);
       $('ev-name').textContent = title;
       if (caption) { $('ev-caption').textContent = caption; $('ev-caption').classList.remove('hidden'); }
     }
@@ -2158,8 +2167,15 @@ async function loadVehicleInfoOnce() {
       }`, { accountNumber: store.creds.accountNumber });
     const v = vehicleData?.registeredKrakenflexDevice;
     store.creds = { ...store.creds, vehicleChecked: true, vehicleMake: v?.vehicleMake || null, vehicleModel: v?.vehicleModel || null };
-    if (v?.vehicleMake) {
-      const { title, caption } = formatVehicleName(v.vehicleMake, v.vehicleModel);
+    // v2.191: same custom-name preference on first load as the cached path
+    // above — creds.customVehicleMake/Model persist across this refresh
+    // (only vehicleMake/vehicleModel, the raw API values, get overwritten
+    // here), so a saved override keeps showing even after the API values
+    // themselves change underneath it.
+    const displayMake = store.creds.customVehicleMake || v?.vehicleMake;
+    const displayModel = store.creds.customVehicleModel || v?.vehicleModel;
+    if (displayMake) {
+      const { title, caption } = formatVehicleName(displayMake, displayModel);
       $('ev-name').textContent = title;
       if (caption) { $('ev-caption').textContent = caption; $('ev-caption').classList.remove('hidden'); }
     }
@@ -2306,17 +2322,31 @@ function realProblemLabel(session) {
   }
   return null;
 }
-const problemBadgeHtml = session => {
-  const label = realProblemLabel(session);
-  if (!label) return '';
-  const warnTriangleSvgSm = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-  return `<div class="slot-row" style="margin-top:2px;"><span class="slot-badge badge-problem" style="margin-left:0;">${warnTriangleSvgSm}${label}</span></div>`;
-};
+// v2.190: hoisted to module level — was previously only defined inside
+// the old problemBadgeHtml() (own-row badge layout), removed once that
+// layout was reverted in favour of the inline right-aligned one below,
+// which needs this same icon markup directly.
+const warnTriangleSvgSm = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+
+// v2.191: elapsed-time formatter for the session row — Octopus's own app
+// shows this next to the time range; this app was leaving the user to
+// work it out from start/end manually.
+function formatElapsed(startISO, endISO) {
+  const ms = new Date(endISO) - new Date(startISO);
+  if (!(ms > 0)) return '';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+let expandedProblemSessions = new Set(); // keys = session start ISO strings, survives re-renders
+let lastRenderedSessions = null, lastRenderedNow = null; // so the click handler can re-render without needing to know which list (8-day/expanded) is currently showing
 
 // v2.189: Sessions-tab renderer, factored out so it can run against either
 // the default 8-day `sessions` array or a wider on-demand fetch (see
-// expandEVSessions) without duplicating the markup logic.
+// showMoreEVSessions) without duplicating the markup logic.
 function renderEVSessionSlots(sessions, now) {
+  lastRenderedSessions = sessions; lastRenderedNow = now;
   sessions.forEach((s, i) => { s._startSoc = i > 0 ? sessions[i - 1].stateOfChargeFinal : null; });
   const sessionSlots = $('ev-slots-session');
   sessionSlots.innerHTML = [...sessions].reverse().map(s => {
@@ -2325,6 +2355,7 @@ function renderEVSessionSlots(sessions, now) {
     const dayLabel = startD.toDateString() === now.toDateString() ? 'Today'
       : startD.toDateString() === new Date(now - 86400000).toDateString() ? 'Yesterday'
       : startD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const elapsed = formatElapsed(s.start, s.end);
     let socText = '';
     if (s.stateOfChargeFinal != null) {
       if (s._startSoc != null) {
@@ -2339,67 +2370,129 @@ function renderEVSessionSlots(sessions, now) {
         socText = `<span class="slot-soc">— → ${Math.round(s.stateOfChargeFinal)}%</span>`;
       }
     }
+    // v2.191: estimated range added, using getEvRangeMiPerKwh() (Settings-
+    // configurable per vehicle, was a single hardcoded Polestar 2 constant)
+    const milesText = kwh != null ? ` <span class="slot-soc-gain">≈${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())}mi</span>` : '';
+    // v2.191: warning redesign — was a full text pill inline (v2.190),
+    // now a small circular icon-only toggle; clicking it shows/hides a
+    // third row with the full message, rather than the message always
+    // being visible. Matches the "surface the key fact, drill down for
+    // detail" pattern already used elsewhere in the app (breakdown boxes,
+    // bill history). Expand state keyed by session start time, persisted
+    // in expandedProblemSessions so it survives re-renders (auto-refresh,
+    // toggling the 30-day view) rather than resetting every time.
+    const problem = realProblemLabel(s);
+    const problemKey = s.start;
+    const isExpanded = problem && expandedProblemSessions.has(problemKey);
+    const miniPillHtml = problem
+      ? `<span class="problem-col"><button type="button" class="badge-problem-mini" data-problem-key="${problemKey}" aria-expanded="${isExpanded}">${warnTriangleSvgSm}</button></span>`
+      : '<span class="problem-col"></span>';
+    const detailRowHtml = isExpanded
+      ? `<div class="slot-row" style="margin-top:2px;"><span class="slot-badge badge-problem" style="margin-left:0;">${warnTriangleSvgSm}${problem}</span></div>`
+      : '';
     return `<div class="slot">
-      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}</div>
-      <div class="slot-row-grid"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b><span class="soc-col">${socText}</span></div>
-      ${problemBadgeHtml(s)}
+      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span>${badgeHtml(s.type)}</div>
+      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b><span class="soc-col">${socText}${milesText}</span></span>${miniPillHtml}</div>
+      ${detailRowHtml}
     </div>`;
   }).join('');
   if (!sessionSlots.children.length) sessionSlots.innerHTML = '<div class="slot">No charging sessions this week</div>';
 }
 
-let evSessionsExpandBtnAdded = false;
-let evSessionsExpanded = false;
+let evProblemToggleListenerAdded = false;
+function attachEVProblemToggleListener() {
+  if (evProblemToggleListenerAdded) return;
+  evProblemToggleListenerAdded = true;
+  // Event delegation on the parent (not each button): sessionSlots.innerHTML
+  // gets fully rebuilt on every render, which would destroy per-button
+  // listeners, but a listener on the parent container itself survives
+  // since the parent element is never replaced, only its children.
+  $('ev-slots-session').addEventListener('click', (e) => {
+    const btn = e.target.closest('.badge-problem-mini');
+    if (!btn || !lastRenderedSessions) return;
+    const key = btn.dataset.problemKey;
+    if (expandedProblemSessions.has(key)) expandedProblemSessions.delete(key);
+    else expandedProblemSessions.add(key);
+    renderEVSessionSlots(lastRenderedSessions, lastRenderedNow);
+  });
+}
 
-// v2.189: on-demand fetch for "Show last 30 days" — deliberately separate
-// from the main 8-day query so nothing else that depends on that 8-day
-// scope (mini-stats, Windows tab) is affected by widening it. Reuses the
-// exact same session shape/fields as the main query.
-async function expandEVSessions(btn) {
-  if (evSessionsExpanded) return;
-  const original = btn.querySelector('span').textContent;
-  btn.querySelector('span').textContent = 'Loading…';
-  btn.disabled = true;
-  try {
-    const data = await krakenGQL(`
-      query EVSessions30d($accountNumber: String!, $after: DateTime!) {
-        devices(accountNumber: $accountNumber) {
-          ... on SmartFlexVehicle {
-            chargingSessions(after: $after, first: 100) {
-              edges { node {
-                ... on SmartFlexChargingSession {
-                  start end type
-                  energyAdded { value }
-                  stateOfChargeFinal
-                  problems {
-                    __typename
-                    ... on SmartFlexChargingError { cause }
-                    ... on SmartFlexChargingTruncation { truncationCause originalAchievableStateOfCharge achievableStateOfCharge }
-                  }
+let evDefaultSessions = null; // the original 8-day list, cached so "Show less" can revert without a re-fetch
+let evSessionsCache = new Map(); // keyed by day-count (16, 32, 64...), so repeated expand/collapse never re-fetches the same tier twice
+let evSessionsWindowDays = 8; // the window currently on screen
+let evSessionsToggleBtnAdded = false;
+
+// v2.191: "Show more"/"Show less" — replaces v2.189/v2.190's flat "last 30
+// days" with the user's own preferred approach: each "Show more" click
+// doubles the window (8→16→32→64...), re-fetching only when that exact
+// tier hasn't been seen before (cached in evSessionsCache by day-count).
+// "Show less" always reverts straight to the base 8-day view rather than
+// stepping back tier-by-tier — simpler, and matches the actual complaint
+// (no way back at all), not a request for stepped undo. Deliberately a
+// separate on-demand fetch rather than widening the default 8-day query,
+// so nothing else that depends on that 8-day scope (mini-stats, Windows
+// tab) is affected.
+async function fetchEVSessionsWindow(days) {
+  const data = await krakenGQL(`
+    query EVSessionsWindow($accountNumber: String!, $after: DateTime!) {
+      devices(accountNumber: $accountNumber) {
+        ... on SmartFlexVehicle {
+          chargingSessions(after: $after, first: 200) {
+            edges { node {
+              ... on SmartFlexChargingSession {
+                start end type
+                energyAdded { value }
+                stateOfChargeFinal
+                problems {
+                  __typename
+                  ... on SmartFlexChargingError { cause }
+                  ... on SmartFlexChargingTruncation { truncationCause originalAchievableStateOfCharge achievableStateOfCharge }
                 }
-              } }
-            }
+              }
+            } }
           }
         }
-      }`, {
-      accountNumber: store.creds.accountNumber,
-      after: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    });
-    const vehicle = (data?.devices || []).find(d => d && d.chargingSessions);
-    const sessions30d = (vehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
-    if (sessions30d.length) {
-      renderEVSessionSlots(sessions30d, new Date());
-      evSessionsExpanded = true;
-      btn.remove();
-    } else {
-      btn.querySelector('span').textContent = original;
-      btn.disabled = false;
+      }
+    }`, {
+    accountNumber: store.creds.accountNumber,
+    after: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  });
+  const vehicle = (data?.devices || []).find(d => d && d.chargingSessions);
+  return (vehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+}
+
+async function showMoreEVSessions(moreBtn, lessBtn, now) {
+  const nextDays = evSessionsWindowDays * 2;
+  const cached = evSessionsCache.get(nextDays);
+  if (cached) {
+    evSessionsWindowDays = nextDays;
+    renderEVSessionSlots(cached, now);
+    lessBtn.classList.remove('hidden');
+    return;
+  }
+  const original = moreBtn.querySelector('span').textContent;
+  moreBtn.querySelector('span').textContent = 'Loading…';
+  moreBtn.disabled = true;
+  try {
+    const sessions = await fetchEVSessionsWindow(nextDays);
+    if (sessions.length) {
+      evSessionsCache.set(nextDays, sessions);
+      evSessionsWindowDays = nextDays;
+      renderEVSessionSlots(sessions, now);
+      lessBtn.classList.remove('hidden');
     }
   } catch (err) {
-    logIssue('EV 30-day sessions', err);
-    btn.querySelector('span').textContent = original;
-    btn.disabled = false;
+    logIssue(`EV ${nextDays}-day sessions`, err);
+  } finally {
+    moreBtn.querySelector('span').textContent = original;
+    moreBtn.disabled = false;
   }
+}
+
+function showLessEVSessions(lessBtn, now) {
+  evSessionsWindowDays = 8;
+  renderEVSessionSlots(evDefaultSessions, now);
+  lessBtn.classList.add('hidden');
 }
 
 async function loadEVSmartFlex() {
@@ -2672,31 +2765,44 @@ async function loadEVSmartFlex() {
   // which case the delta is just slightly off, not broken.
   // v2.189: factored into its own function, callable with either the
   // default 8-day `sessions` or a wider on-demand fetch (see
-  // expandEVSessions below) — same rendering logic either way, just a
-  // different input list. Guarded on evSessionsExpanded: once the user
-  // has expanded to 30 days, later auto-refreshes (every 5 min) must not
+  // showMoreEVSessions below) — same rendering logic either way, just a
+  // different input list. Guarded on evSessionsWindowDays > 8: once the
+  // user has expanded, later auto-refreshes (every 5 min) must not
   // re-render with the narrow 8-day list, or the expanded view would
   // silently revert on its own a few minutes after being requested. The
   // real tradeoff: the expanded view then stays static (no fresh data)
   // until the page is next fully reloaded — better than reverting a
   // user's explicit choice without asking.
-  if (!evSessionsExpanded) renderEVSessionSlots(sessions, now);
+  evDefaultSessions = sessions;
+  attachEVProblemToggleListener();
+  if (evSessionsWindowDays === 8) renderEVSessionSlots(sessions, now);
 
-  // v2.189: "Show last 30 days" — deliberately a separate on-demand fetch
-  // rather than widening the default 8-day one, so nothing else that
-  // depends on that 8-day scope (the mini-stats above, the Windows tab)
-  // is affected. Button only appears once, added once per page life via
-  // evSessionsExpandBtnAdded guard so re-renders don't duplicate it.
+  // v2.191: "Show more"/"Show less" — two buttons, centered as a pair
+  // (width-to-content, not full-width — v2.189/v2.190 were full-width).
+  // "Show more" is always visible and doubles the window each press;
+  // "Show less" only appears once actually expanded, and reverts fully to
+  // the 8-day base. v2.191 fix: was appearing under the Windows/Dispatch
+  // tab too (created once, unconditionally, with no visibility tie to
+  // evViewMode) — now hidden/shown in the same place the tab visibility
+  // itself gets reapplied, a few lines below.
   const sessionSlotsContainer = $('ev-slots-session');
-  if (!evSessionsExpandBtnAdded && !evSessionsExpanded) {
-    evSessionsExpandBtnAdded = true;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'bh-breakdown-toggle';
-    btn.style.cssText = 'margin-top:12px;width:100%;justify-content:center;';
-    btn.innerHTML = '<span>Show last 30 days</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
-    btn.addEventListener('click', () => expandEVSessions(btn));
-    sessionSlotsContainer.parentNode.insertBefore(btn, sessionSlotsContainer.nextSibling);
+  if (!evSessionsToggleBtnAdded) {
+    evSessionsToggleBtnAdded = true;
+    const wrap = document.createElement('div');
+    wrap.id = 'ev-sessions-toggle-wrap';
+    wrap.style.cssText = 'display:flex;justify-content:center;gap:8px;margin-top:12px;';
+    const moreBtn = document.createElement('button');
+    moreBtn.type = 'button';
+    moreBtn.className = 'bh-breakdown-toggle';
+    moreBtn.innerHTML = '<span>Show more</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+    const lessBtn = document.createElement('button');
+    lessBtn.type = 'button';
+    lessBtn.className = 'bh-breakdown-toggle hidden';
+    lessBtn.innerHTML = '<span>Show less</span>';
+    moreBtn.addEventListener('click', () => showMoreEVSessions(moreBtn, lessBtn, new Date()));
+    lessBtn.addEventListener('click', () => showLessEVSessions(lessBtn, new Date()));
+    wrap.appendChild(moreBtn); wrap.appendChild(lessBtn);
+    sessionSlotsContainer.parentNode.insertBefore(wrap, sessionSlotsContainer.nextSibling);
   }
 
   // v2.150 fix: reapply whichever tab the user actually has selected. Every
@@ -2708,6 +2814,8 @@ async function loadEVSmartFlex() {
   $('ev-slots-session').classList.toggle('hidden', evViewMode !== 'session');
   $('ev-view-dispatch-btn').classList.toggle('active', evViewMode === 'dispatch');
   $('ev-view-session-btn').classList.toggle('active', evViewMode === 'session');
+  // v2.191: the show-more/show-less pair belongs only to the Sessions tab.
+  $('ev-sessions-toggle-wrap').classList.toggle('hidden', evViewMode !== 'session');
 
   $('ev-view-toggle').classList.remove('hidden');
   $('ev-week-legend').classList.remove('hidden');
@@ -2725,13 +2833,14 @@ async function loadEVSmartFlex() {
 
   // v2.154: estimated range added, inline with the kWh figure. Real cost
   // was ruled out (see above), but range is a straightforward unit
-  // conversion using EV_RANGE_MI_PER_KWH — no rate-matching involved, so
-  // none of the reasons cost was dropped apply here. Only shown once
-  // there's something to show; kept out of the DOM rather than showing
-  // "0 mi" for a genuinely empty day.
+  // conversion using getEvRangeMiPerKwh() (v2.191: Settings-configurable
+  // per vehicle, was a single hardcoded Polestar 2 constant) — no
+  // rate-matching involved, so none of the reasons cost was dropped apply
+  // here. Only shown once there's something to show; kept out of the DOM
+  // rather than showing "0 mi" for a genuinely empty day.
   const rangeEl = $('ev-added-range');
   if (rangeEl) {
-    rangeEl.textContent = sessionKwh > 0 ? `≈ ${Math.round(sessionKwh * EV_RANGE_MI_PER_KWH)} mi (est.)` : '';
+    rangeEl.textContent = sessionKwh > 0 ? `≈ ${Math.round(sessionKwh * getEvRangeMiPerKwh())} mi (est.)` : '';
   }
 
   // v2.154: estimated cost, third mini box. Real per-dispatch rate can't
@@ -3837,6 +3946,14 @@ function openSettings() {
   $('input-gas-serial').value = c.manualGasSerial || '';
   $('input-calorific-value').value = c.calorificValue || '';
   if (c.manualElecMpan || c.manualGasMprn) $('advanced-fields').classList.remove('hidden');
+  // v2.191: defaults to whatever Octopus's own device record returned
+  // (c.vehicleMake/vehicleModel) unless the user has already saved a
+  // genuine override (c.customVehicleMake/Model) — so the field always
+  // starts pre-filled with the current real value, editable in place.
+  $('input-ev-make').value = c.customVehicleMake || c.vehicleMake || '';
+  $('input-ev-model').value = c.customVehicleModel || c.vehicleModel || '';
+  $('input-ev-wltp-miles').value = c.wltpMiles || '';
+  $('input-ev-wltp-kwh').value = c.wltpBatteryKwh || '';
   $('input-show-diagnostics').checked = c.showDiagnostics !== false;
   $('input-use-demo-fallback').checked = c.useDemoFallback === true;
   $('settings-modal').classList.remove('hidden');
@@ -3857,11 +3974,33 @@ async function saveSettings() {
   if (calorificValueRaw && (!Number.isFinite(calorificValue) || calorificValue <= 0)) {
     alert('Gas calorific value must be a positive number.'); return;
   }
+  // v2.191: custom vehicle name — only actually saved as an override if it
+  // genuinely differs from the current API-returned value; if the user
+  // left the field exactly as pre-filled, this intentionally leaves no
+  // override set, so the display keeps following Octopus's own device
+  // record automatically (e.g. if the vehicle is ever swapped) rather
+  // than permanently freezing to whatever happened to show the one time
+  // Settings was opened and saved.
+  const evMakeInput = $('input-ev-make').value.trim().slice(0, 15);
+  const evModelInput = $('input-ev-model').value.trim().slice(0, 30);
+  const priorCreds = store.creds || {};
+  const customVehicleMake = evMakeInput && evMakeInput !== (priorCreds.vehicleMake || '') ? evMakeInput : null;
+  const customVehicleModel = evModelInput && evModelInput !== (priorCreds.vehicleModel || '') ? evModelInput : null;
+  const wltpMilesRaw = $('input-ev-wltp-miles').value.trim();
+  const wltpKwhRaw = $('input-ev-wltp-kwh').value.trim();
+  const wltpMiles = wltpMilesRaw ? parseFloat(wltpMilesRaw) : null;
+  const wltpBatteryKwh = wltpKwhRaw ? parseFloat(wltpKwhRaw) : null;
+  if (wltpMilesRaw && (!Number.isFinite(wltpMiles) || wltpMiles <= 0)) {
+    alert('WLTP range must be a positive number.'); return;
+  }
+  if (wltpKwhRaw && (!Number.isFinite(wltpBatteryKwh) || wltpBatteryKwh <= 0)) {
+    alert('Battery capacity must be a positive number.'); return;
+  }
   const showDiagnostics = $('input-show-diagnostics').checked;
   const useDemoFallback = $('input-use-demo-fallback').checked;
   if (!apiKey || !accountNumber) { alert('API key and account number are required.'); return; }
 
-  store.creds = { ...store.creds, apiKey, accountNumber, email, password, manualElecMpan, manualElecSerial, manualGasMprn, manualGasSerial, calorificValue, showDiagnostics, useDemoFallback };
+  store.creds = { ...store.creds, apiKey, accountNumber, email, password, manualElecMpan, manualElecSerial, manualGasMprn, manualGasSerial, calorificValue, customVehicleMake, customVehicleModel, wltpMiles, wltpBatteryKwh, showDiagnostics, useDemoFallback };
   krakenToken = null;
   krakenAccountUserId = null;
 
