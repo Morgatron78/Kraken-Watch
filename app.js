@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.186';
+const APP_VERSION = 'v2.187';
 
 // v2.154: used only for the EV panel's estimated-range-added figure.
 // Assumes a Polestar 2 Standard Range Single Motor (69kWh gross / 67kWh
@@ -2278,28 +2278,6 @@ async function loadEV() {
 // — only plannedDispatches stays as its own call, since chargingSessions
 // is explicitly historical.
 async function loadEVSmartFlex() {
-  // TEMPORARY diagnostic — checking SmartFlexChargingProblem's real shape
-  // before building the "per-session issue" feature idea (see README/
-  // memory). Confirmed a UNION of two real types: SmartFlexChargingError
-  // (a `cause` enum) and SmartFlexChargingTruncation (a `truncationCause`
-  // enum plus originalAchievableStateOfCharge/achievableStateOfCharge —
-  // a real before/after comparison of planned vs actually-achievable SoC).
-  // This check gets both enums' actual values, needed to write real
-  // human-readable labels for whatever UI gets built on top of this. Not
-  // yet selected anywhere in the real query below. Remove once confirmed
-  // and the real query/UI is built.
-  try {
-    const enumData = await krakenGQL(`{
-      a: __type(name: "SmartFlexChargingErrorCause") { enumValues { name } }
-      b: __type(name: "SmartFlexChargingTruncationCause") { enumValues { name } }
-    }`);
-    const names = (t) => (t?.enumValues || []).map(v => v.name).join(', ') || '(none)';
-    logDebug('EV problems investigation — SmartFlexChargingErrorCause values', names(enumData?.a));
-    logDebug('EV problems investigation — SmartFlexChargingTruncationCause values', names(enumData?.b));
-  } catch (err) {
-    logDebug('EV problems investigation — enum scan failed', err.message);
-  }
-
   const data = await krakenGQL(`
     query EVSmartFlexData($accountNumber: String!, $after: DateTime!) {
       devices(accountNumber: $accountNumber) {
@@ -2317,6 +2295,11 @@ async function loadEVSmartFlex() {
                   energyAdded { value }
                   stateOfChargeFinal
                   dispatches { start end type energyAddedKwh }
+                  problems {
+                    __typename
+                    ... on SmartFlexChargingError { cause }
+                    ... on SmartFlexChargingTruncation { truncationCause originalAchievableStateOfCharge achievableStateOfCharge }
+                  }
                 }
               }
             }
@@ -2536,6 +2519,37 @@ async function loadEVSmartFlex() {
   const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
 
+  // v2.187: SmartFlexChargingProblem — a union of SmartFlexChargingError
+  // (a `cause` enum) and SmartFlexChargingTruncation (a `truncationCause`
+  // enum, plus original/achievable SoC — the charge was cut short before
+  // reaching its planned target). Both enums mix genuinely benign outcomes
+  // in with real problems, confirmed via live introspection: SOC_LIMIT_
+  // REACHED/FULL_CHARGE/NO_SCHEDULED_CHARGE/POWER_TAPERING and BOOST_
+  // CHARGING/CHARGING_OPTIMISATION_CREATED all just describe a normal or
+  // intentional outcome, not a fault — showing a warning badge for those
+  // would violate this app's own rule that coral only ever means a
+  // genuine problem. Everything else in both enums is a real one.
+  const BENIGN_CAUSES = new Set(['SOC_LIMIT_REACHED', 'FULL_CHARGE', 'NO_SCHEDULED_CHARGE', 'POWER_TAPERING', 'BOOST_CHARGING', 'CHARGING_OPTIMISATION_CREATED']);
+  const CAUSE_LABELS = {
+    COMMUNICATION_ERROR: 'Comms error', THIRD_PARTY_CHARGING_INTERFERENCE: 'Charger interference',
+    POWER_DISCREPANCY: 'Power discrepancy', FAILURE_CAUSE_ERROR: 'Charging error',
+    CUSTOMER_ACTION_REQUIRED: 'Needs attention', NO_CHARGING: 'Didn\u2019t charge',
+    POST_CHARGE_BATTERY_DRAIN: 'Drained after charge', UNKNOWN_CHARGING_ERROR_CAUSE: 'Unknown error',
+    DISCONNECTED: 'Disconnected early', DEVICE_DEAUTH_SUCCESS: 'Device deauthorised',
+    SUSPENDED: 'Suspended', UNKNOWN_TRUNCATION_CAUSE: 'Charge cut short'
+  };
+  function realProblemLabel(session) {
+    for (const p of (session.problems || [])) {
+      const cause = p.cause || p.truncationCause;
+      if (cause && !BENIGN_CAUSES.has(cause)) return CAUSE_LABELS[cause] || cause;
+    }
+    return null;
+  }
+  const problemBadgeHtml = session => {
+    const label = realProblemLabel(session);
+    return label ? `<span class="slot-badge badge-problem">${label}</span>` : '';
+  };
+
   // Dispatch-window view — derived from each session's nested dispatches,
   // flattened and sorted oldest-first (same chronological-timeline
   // convention as before), now with a real SMART/BOOST badge per window.
@@ -2583,7 +2597,7 @@ async function loadEVSmartFlex() {
       }
     }
     return `<div class="slot">
-      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}</div>
+      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}</span>${badgeHtml(s.type)}${problemBadgeHtml(s)}</div>
       <div class="slot-row"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${socText}</div>
     </div>`;
   }).join('');

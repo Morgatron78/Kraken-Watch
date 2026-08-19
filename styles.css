@@ -693,6 +693,13 @@ button{font-family:inherit;cursor:pointer;}
 .slot-badge{font-family:'Inter', sans-serif;font-size:9.5px;padding:2px 7px;border-radius:100px;flex-shrink:0;margin-left:6px;}
 .badge-smart{color:var(--mint);background:var(--mint-soft);border:1px solid rgba(61,220,151,0.35);}
 .badge-boost{color:var(--pink);background:var(--pink-soft);border:1px solid rgba(255,79,163,0.4);}
+/* v2.187: genuine per-session charging-problem flag — coral, matching the
+   app's "coral means a real warning, nothing else" rule. Deliberately not
+   every possible cause: SmartFlexChargingProblem's two enums mix benign
+   outcomes (target reached, full charge, a Boost session intentionally
+   taking priority) in with real issues, and only the real ones get this
+   badge — see isRealChargingProblem() in app.js for the classification. */
+.badge-problem{color:var(--coral);background:rgba(255,107,91,0.12);border:1px solid rgba(255,107,91,0.35);}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
 .battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;}
 
