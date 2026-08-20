@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.207';
+const APP_VERSION = 'v2.208';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2378,7 +2378,14 @@ function renderEVSessionSlots(sessions, now) {
     // discharged the car, confirmed via a user screenshot. Miles added is
     // computed client-side from kWh (not a real Octopus figure either), so
     // marked "(Est.)" for the same reason the cost figure already is.
-    const milesText = kwh != null ? `<span class="slot-soc-gain">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles (Est.)</span>` : '';
+    // v2.208: "+33 miles" (excluding "(Est.)") colored by session type —
+    // mint for Smart, pink for Boost — reusing the same type-color pairing
+    // the SMART/BOOST badge already uses, not a new meaning for either
+    // color. Conveniently also lines up with mint's broader "cheaper"
+    // role app-wide, since Smart sessions genuinely are the cheaper ones.
+    const milesText = kwh != null
+      ? `<span class="slot-soc-gain ${s.type === 'BOOST' ? 'slot-miles-boost' : 'slot-miles-smart'}">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles</span><span class="slot-soc-gain"> (Est.)</span>`
+      : '';
     // v2.191: warning redesign — was a full text pill inline (v2.190),
     // now a small circular icon-only toggle; clicking it shows/hides a
     // third row with the full message, rather than the message always
