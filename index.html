@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.211">
+<link rel="stylesheet" href="styles.css?v=2.212">
 </head>
 <body>
 <div class="wrap">
@@ -632,10 +632,19 @@
         <div class="fuel-panel general">
           <div class="fuel-panel-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Standing charges</div>
           <div class="insight-block">
-            <div class="standing-cols">
-              <div class="standing-col"><div class="standing-label">Year to date</div><div class="standing-value" id="insights-standing-ytd">—</div></div>
-              <div class="standing-col"><div class="standing-label">Full year</div><div class="standing-value" id="insights-standing-full-year">—</div></div>
+            <div class="cost-col-row">
+              <div class="cost-col">
+                <div class="cost-col-tag elec"><span class="dot"></span>Electricity</div>
+                <div class="cost-stat"><span class="cost-stat-label">Year to date</span><span class="cost-stat-value" id="insights-standing-elec-ytd">—</span></div>
+                <div class="cost-stat"><span class="cost-stat-label">Full year</span><span class="cost-stat-value" id="insights-standing-elec-full">—</span></div>
+              </div>
+              <div class="cost-col">
+                <div class="cost-col-tag gas"><span class="dot"></span>Gas</div>
+                <div class="cost-stat"><span class="cost-stat-label">Year to date</span><span class="cost-stat-value" id="insights-standing-gas-ytd">—</span></div>
+                <div class="cost-stat"><span class="cost-stat-label">Full year</span><span class="cost-stat-value" id="insights-standing-gas-full">—</span></div>
+              </div>
             </div>
+            <div class="standing-total-line">Total: <b id="insights-standing-ytd">—</b> to date · <b id="insights-standing-full-year">—</b> full year</div>
             <div class="standing-total-note">Paid across both fuels, before a single unit of energy is even used. Full-year figure assumes today's rates hold — standing charges change less often than usage rates, but aren't fixed.</div>
           </div>
         </div>
@@ -742,6 +751,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.211"></script>
+<script src="app.js?v=2.212"></script>
 </body>
 </html>

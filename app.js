@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.211';
+const APP_VERSION = 'v2.212';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -1655,6 +1655,13 @@ function renderInsightsStanding() {
   const startOfYear = new Date(now.getFullYear(), 0, 1);
   const daysElapsed = Math.max(1, Math.round((now - startOfYear) / 86400000));
   const daysInYear = (now.getFullYear() % 4 === 0 && (now.getFullYear() % 100 !== 0 || now.getFullYear() % 400 === 0)) ? 366 : 365;
+  // v2.212: broken out per-fuel (each fuel its own box) instead of only
+  // ever showing the combined total — the total line below still sums
+  // both, just no longer as its own separate box (see CSS notes).
+  $('insights-standing-elec-ytd').textContent = fmtGBP((cachedElecStandingP || 0) * daysElapsed / 100);
+  $('insights-standing-elec-full').textContent = fmtGBP((cachedElecStandingP || 0) * daysInYear / 100);
+  $('insights-standing-gas-ytd').textContent = fmtGBP((cachedGasStandingP || 0) * daysElapsed / 100);
+  $('insights-standing-gas-full').textContent = fmtGBP((cachedGasStandingP || 0) * daysInYear / 100);
   const dailyRateP = (cachedElecStandingP || 0) + (cachedGasStandingP || 0);
   $('insights-standing-ytd').textContent = fmtGBP((dailyRateP * daysElapsed) / 100);
   $('insights-standing-full-year').textContent = fmtGBP((dailyRateP * daysInYear) / 100);
