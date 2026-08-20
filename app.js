@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.202';
+const APP_VERSION = 'v2.203';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2372,8 +2372,10 @@ function renderEVSessionSlots(sessions, now) {
     let socText = '';
     if (s.stateOfChargeFinal != null) {
       if (s._startSoc != null) {
-        const gain = Math.round(s.stateOfChargeFinal - s._startSoc);
-        socText = `<span class="slot-soc">${Math.round(s._startSoc)}% → ${Math.round(s.stateOfChargeFinal)}%</span> <span class="slot-soc-gain">(${gain >= 0 ? '+' : ''}${gain}%)</span>`;
+        // v2.203: dropped the separate "(+X%)" gain figure — with start
+        // and finish % both already shown right next to it, the gain was
+        // redundant, not new information, and the row was getting busy.
+        socText = `<span class="slot-soc">${Math.round(s._startSoc)}% → ${Math.round(s.stateOfChargeFinal)}%</span>`;
       } else {
         // v2.189: was just "→ X%" — this is always the oldest session in
         // whatever window is loaded (no prior session to derive a start
@@ -2384,8 +2386,12 @@ function renderEVSessionSlots(sessions, now) {
       }
     }
     // v2.191: estimated range added, using getEvRangeMiPerKwh() (Settings-
-    // configurable per vehicle, was a single hardcoded Polestar 2 constant)
-    const milesText = kwh != null ? ` <span class="slot-soc-gain">≈${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())}mi</span>` : '';
+    // configurable per vehicle, was a single hardcoded Polestar 2 constant).
+    // v2.203: spelled out "miles added" instead of the terser "≈33mi" —
+    // the abbreviation read ambiguously next to the SoC%/gain figures once
+    // those got busier; full wording removes the need to infer what the
+    // number means.
+    const milesText = kwh != null ? ` <span class="slot-soc-gain">≈${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles added</span>` : '';
     // v2.191: warning redesign — was a full text pill inline (v2.190),
     // now a small circular icon-only toggle; clicking it shows/hides a
     // third row with the full message, rather than the message always
