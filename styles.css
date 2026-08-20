@@ -802,7 +802,7 @@ button{font-family:inherit;cursor:pointer;}
    match the kWh figure below it, per the user's request — matches
    .slot b's 13px explicitly rather than relying on that broad rule to
    reach it, since .slot-date isn't a <b> element. */
-.slot-date{font-size:13px;}
+.slot-date{font-size:13px;font-weight:600;}
 /* gap above already provides consistent spacing whether or not the
    mini-pill is present; the badge's own margin-left (needed elsewhere,
    where it follows a text span with no flex gap) would double up here. */
