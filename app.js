@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.205';
+const APP_VERSION = 'v2.206';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2360,7 +2360,6 @@ let lastRenderedSessions = null, lastRenderedNow = null; // so the click handler
 // showMoreEVSessions) without duplicating the markup logic.
 function renderEVSessionSlots(sessions, now) {
   lastRenderedSessions = sessions; lastRenderedNow = now;
-  sessions.forEach((s, i) => { s._startSoc = i > 0 ? sessions[i - 1].stateOfChargeFinal : null; });
   const sessionSlots = $('ev-slots-session');
   sessionSlots.innerHTML = [...sessions].reverse().map(s => {
     const kwh = s.energyAdded?.value;
@@ -2369,29 +2368,17 @@ function renderEVSessionSlots(sessions, now) {
       : startD.toDateString() === new Date(now - 86400000).toDateString() ? 'Yesterday'
       : startD.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     const elapsed = formatElapsed(s.start, s.end);
-    let socText = '';
-    if (s.stateOfChargeFinal != null) {
-      if (s._startSoc != null) {
-        // v2.203: dropped the separate "(+X%)" gain figure — with start
-        // and finish % both already shown right next to it, the gain was
-        // redundant, not new information, and the row was getting busy.
-        socText = `<span class="slot-soc">${Math.round(s._startSoc)}% → ${Math.round(s.stateOfChargeFinal)}%</span>`;
-      } else {
-        // v2.189: was just "→ X%" — this is always the oldest session in
-        // whatever window is loaded (no prior session to derive a start
-        // % from), so it's expected, not an error. An em-dash placeholder
-        // keeps the same basic shape as a full row instead of silently
-        // shrinking to a shorter one.
-        socText = `<span class="slot-soc">— → ${Math.round(s.stateOfChargeFinal)}%</span>`;
-      }
-    }
-    // v2.191: estimated range added, using getEvRangeMiPerKwh() (Settings-
-    // configurable per vehicle, was a single hardcoded Polestar 2 constant).
-    // v2.204: "≈33 miles added" (v2.203) ran the row wide enough to spill
-    // off-screen on real devices — confirmed via user screenshot. Shortened
-    // to "+33 miles", which keeps the same plain-English "miles" wording
-    // (the actual ask behind v2.203) at a length that fits.
-    const milesText = kwh != null ? ` <span class="slot-soc-gain">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles</span>` : '';
+    // v2.206: the SoC start→finish % is gone — it was never a real
+    // measured start point. sessions[i-1].stateOfChargeFinal was being used
+    // as this session's start %, which only holds if nothing touched the
+    // battery between the two sessions; if the car was driven in between,
+    // the "start" reads as whatever % the car happened to be at when this
+    // session began, not where the previous session left off — producing
+    // exactly the kind of drop (e.g. 95%→84%) that looks like this session
+    // discharged the car, confirmed via a user screenshot. Miles added is
+    // computed client-side from kWh (not a real Octopus figure either), so
+    // marked "(Est.)" for the same reason the cost figure already is.
+    const milesText = kwh != null ? `<span class="slot-soc-gain">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles (Est.)</span>` : '';
     // v2.191: warning redesign — was a full text pill inline (v2.190),
     // now a small circular icon-only toggle; clicking it shows/hides a
     // third row with the full message, rather than the message always
@@ -2418,7 +2405,7 @@ function renderEVSessionSlots(sessions, now) {
     const costText = costP != null ? `<span class="slot-cost">(Est. <b>${fmtGBP(costP / 100)}</b>)</span>` : '';
     return `<div class="slot">
       <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
-      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${socText}${milesText}</span></div>
+      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${milesText}</span></div>
       ${detailRowHtml}
     </div>`;
   }).join('');
