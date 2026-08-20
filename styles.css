@@ -167,6 +167,18 @@ button{font-family:inherit;cursor:pointer;}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--mint);display:inline-block;margin-right:4px;animation:live-pulse 1.6s ease-in-out infinite;}
 .live-dot.pink{background:var(--pink);}
 @keyframes live-pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
+/* v2.199: rate-pill's dot was a literal "●" text character, sized by the
+   surrounding font rather than an explicit box — rendered visibly bigger/
+   differently-positioned than live-tag's proper .live-dot span right next
+   to it (confirmed via user screenshot, side by side). Reuses .live-dot's
+   exact box model (same 6px circle, same margin) for genuine visual
+   parity, but deliberately without the pulse animation — Standard/Off-peak
+   is a rate classification, not an in-progress/live event the way the
+   Live usage panel's draw reading or an active dispatch is, so a static
+   dot better matches what it's actually representing. */
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--mint);display:inline-block;margin-right:4px;}
+.status-dot.pink{background:var(--pink);}
+.status-dot.dim{background:var(--text-dim);}
 .rate-value span{font-size:18px;color:var(--text-dim);font-weight:500;margin-left:4px;}
 .pill{
   display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:100px;

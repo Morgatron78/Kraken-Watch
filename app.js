@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.199';
+const APP_VERSION = 'v2.200';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -1889,7 +1889,7 @@ async function loadRates() {
     const isCheap = current <= threshold;
     $('rate-value').style.color = isCheap ? 'var(--mint)' : 'var(--pink)';
     $('rate-pill').className = 'card-tag ' + (isCheap ? 'tag-mint' : 'tag-pink');
-    $('rate-pill').textContent = isCheap ? '● Off-peak' : '● Standard';
+    $('rate-pill').innerHTML = isCheap ? '<span class="status-dot"></span>Off-peak' : '<span class="status-dot pink"></span>Standard';
     $('rate-standard').textContent = fmtP(Math.max(...points));
     $('rate-offpeak').textContent = fmtP(cachedOffPeakRateP);
 
@@ -1914,7 +1914,7 @@ async function loadRates() {
       $('rate-value').style.color = 'var(--mint)';
       $('elec-unit-rate').textContent = '7.5p (demo)';
       $('rate-pill').className = 'card-tag tag-mint';
-      $('rate-pill').textContent = '● Off-peak (demo)';
+      $('rate-pill').innerHTML = '<span class="status-dot"></span>Off-peak (demo)';
       $('rate-standard').textContent = '28.9p';
       $('rate-offpeak').textContent = '8.0p';
       $('rate-next').textContent = '05:30 → 28.90p';
@@ -1923,7 +1923,7 @@ async function loadRates() {
       $('rate-value').style.color = 'var(--text-dim)';
       $('elec-unit-rate').textContent = 'Unavailable';
       $('rate-pill').className = 'card-tag tag-dim';
-      $('rate-pill').textContent = '● Unavailable';
+      $('rate-pill').innerHTML = '<span class="status-dot dim"></span>Unavailable';
       $('rate-standard').textContent = '—';
       $('rate-offpeak').textContent = '—';
       $('rate-next').textContent = '—';
