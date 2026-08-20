@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.209';
+const APP_VERSION = 'v2.210';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -3044,6 +3044,26 @@ function renderEVInsights(sessions, now) {
     const busiestDate = new Date(startOfWeek); busiestDate.setDate(busiestDate.getDate() + busiestIdx);
     const b = buckets[busiestIdx];
     $('insights-ev-highlight').innerHTML = `Busiest day: <b>${dayNames[busiestDate.getDay()]}</b>, ${busiestTotal.toFixed(1)} kWh across ${b.sessions.length} session${b.sessions.length === 1 ? '' : 's'}`;
+  }
+
+  // v2.210: cost per mile — not period-based at all, unlike the rest of
+  // this panel. Just today's off-peak/standard rate divided by the
+  // Settings-configured range, so it's a constant at any given moment,
+  // not an aggregate over these 7 days' sessions specifically. Still
+  // lives inside this panel (gated by the same hasAnyData check above)
+  // rather than always-visible, since it's only relevant once there's
+  // some EV charging activity to speak of.
+  const milesPerKwh = getEvRangeMiPerKwh();
+  if (cachedOffPeakRateP != null && cachedStandardRateP != null && milesPerKwh > 0) {
+    const smartPPerMile = cachedOffPeakRateP / milesPerKwh;
+    const boostPPerMile = cachedStandardRateP / milesPerKwh;
+    $('insights-ev-cpm-smart').innerHTML = `${smartPPerMile.toFixed(1)}<span>p/mi</span>`;
+    $('insights-ev-cpm-boost').innerHTML = `${boostPPerMile.toFixed(1)}<span>p/mi</span>`;
+    $('insights-ev-cpm-compare').innerHTML = `Smart is <b>${(boostPPerMile / smartPPerMile).toFixed(1)}×</b> cheaper per mile than Boost`;
+  } else {
+    $('insights-ev-cpm-smart').textContent = '—';
+    $('insights-ev-cpm-boost').textContent = '—';
+    $('insights-ev-cpm-compare').textContent = '—';
   }
 }
 
