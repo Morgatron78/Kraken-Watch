@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.198';
+const APP_VERSION = 'v2.199';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2146,16 +2146,15 @@ function applyEvCollapse(worthSeeing) {
 // community GitHub issue, not official docs — confirmed working against a
 // real account (Polestar 2, provider Jedlix) via diagnostics, but still
 // wrapped defensively in case the field ever comes back differently.
-// v2.197: no longer splits the model string into a "first word" title
-// suffix + remainder caption (that split existed only to pull a leading
-// model-year-style token, e.g. the "2" in "2 Standard Range Single Motor",
-// onto the title line next to the make). Now that Settings lets the user
-// fully customise both make and model as free text, that splitting is
-// redundant — whatever the user enters for model appears in the title
-// verbatim, in full.
+// v2.198: make on the title line, full model as its own smaller caption
+// line beneath — restored after v2.197 wrongly collapsed both onto one
+// line. (v2.197 also removed the old first-word/remainder split of the
+// model string, which is still correct and stays removed: now that
+// Settings lets the user enter make and model as free text, the caption
+// is simply the model field verbatim, not a trimmed remainder.)
 function formatVehicleName(make, model) {
   if (!make) return { title: '', caption: '' };
-  return { title: ` — ${make}${model ? ' ' + model : ''}`, caption: '' };
+  return { title: ` — ${make}`, caption: model || '' };
 }
 
 async function loadVehicleInfoOnce() {
@@ -2399,8 +2398,8 @@ function renderEVSessionSlots(sessions, now) {
     const problemKey = s.start;
     const isExpanded = problem && expandedProblemSessions.has(problemKey);
     const miniPillHtml = problem
-      ? `<span class="problem-col"><button type="button" class="badge-problem-mini" data-problem-key="${problemKey}" aria-expanded="${isExpanded}">${warnTriangleSvgSm}</button></span>`
-      : '<span class="problem-col"></span>';
+      ? `<button type="button" class="badge-problem-mini" data-problem-key="${problemKey}" aria-expanded="${isExpanded}">${warnTriangleSvgSm}</button>`
+      : '';
     const detailRowHtml = isExpanded
       ? `<div class="slot-row" style="margin-top:2px;"><span class="slot-badge badge-problem" style="margin-left:0;">${warnTriangleSvgSm}${problem}</span></div>`
       : '';
@@ -2412,8 +2411,8 @@ function renderEVSessionSlots(sessions, now) {
     const costP = estimateSessionCostP(s);
     const costText = costP != null ? `<span class="slot-cost">(Est. <b>${fmtGBP(costP / 100)}</b>)</span>` : '';
     return `<div class="slot">
-      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span>${badgeHtml(s.type)}</div>
-      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${socText}${milesText}</span>${miniPillHtml}</div>
+      <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
+      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${socText}${milesText}</span></div>
       ${detailRowHtml}
     </div>`;
   }).join('');

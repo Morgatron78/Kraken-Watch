@@ -758,27 +758,32 @@ button{font-family:inherit;cursor:pointer;}
    once apparently on the real device too (a later screenshot of the
    exact same row/data that had rendered correctly once showed the same
    symptom again, with zero CSS changes in between) — genuinely
-   unexplained either way. Rather than keep patching an approach that's
-   shown two rounds of unexplained failures, switching to the same
-   technique that already solved a near-identical alignment problem
-   reliably elsewhere in this app (the v2.189 fixed-width-column fix) —
-   CSS grid with explicit columns is generally more predictable than
-   flex's space-between + shrink-group combination for this kind of
-   "several pieces, last one only sometimes present" layout. Three
-   columns: kWh+cost (150px fixed — NOT auto; each .slot-row-inline is its
-   own independent grid, not one shared template across all session rows,
-   so an auto-sized column would size differently per row depending on
-   that row's own kWh/cost text width, silently reintroducing the exact
-   row-to-row alignment drift this whole saga started from — caught before
-   shipping, not after), SoC info (1fr — takes remaining space,
-   left-aligned within it), problem-col (auto — sized to nothing when
-   empty, to the small badge's width when present, naturally landing at
-   the row's right edge since it's the last column). */
-.slot-row-inline{width:100%;display:grid;grid-template-columns:150px 1fr auto;align-items:center;column-gap:8px;}
+   unexplained either way. v2.198: that grid fix didn't hold either — a
+   third live screenshot showed the same disconnected symptom again, so
+   rather than keep chasing this specific element through another layout
+   technique, the mini-pill has been moved out of this row entirely (see
+   .slot-row-right below) — the two columns left here (kWh+cost, SoC info)
+   never showed the problem on their own. kWh+cost stays a fixed 150px —
+   NOT auto — since each .slot-row-inline is its own independent grid, not
+   one shared template across all session rows, so an auto-sized column
+   would size differently per row depending on that row's own kWh/cost
+   text width, reintroducing the exact row-to-row alignment drift this
+   whole saga started from. */
+.slot-row-inline{width:100%;display:grid;grid-template-columns:150px 1fr;align-items:center;column-gap:8px;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;}
 .slot-row-inline .soc-col{white-space:nowrap;justify-self:start;}
-.slot-row-inline .problem-col{justify-self:end;}
-.slot-row-inline .problem-col .badge-problem{margin-left:0;white-space:nowrap;}
+
+/* v2.198: the problem mini-pill now sits in the header row, immediately
+   left of the SMART/BOOST badge, instead of the stats row it kept
+   misaligning in. .slot-row is a simple two-child flex (space-between)
+   already — date/time on the left, this wrapper on the right — so the
+   pill and badge just sit next to each other in normal flex flow, no
+   grid/fixed-width column needed for either. */
+.slot-row-right{display:flex;align-items:center;gap:6px;}
+/* gap above already provides consistent spacing whether or not the
+   mini-pill is present; the badge's own margin-left (needed elsewhere,
+   where it follows a text span with no flex gap) would double up here. */
+.slot-row-right .slot-badge{margin-left:0;}
 
 .ev-week-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
 .ev-week-col span{font-family:'Inter', sans-serif;font-size:9px;color:var(--text-dim);}
