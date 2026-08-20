@@ -765,7 +765,7 @@ button{font-family:inherit;cursor:pointer;}
    size instead of matching the small "Est." label right next to it
    (confirmed via user screenshot). Explicit font-size added to actually
    win the cascade. */
-.slot-cost b{color:var(--text);font-weight:600;font-size:10px;}
+.slot-cost b{color:var(--text-dim);font-weight:400;font-size:10px;}
 
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
 
@@ -789,7 +789,7 @@ button{font-family:inherit;cursor:pointer;}
    whole saga started from. */
 .slot-row-inline{width:100%;display:grid;grid-template-columns:150px 1fr;align-items:center;column-gap:8px;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;}
-.slot-row-inline .soc-col{white-space:nowrap;justify-self:start;}
+.slot-row-inline .soc-col{white-space:nowrap;justify-self:end;text-align:right;}
 
 /* v2.198: the problem mini-pill now sits in the header row, immediately
    left of the SMART/BOOST badge, instead of the stats row it kept
