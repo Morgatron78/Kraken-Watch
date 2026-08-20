@@ -759,7 +759,13 @@ button{font-family:inherit;cursor:pointer;}
    normal text weight so it doesn't compete visually with the kWh value
    right next to it. */
 .slot-cost{color:var(--text-dim);font-size:10px;margin-left:4px;}
-.slot-cost b{color:var(--text);font-weight:600;}
+/* v2.200: .slot b{font-size:13px} (below-ish, meant for the kWh figure)
+   was also winning here — .slot-cost b never set its own font-size, so
+   nothing overrode it, and the cost amount rendered at the kWh figure's
+   size instead of matching the small "Est." label right next to it
+   (confirmed via user screenshot). Explicit font-size added to actually
+   win the cascade. */
+.slot-cost b{color:var(--text);font-weight:600;font-size:10px;}
 
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
 
@@ -792,6 +798,11 @@ button{font-family:inherit;cursor:pointer;}
    pill and badge just sit next to each other in normal flex flow, no
    grid/fixed-width column needed for either. */
 .slot-row-right{display:flex;align-items:center;gap:6px;}
+/* v2.200: date portion only (not the time range next to it) sized to
+   match the kWh figure below it, per the user's request — matches
+   .slot b's 13px explicitly rather than relying on that broad rule to
+   reach it, since .slot-date isn't a <b> element. */
+.slot-date{font-size:13px;}
 /* gap above already provides consistent spacing whether or not the
    mini-pill is present; the badge's own margin-left (needed elsewhere,
    where it follows a text span with no flex gap) would double up here. */
