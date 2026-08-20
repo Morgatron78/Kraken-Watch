@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.212';
+const APP_VERSION = 'v2.213';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -189,7 +189,7 @@ async function getKrakenToken() {
   return token;
 }
 
-async function krakenGQL(query, variables) {
+async function krakenGQL(query, variables, _isRetry) {
   const token = await getKrakenToken();
   const res = await fetch(GQL_BASE, {
     method: 'POST',
@@ -207,6 +207,21 @@ async function krakenGQL(query, variables) {
     const err = json.errors[0];
     const code = err?.extensions?.errorCode || err?.extensions?.code;
     const message = err?.message || 'GraphQL error';
+    // v2.213: KT-CT-1124 ("Signature of the JWT has expired") — the token
+    // from getKrakenToken() is cached in memory for the life of the page,
+    // with no expiry check of its own (see krakenToken above). Previously
+    // this meant every Kraken call kept failing with this exact error
+    // until the app was fully closed and reopened — the only thing that
+    // actually cleared the stale token, confirmed via a user's diagnostics
+    // screenshot showing the same code repeating across several syncs.
+    // Now self-healing: on this specific code, clear the cached token and
+    // retry once with a freshly obtained one, no user action needed.
+    // Guarded to a single retry so a genuinely bad credential still fails
+    // cleanly rather than looping.
+    if (code === 'KT-CT-1124' && !_isRetry) {
+      krakenToken = null;
+      return krakenGQL(query, variables, true);
+    }
     throw new Error(code ? `${message} (${code})` : message);
   }
   return json.data;
