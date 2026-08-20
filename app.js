@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.196';
+const APP_VERSION = 'v2.198';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2146,19 +2146,16 @@ function applyEvCollapse(worthSeeing) {
 // community GitHub issue, not official docs — confirmed working against a
 // real account (Polestar 2, provider Jedlix) via diagnostics, but still
 // wrapped defensively in case the field ever comes back differently.
-// Splits vehicle info into two pieces for the title-plus-caption layout:
-// the title-line suffix ("— Polestar 2", matching the same em-dash
-// convention already used by "Electricity — Intelligent Go" and
-// "Gas — Flexible Octopus"), and whatever's left of the model string
-// (e.g. "Standard Range Single Motor") for a smaller caption underneath.
-// Best-effort based on the one real account confirmed via diagnostics, so
-// may not generalise perfectly to every make/model Octopus could return.
+// v2.197: no longer splits the model string into a "first word" title
+// suffix + remainder caption (that split existed only to pull a leading
+// model-year-style token, e.g. the "2" in "2 Standard Range Single Motor",
+// onto the title line next to the make). Now that Settings lets the user
+// fully customise both make and model as free text, that splitting is
+// redundant — whatever the user enters for model appears in the title
+// verbatim, in full.
 function formatVehicleName(make, model) {
   if (!make) return { title: '', caption: '' };
-  const words = model ? model.trim().split(/\s+/) : [];
-  const shortModel = words[0] || '';
-  const caption = words.slice(1).join(' ');
-  return { title: ` — ${make}${shortModel ? ' ' + shortModel : ''}`, caption };
+  return { title: ` — ${make}${model ? ' ' + model : ''}`, caption: '' };
 }
 
 async function loadVehicleInfoOnce() {
@@ -2456,12 +2453,22 @@ let evSessionsToggleBtnAdded = false;
 // separate on-demand fetch rather than widening the default 8-day query,
 // so nothing else that depends on that 8-day scope (mini-stats, Windows
 // tab) is affected.
+// first: 30 is the only value on this field confirmed genuinely safe
+// anywhere in the app (the main loadEVSmartFlex card query, working all
+// along). first: 200 hit "Invalid pagination parameters" — the same
+// error loadEVMonthData already hit once at first: 400, where the cap
+// was never actually pinned down, just guessed lower. Not guessing a
+// second time here: staying at the one proven-safe value and surfacing
+// pageInfo.hasNextPage honestly (same pattern as loadEVMonthData) so an
+// under-count is visible in diagnostics rather than silent, instead of
+// picking another untested first value.
 async function fetchEVSessionsWindow(days) {
   const data = await krakenGQL(`
     query EVSessionsWindow($accountNumber: String!, $after: DateTime!) {
       devices(accountNumber: $accountNumber) {
         ... on SmartFlexVehicle {
-          chargingSessions(after: $after, first: 200) {
+          chargingSessions(after: $after, first: 30) {
+            pageInfo { hasNextPage }
             edges { node {
               ... on SmartFlexChargingSession {
                 start end type
@@ -2482,7 +2489,10 @@ async function fetchEVSessionsWindow(days) {
     after: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
   });
   const vehicle = (data?.devices || []).find(d => d && d.chargingSessions);
-  return (vehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+  const sessions = (vehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+  const hasMore = !!vehicle?.chargingSessions?.pageInfo?.hasNextPage;
+  if (hasMore) logDebug('EV sessions window', `${days}-day window hit the 30-session cap — some older sessions in range are not shown`);
+  return sessions;
 }
 
 async function showMoreEVSessions(moreBtn, lessBtn, now) {
@@ -2499,20 +2509,7 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
   moreBtn.disabled = true;
   try {
     const sessions = await fetchEVSessionsWindow(nextDays);
-    // TEMPORARY diagnostic — "Show more" reported as not working, but
-    // "nothing in diagnostics" turned out to be a bug in this diagnostic
-    // itself, not evidence the click wasn't registering: logDebug() only
-    // pushes to the debugNotes array, it doesn't redraw the visible
-    // Diagnostics panel — same documented pattern already known elsewhere
-    // in this codebase (see the on-demand-action comment near
-    // renderDiagnostics() calls). Without an explicit renderDiagnostics()
-    // call here, this log was very likely firing correctly the whole
-    // time and just invisible until the next scheduled sync happened to
-    // redraw the panel minutes later. Added here so the click's own
-    // result shows immediately. Remove this whole diagnostic once
-    // resolved.
-    logDebug('EV show-more diagnostic', `nextDays=${nextDays}, sessions returned=${sessions.length}`);
-    renderDiagnostics();
+    renderDiagnostics(); // v2.196: without this, logDebug() output (e.g. the hasNextPage warning above) doesn't appear until the next scheduled sync
     if (sessions.length) {
       evSessionsCache.set(nextDays, sessions);
       evSessionsWindowDays = nextDays;
@@ -4044,7 +4041,7 @@ async function saveSettings() {
   // than permanently freezing to whatever happened to show the one time
   // Settings was opened and saved.
   const evMakeInput = $('input-ev-make').value.trim().slice(0, 15);
-  const evModelInput = $('input-ev-model').value.trim().slice(0, 30);
+  const evModelInput = $('input-ev-model').value.trim().slice(0, 60);
   const priorCreds = store.creds || {};
   const customVehicleMake = evMakeInput && evMakeInput !== (priorCreds.vehicleMake || '') ? evMakeInput : null;
   const customVehicleModel = evModelInput && evModelInput !== (priorCreds.vehicleModel || '') ? evModelInput : null;
