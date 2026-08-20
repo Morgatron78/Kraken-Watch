@@ -176,6 +176,18 @@ button{font-family:inherit;cursor:pointer;}
 /* Stats */
 .stat-row{display:flex;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;}
 .stat-row.tight{margin-bottom:10px;}
+/* v2.196: was inheriting .stat-row's plain space-between, designed for
+   (and still correctly used by) 2-item rows elsewhere — with a genuine
+   3rd item added (v2.192's Est. cost), space-between still puts equal
+   gaps *between* each pair, but each stat's own content width still
+   varies, so the actual start position of each block doesn't line up
+   evenly — confirmed live via screenshot ("EST. COST" sitting with a
+   noticeably larger gap before it than the other two). Scoped to just
+   this specific 3-stat row (not the shared .tight base class, which
+   other 2-item rows elsewhere still correctly rely on) — equal-width grid
+   columns instead, so all three blocks occupy genuinely even space
+   regardless of their own content length. */
+.ev-history-stats{display:grid;grid-template-columns:1fr 1fr 1fr;}
 .stat{min-width:70px;flex:1;}
 .stat-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
 .stat-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;}
@@ -739,34 +751,33 @@ button{font-family:inherit;cursor:pointer;}
 
 .slot-soc{color:var(--mint);font-size:10.5px;margin-left:8px;}
 
-/* v2.190: replaces v2.189's .slot-row-grid — same fixed-width-column
-   reasoning (kept: the SoC info needs a stable x-position regardless of
-   content length, or it reads as ragged between sessions), but restructured
-   to a flex row so the problem badge (when present) can sit flush right on
-   the same line, per the user's own follow-up request, rather than the
-   badge needing its own row below (v2.188's original placement). Two
-   flex-shrink:0 groups — kWh+SoC together on the left, the badge alone on
-   the right — confirmed live during mockup review that omitting
-   flex-shrink:0 on either group let the browser squeeze it below its
-   natural content width and wrap the text inside, even when there was
-   genuinely enough real row width to fit both without wrapping. */
-/* v2.192 fix: was missing width:100% — .slot itself is display:flex with
-   flex-wrap:wrap, so a row without an explicit full width just shrinks to
-   its own content size instead of spanning the row, meaning the
-   right-aligned badge sat short of the card's true right edge (row 1
-   above it uses .slot-row, which has always had width:100%, hence only
-   row 2 showed the misalignment — confirmed live via screenshot). */
-.slot-row-inline{width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
-.slot-row-inline .left-group{display:flex;align-items:baseline;flex-shrink:0;}
-.slot-row-inline .left-group .soc-col{min-width:190px;white-space:nowrap;}
-/* v2.192 fix: was floating oddly relative to the row's text content —
-   confirmed via render. .slot-row-inline uses align-items:baseline, which
-   suits the kWh/cost/SoC text next to it, but the mini warning button
-   contains only an icon with no text, so it has no meaningful baseline to
-   align to and the browser was positioning it unpredictably. align-self
-   here overrides just this one element back to vertical centering,
-   without disturbing the baseline alignment the text elements rely on. */
-.slot-row-inline .problem-col{flex-shrink:0;align-self:center;}
+/* v2.196: rebuilt from flex to grid. The flex approach (space-between +
+   multiple flex-shrink:0 groups) had shown two suspicious rounds of the
+   mini-pill rendering disconnected from its row — once in this sandbox's
+   test renderer (five different hypotheses tested, none explained it),
+   once apparently on the real device too (a later screenshot of the
+   exact same row/data that had rendered correctly once showed the same
+   symptom again, with zero CSS changes in between) — genuinely
+   unexplained either way. Rather than keep patching an approach that's
+   shown two rounds of unexplained failures, switching to the same
+   technique that already solved a near-identical alignment problem
+   reliably elsewhere in this app (the v2.189 fixed-width-column fix) —
+   CSS grid with explicit columns is generally more predictable than
+   flex's space-between + shrink-group combination for this kind of
+   "several pieces, last one only sometimes present" layout. Three
+   columns: kWh+cost (150px fixed — NOT auto; each .slot-row-inline is its
+   own independent grid, not one shared template across all session rows,
+   so an auto-sized column would size differently per row depending on
+   that row's own kWh/cost text width, silently reintroducing the exact
+   row-to-row alignment drift this whole saga started from — caught before
+   shipping, not after), SoC info (1fr — takes remaining space,
+   left-aligned within it), problem-col (auto — sized to nothing when
+   empty, to the small badge's width when present, naturally landing at
+   the row's right edge since it's the last column). */
+.slot-row-inline{width:100%;display:grid;grid-template-columns:150px 1fr auto;align-items:center;column-gap:8px;}
+.slot-row-inline .left-group{display:flex;align-items:baseline;}
+.slot-row-inline .soc-col{white-space:nowrap;justify-self:start;}
+.slot-row-inline .problem-col{justify-self:end;}
 .slot-row-inline .problem-col .badge-problem{margin-left:0;white-space:nowrap;}
 
 .ev-week-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}

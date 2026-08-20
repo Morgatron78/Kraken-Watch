@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.195';
+const APP_VERSION = 'v2.196';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2416,7 +2416,7 @@ function renderEVSessionSlots(sessions, now) {
     const costText = costP != null ? `<span class="slot-cost">(Est. <b>${fmtGBP(costP / 100)}</b>)</span>` : '';
     return `<div class="slot">
       <div class="slot-row"><span>${dayLabel}, ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span>${badgeHtml(s.type)}</div>
-      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}<span class="soc-col">${socText}${milesText}</span></span>${miniPillHtml}</div>
+      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${socText}${milesText}</span>${miniPillHtml}</div>
       ${detailRowHtml}
     </div>`;
   }).join('');
@@ -2499,12 +2499,20 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
   moreBtn.disabled = true;
   try {
     const sessions = await fetchEVSessionsWindow(nextDays);
-    // TEMPORARY diagnostic — "Show more" reported as not working, no error
-    // visible in Diagnostics (logIssue would surface one if the fetch had
-    // thrown), which points at a silent empty result rather than an
-    // exception. Logs the real count either way so the next click gives
-    // actual evidence instead of more guessing. Remove once resolved.
+    // TEMPORARY diagnostic — "Show more" reported as not working, but
+    // "nothing in diagnostics" turned out to be a bug in this diagnostic
+    // itself, not evidence the click wasn't registering: logDebug() only
+    // pushes to the debugNotes array, it doesn't redraw the visible
+    // Diagnostics panel — same documented pattern already known elsewhere
+    // in this codebase (see the on-demand-action comment near
+    // renderDiagnostics() calls). Without an explicit renderDiagnostics()
+    // call here, this log was very likely firing correctly the whole
+    // time and just invisible until the next scheduled sync happened to
+    // redraw the panel minutes later. Added here so the click's own
+    // result shows immediately. Remove this whole diagnostic once
+    // resolved.
     logDebug('EV show-more diagnostic', `nextDays=${nextDays}, sessions returned=${sessions.length}`);
+    renderDiagnostics();
     if (sessions.length) {
       evSessionsCache.set(nextDays, sessions);
       evSessionsWindowDays = nextDays;
@@ -2513,6 +2521,7 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
     }
   } catch (err) {
     logIssue(`EV ${nextDays}-day sessions`, err);
+    renderDiagnostics();
   } finally {
     moreBtn.querySelector('span').textContent = original;
     moreBtn.disabled = false;
