@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.206';
+const APP_VERSION = 'v2.207';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2786,11 +2786,7 @@ async function loadEVSmartFlex() {
   if (!dispatchSlots.children.length) dispatchSlots.innerHTML = '<div class="slot">No dispatch windows scheduled</div>';
 
   // Session view — whole charging sessions, oldest-first to match, each
-  // with its own real kWh and battery % reached, plus type badge. Battery
-  // gained per session chains consecutive sessions (this session's start %
-  // ≈ the previous session's end %) — an assumption that only breaks if
-  // charging happened elsewhere in between (e.g. a public charger), in
-  // which case the delta is just slightly off, not broken.
+  // with its own real kWh and estimated cost/miles, plus type badge.
   // v2.189: factored into its own function, callable with either the
   // default 8-day `sessions` or a wider on-demand fetch (see
   // showMoreEVSessions below) — same rendering logic either way, just a
