@@ -596,9 +596,27 @@ button{font-family:inherit;cursor:pointer;}
 /* v2.210: cost-per-mile reuses .minmax-tag/.minmax-col but colors by
    session type (matching the SMART/BOOST badge and the miles-added
    coloring already shipped), not by price-tier the way .high/.low do —
-   coral on Boost would read as "warning," which it isn't, just pricier. */
+   coral on Boost would read as "warning," which it isn't, just pricier.
+   v2.211: superseded by the grouped-by-type .cost-col layout below —
+   these two modifiers are no longer used, kept only in case a future
+   minmax-based EV stat wants the same type-color convention again. */
 .minmax-tag.smart{color:var(--mint);}
 .minmax-tag.boost{color:var(--pink);}
+
+/* v2.211: charging costs grouped by type (one box per Smart/Boost, each
+   stacking per-mile/per-100mi/full-charge) rather than one row per metric
+   each split by type — same numbers, less vertical space, and matches
+   the real question ("what does Smart charging cost me") better than
+   three separate type-split rows would. */
+.cost-col-row{display:flex;gap:10px;}
+.cost-col{flex:1;background:rgba(255,255,255,0.03);border-radius:10px;padding:10px 12px;}
+.cost-col-tag{font-family:'Inter', sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
+.cost-col-tag.smart{color:var(--mint);}
+.cost-col-tag.boost{color:var(--pink);}
+.cost-stat{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;}
+.cost-stat + .cost-stat{border-top:1px solid rgba(255,255,255,0.06);}
+.cost-stat-label{font-family:'Inter', sans-serif;font-size:10px;color:var(--text-dim);}
+.cost-stat-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:var(--text);}
 .minmax-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;}
 .minmax-value span{font-size:11px;font-weight:500;color:var(--text-dim);margin-left:2px;}
 .minmax-date{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:2px;}

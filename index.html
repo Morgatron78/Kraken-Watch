@@ -16,7 +16,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2.210">
+<link rel="stylesheet" href="styles.css?v=2.211">
 </head>
 <body>
 <div class="wrap">
@@ -580,12 +580,22 @@
             <div class="ev-highlight-line" id="insights-ev-highlight">—</div>
           </div>
           <div class="insight-block">
-            <div class="insight-label">Cost per mile — at today's rates</div>
-            <div class="minmax-row">
-              <div class="minmax-col"><div class="minmax-tag smart">Smart</div><div class="minmax-value" id="insights-ev-cpm-smart">—</div></div>
-              <div class="minmax-col"><div class="minmax-tag boost">Boost</div><div class="minmax-value" id="insights-ev-cpm-boost">—</div></div>
+            <div class="insight-label">Charging costs — at today's rates</div>
+            <div class="cost-col-row">
+              <div class="cost-col">
+                <div class="cost-col-tag smart">Smart</div>
+                <div class="cost-stat"><span class="cost-stat-label">Per mile</span><span class="cost-stat-value" id="insights-ev-cost-smart-mile">—</span></div>
+                <div class="cost-stat"><span class="cost-stat-label">Per 100mi</span><span class="cost-stat-value" id="insights-ev-cost-smart-100mi">—</span></div>
+                <div class="cost-stat"><span class="cost-stat-label">Full charge</span><span class="cost-stat-value" id="insights-ev-cost-smart-full">—</span></div>
+              </div>
+              <div class="cost-col">
+                <div class="cost-col-tag boost">Boost</div>
+                <div class="cost-stat"><span class="cost-stat-label">Per mile</span><span class="cost-stat-value" id="insights-ev-cost-boost-mile">—</span></div>
+                <div class="cost-stat"><span class="cost-stat-label">Per 100mi</span><span class="cost-stat-value" id="insights-ev-cost-boost-100mi">—</span></div>
+                <div class="cost-stat"><span class="cost-stat-label">Full charge</span><span class="cost-stat-value" id="insights-ev-cost-boost-full">—</span></div>
+              </div>
             </div>
-            <div class="ev-highlight-line" id="insights-ev-cpm-compare" style="text-align:center;border-top:none;margin-top:10px;padding-top:0;">—</div>
+            <div class="ev-highlight-line" id="insights-ev-cost-caption" style="text-align:center;border-top:none;margin-top:10px;padding-top:0;">—</div>
           </div>
         </div>
 
@@ -732,6 +742,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.210"></script>
+<script src="app.js?v=2.211"></script>
 </body>
 </html>

@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.210';
+const APP_VERSION = 'v2.211';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -32,6 +32,17 @@ function getEvRangeMiPerKwh() {
   const c = store.creds || {};
   if (c.wltpMiles > 0 && c.wltpBatteryKwh > 0) return c.wltpMiles / c.wltpBatteryKwh;
   return EV_RANGE_MI_PER_KWH_FALLBACK;
+}
+// v2.211: separate accessor for the usable battery kWh itself, not just
+// the derived mi/kWh ratio — needed for "cost to fully charge" (kWh × rate
+// directly, more accurate than reversing the ratio) and the header
+// caption. Same 67kWh fallback as the ratio constant above, for the same
+// reason: existing behaviour for anyone who hasn't touched Settings
+// shouldn't silently change.
+const EV_BATTERY_KWH_FALLBACK = 67;
+function getEvBatteryKwh() {
+  const c = store.creds || {};
+  return (c.wltpBatteryKwh > 0) ? c.wltpBatteryKwh : EV_BATTERY_KWH_FALLBACK;
 }
 
 const store = {
@@ -2152,9 +2163,20 @@ function applyEvCollapse(worthSeeing) {
 // model string, which is still correct and stays removed: now that
 // Settings lets the user enter make and model as free text, the caption
 // is simply the model field verbatim, not a trimmed remainder.)
+// v2.211: battery kWh appended separately via " · ", not merged into the
+// model string itself — Octopus's raw model text for some accounts
+// happens to already include a kWh figure of its own (e.g. "...Single
+// Motor (69 kWh)", the vehicle's gross capacity), which wouldn't
+// necessarily match Settings' usable-kWh figure feeding the cost
+// calculations, and a custom model override might not include one at
+// all. Keeping them visually and textually separate avoids ever showing
+// two different kWh numbers stitched into one string with no indication
+// they're from different sources.
 function formatVehicleName(make, model) {
   if (!make) return { title: '', caption: '' };
-  return { title: ` — ${make}`, caption: model || '' };
+  const batteryNote = `${getEvBatteryKwh()} kWh usable`;
+  const caption = model ? `${model} · ${batteryNote}` : batteryNote;
+  return { title: ` — ${make}`, caption };
 }
 
 async function loadVehicleInfoOnce() {
@@ -3046,24 +3068,39 @@ function renderEVInsights(sessions, now) {
     $('insights-ev-highlight').innerHTML = `Busiest day: <b>${dayNames[busiestDate.getDay()]}</b>, ${busiestTotal.toFixed(1)} kWh across ${b.sessions.length} session${b.sessions.length === 1 ? '' : 's'}`;
   }
 
-  // v2.210: cost per mile — not period-based at all, unlike the rest of
-  // this panel. Just today's off-peak/standard rate divided by the
-  // Settings-configured range, so it's a constant at any given moment,
-  // not an aggregate over these 7 days' sessions specifically. Still
-  // lives inside this panel (gated by the same hasAnyData check above)
-  // rather than always-visible, since it's only relevant once there's
-  // some EV charging activity to speak of.
+  // v2.210/v2.211: charging costs — not period-based at all, unlike the
+  // rest of this panel. Just today's off-peak/standard rate divided by
+  // the Settings-configured range (mile figures) or multiplied directly
+  // by the configured usable battery kWh (full-charge figure) — a
+  // constant at any given moment, not an aggregate over these 7 days'
+  // sessions specifically. Still lives inside this panel (gated by the
+  // same hasAnyData check above) rather than always-visible, since it's
+  // only relevant once there's some EV charging activity to speak of.
   const milesPerKwh = getEvRangeMiPerKwh();
   if (cachedOffPeakRateP != null && cachedStandardRateP != null && milesPerKwh > 0) {
+    const batteryKwh = getEvBatteryKwh();
     const smartPPerMile = cachedOffPeakRateP / milesPerKwh;
     const boostPPerMile = cachedStandardRateP / milesPerKwh;
-    $('insights-ev-cpm-smart').innerHTML = `${smartPPerMile.toFixed(1)}<span>p/mi</span>`;
-    $('insights-ev-cpm-boost').innerHTML = `${boostPPerMile.toFixed(1)}<span>p/mi</span>`;
-    $('insights-ev-cpm-compare').innerHTML = `Smart is <b>${(boostPPerMile / smartPPerMile).toFixed(1)}×</b> cheaper per mile than Boost`;
+    $('insights-ev-cost-smart-mile').textContent = `${smartPPerMile.toFixed(1)}p`;
+    $('insights-ev-cost-boost-mile').textContent = `${boostPPerMile.toFixed(1)}p`;
+    // Per 100 miles: pence/mile × 100 miles = pence total, ÷100 = pounds.
+    // (These two operations mathematically cancel out numerically — kept
+    // explicit rather than simplified, since a bare "fmtGBP(smartPPerMile)"
+    // would look like a copy-paste bug to a future reader, not the correct
+    // per-100-miles figure it actually is.)
+    $('insights-ev-cost-smart-100mi').textContent = fmtGBP((smartPPerMile * 100) / 100);
+    $('insights-ev-cost-boost-100mi').textContent = fmtGBP((boostPPerMile * 100) / 100);
+    // Full charge: battery kWh × rate directly, not derived from the
+    // per-mile figure a second time — more accurate, avoids compounding
+    // the rounding already applied to the displayed per-mile pence figure.
+    $('insights-ev-cost-smart-full').textContent = fmtGBP(batteryKwh * cachedOffPeakRateP / 100);
+    $('insights-ev-cost-boost-full').textContent = fmtGBP(batteryKwh * cachedStandardRateP / 100);
+    $('insights-ev-cost-caption').textContent = `Full charge assumes ${batteryKwh} kWh usable battery (Settings → EV)`;
   } else {
-    $('insights-ev-cpm-smart').textContent = '—';
-    $('insights-ev-cpm-boost').textContent = '—';
-    $('insights-ev-cpm-compare').textContent = '—';
+    ['smart-mile', 'boost-mile', 'smart-100mi', 'boost-100mi', 'smart-full', 'boost-full'].forEach(id => {
+      $(`insights-ev-cost-${id}`).textContent = '—';
+    });
+    $('insights-ev-cost-caption').textContent = '—';
   }
 }
 
