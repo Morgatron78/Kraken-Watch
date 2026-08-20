@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.203';
+const APP_VERSION = 'v2.204';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2387,11 +2387,11 @@ function renderEVSessionSlots(sessions, now) {
     }
     // v2.191: estimated range added, using getEvRangeMiPerKwh() (Settings-
     // configurable per vehicle, was a single hardcoded Polestar 2 constant).
-    // v2.203: spelled out "miles added" instead of the terser "≈33mi" —
-    // the abbreviation read ambiguously next to the SoC%/gain figures once
-    // those got busier; full wording removes the need to infer what the
-    // number means.
-    const milesText = kwh != null ? ` <span class="slot-soc-gain">≈${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles added</span>` : '';
+    // v2.204: "≈33 miles added" (v2.203) ran the row wide enough to spill
+    // off-screen on real devices — confirmed via user screenshot. Shortened
+    // to "+33 miles", which keeps the same plain-English "miles" wording
+    // (the actual ask behind v2.203) at a length that fits.
+    const milesText = kwh != null ? ` <span class="slot-soc-gain">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles</span>` : '';
     // v2.191: warning redesign — was a full text pill inline (v2.190),
     // now a small circular icon-only toggle; clicking it shows/hides a
     // third row with the full message, rather than the message always
