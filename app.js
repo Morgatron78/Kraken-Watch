@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.213';
+const APP_VERSION = 'v2.214';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -1850,17 +1850,25 @@ async function fetchElecDayHalfHourly(anchor = null) {
 // does, just for the whole year — far more calls, so deliberately skipped
 // for now in favour of an honest, exact kWh figure over a slow, blended-rate
 // estimate.
-async function fetchYearMonthly(fuel) {
+// v2.214: accepts an optional yearsAgo offset (default 0 = current year) —
+// added to probe whether a prior year's group_by=month request retains
+// data past the ~2-month floor already confirmed for finer daily/half-
+// hourly queries (that floor was only ever tested at that finer
+// granularity, never for this coarser monthly aggregation, which many
+// billing systems retain much longer than raw interval data).
+async function fetchYearMonthly(fuel, yearsAgo = 0) {
   const creds = store.creds;
   const isElec = fuel === 'elec';
   const mp = isElec ? creds.elecMpan : creds.gasMprn;
   const serial = isElec ? creds.elecSerial : creds.gasSerial;
   if (!mp || !serial) throw new Error(`No ${fuel} meter point on file`);
   const now = new Date();
-  const yearStart = new Date(now.getFullYear(), 0, 1).toISOString();
+  const targetYear = now.getFullYear() - yearsAgo;
+  const yearStart = new Date(targetYear, 0, 1).toISOString();
+  const yearEnd = (yearsAgo === 0 ? now : new Date(targetYear, 11, 31, 23, 59, 59)).toISOString();
   const path = isElec
-    ? `/electricity-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${now.toISOString()}&group_by=month&page_size=100`
-    : `/gas-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${now.toISOString()}&group_by=month&page_size=100`;
+    ? `/electricity-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${yearEnd}&group_by=month&page_size=100`
+    : `/gas-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${yearEnd}&group_by=month&page_size=100`;
   const data = await octRest(path);
   const results = (data.results || []).sort((a, b) => +new Date(a.interval_start) - +new Date(b.interval_start));
   return results.map(r => {
@@ -4372,6 +4380,19 @@ function init() {
         if (!fuelData.gas.year) {
           try { fuelData.gas.year = await fetchYearMonthly('gas'); }
           catch (err) { logIssue('Year view (gas)', err); fuelData.gas.year = []; }
+        }
+        // TEMPORARY diagnostic — probing whether electricity's group_by=month
+        // aggregation retains data beyond the ~2-month floor already
+        // confirmed for finer-grained queries (see fetchYearMonthly comment
+        // above). Does not affect the visible Year view at all — separate
+        // fetch, logged only, not wired into fuelData or any chart. Remove
+        // this whole block once the question is answered either way.
+        try {
+          const priorYearElec = await fetchYearMonthly('elec', 1);
+          const withData = priorYearElec.filter(m => m.kwh > 0).length;
+          logDebug('Prior-year elec probe', `${priorYearElec.length} month(s) returned, ${withData} with non-zero kWh — ${priorYearElec.map(m => `${m.month}:${m.kwh.toFixed(0)}kWh`).join(' ')}`);
+        } catch (err) {
+          logDebug('Prior-year elec probe', `request failed — ${err.message}`);
         }
       }
       updateDatePickerUI();
