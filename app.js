@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.214';
+const APP_VERSION = 'v2.215';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -4394,6 +4394,7 @@ function init() {
         } catch (err) {
           logDebug('Prior-year elec probe', `request failed — ${err.message}`);
         }
+        renderDiagnostics(); // logDebug() alone doesn't redraw the panel — same lesson as the v2.196 comment above, missed here on first pass
       }
       updateDatePickerUI();
       renderFuelPanel('elec');
