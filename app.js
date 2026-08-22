@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.219';
+const APP_VERSION = 'v2.220';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2713,7 +2713,17 @@ async function loadEVSmartFlex() {
       $('ev-battery-countdown').textContent = 'Target reached';
     } else {
     const [th, tm] = todaySchedule.time.split(':').map(Number);
-    const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), th, tm);
+    let targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), th, tm);
+    // v2.220: the schedule's target time recurs daily (same time shown for
+    // all 7 days in the weekly strip below), but this only ever checked
+    // *today's* occurrence — once that clock-time passed, the countdown
+    // went blank instead of rolling to tomorrow's occurrence, even while
+    // actively charging overnight past it. That's not an edge case, it's
+    // the normal case for any overnight session with a morning target —
+    // confirmed via a user report of the countdown missing while charging
+    // in the evening, target already past for "today." Roll forward one
+    // day so the countdown always counts down to the next real occurrence.
+    if (targetDate <= now) targetDate = new Date(targetDate.getTime() + 86400000);
     if (targetDate > now) {
       const diffMin = Math.round((targetDate - now) / 60000);
       const h = Math.floor(diffMin / 60), m = diffMin % 60;
