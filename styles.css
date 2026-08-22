@@ -179,11 +179,15 @@ button{font-family:inherit;cursor:pointer;}
    same live-pulse keyframes the old dot used, just applied to a shape
    instead of a circle. "Planned"'s clock icon is static (no animation —
    it's waiting, not actively happening) and colored amber to match this
-   row's existing accent (the time range next to it is already amber; the
-   bold "Planned" label itself stays plain white, matching how it already
-   worked before this icon was added). */
+   row's existing accent (the time range next to it is already amber).
+   The bold "Planned" label text is amber too — confirmed via a real
+   device screenshot (a sandbox computed-style check had suggested white,
+   which didn't match reality; the .slot.scheduled b rule below is now
+   set to amber deliberately, matching the confirmed real result rather
+   than the earlier, incorrect assumption). */
 .dispatch-icon{margin-right:4px;flex-shrink:0;animation:live-pulse 1.6s ease-in-out infinite;}
 .planned-icon{color:var(--amber);margin-right:4px;flex-shrink:0;}
+.completed-icon{margin-right:4px;flex-shrink:0;}
 /* v2.199: rate-pill's dot was a literal "●" text character, sized by the
    surrounding font rather than an explicit box — rendered visibly bigger/
    differently-positioned than live-tag's proper .live-dot span right next
@@ -266,7 +270,7 @@ button{font-family:inherit;cursor:pointer;}
 .slot.active b{color:var(--pink);}
 .slot.scheduled{background:rgba(255,184,77,0.14);border:1px solid rgba(255,184,77,0.35);}
 .slot.scheduled span{color:var(--amber);}
-.slot.scheduled b{color:var(--text);}
+.slot.scheduled b{color:var(--amber);}
 .slot.done{opacity:0.55;}
 .slot.done span{color:var(--text-dim);}
 

@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.227';
+const APP_VERSION = 'v2.229';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2868,7 +2868,15 @@ async function loadEVSmartFlex() {
     `${new Date(s.start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}: ${(s.dispatches || []).length} dispatch(es)`
   ).join(' · ') || 'no sessions in window');
   dispatchSlots.innerHTML = allDispatches.map(d =>
-    `<div class="slot done"><span>✓ ${fmtT(d.start)} – ${fmtT(d.end)}${badgeHtml(d.type)}</span><b>Completed · ${Math.abs(d.energyAddedKwh || 0).toFixed(1)} kWh</b></div>`
+    // v2.229: checkmark moved from a plain "✓" glued onto the time text
+    // into its own icon paired with "Completed", matching how the bolt
+    // and clock icons pair with "Dispatching now"/"Planned" — all three
+    // states now follow the same icon+label shape instead of this one
+    // being built differently. Uses currentColor rather than its own
+    // accent, so it inherits the same dim treatment .slot.done already
+    // applies to everything in this row via opacity, rather than adding
+    // a fourth distinct color to a row that's deliberately muted.
+    `<div class="slot done"><span>${fmtT(d.start)} – ${fmtT(d.end)}${badgeHtml(d.type)}</span><b><span class="live-dot-label"><svg class="completed-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Completed · ${Math.abs(d.energyAddedKwh || 0).toFixed(1)} kWh</span></b></div>`
   ).join('');
   planned.forEach(d => {
     const isActive = now >= new Date(d.start) && now < new Date(d.end);
@@ -3394,7 +3402,7 @@ function populateDemoEV() {
     $('ev-week-legend').classList.remove('hidden');
     $('ev-slots-dispatch').classList.remove('hidden');
     $('ev-slots-dispatch').innerHTML = `
-      <div class="slot done"><span>✓ 00:30 – 04:00</span><b>Completed · 22.1 kWh</b></div>
+      <div class="slot done"><span>00:30 – 04:00</span><b><span class="live-dot-label"><svg class="completed-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Completed · 22.1 kWh</span></b></div>
       <div class="slot active"><span>● 04:00 – 05:30</span><b>Dispatching now · 7.4kW</b></div>
       <div class="slot"><span>Planned tonight</span><b>23:30 – 05:30</b></div>`;
     renderWeekBars('ev-week', [3.0, 2.2, 4.8, 0.1, 3.6, 2.6, 4.4], '', v => `${v.toFixed(1)} kWh`, 44, 'ev-week-scale');
