@@ -166,13 +166,13 @@ button{font-family:inherit;cursor:pointer;}
 
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--mint);display:inline-block;margin-right:4px;animation:live-pulse 1.6s ease-in-out infinite;}
 .live-dot.pink{background:var(--pink);}
-/* v2.222: .live-dot never sets its own vertical-align, so it falls back
-   to the default (baseline) — fine against the smaller text elsewhere it
-   already appears next to, but visibly low against this row's bolder
-   13px "Dispatching now" text (confirmed via user screenshot). Scoped
-   here rather than changing .live-dot's own default, since the other
-   usages already look correct and shouldn't be risked over one row. */
-.slot b .live-dot{vertical-align:middle;}
+/* v2.223: vertical-align:middle (v2.222) didn't actually fix this — it
+   centers against the font's x-height, not the true visual center of the
+   line, so it can still read as low next to large bold text. Confirmed
+   still misaligned via user follow-up. Flexbox is the reliable technique
+   here: wrapping the dot+text in their own flex row centers them against
+   each other directly, independent of font metrics entirely. */
+.live-dot-label{display:inline-flex;align-items:center;}
 @keyframes live-pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
 /* v2.199: rate-pill's dot was a literal "●" text character, sized by the
    surrounding font rather than an explicit box — rendered visibly bigger/

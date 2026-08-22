@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.223';
+const APP_VERSION = 'v2.224';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2886,7 +2886,7 @@ async function loadEVSmartFlex() {
     // v2.150: swapped the static "●" character for the same pulsating dot
     // already used in the live usage view, in pink to match this panel's
     // electricity-adjacent identity.
-    const label = isActive ? '<span class="live-dot pink"></span>Dispatching now' : 'Planned';
+    const label = isActive ? '<span class="live-dot-label"><span class="live-dot pink"></span>Dispatching now</span>' : 'Planned';
     const cls = isActive ? ' active' : ' scheduled';
     dispatchSlots.insertAdjacentHTML('beforeend', `<div class="slot${cls}"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${label}</b></div>`);
   });
