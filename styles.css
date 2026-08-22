@@ -618,11 +618,8 @@ button{font-family:inherit;cursor:pointer;}
    colored dot (matching the existing .split2-label convention) since
    electricity/gas identity elsewhere in the app is always marked this
    way, unlike EV's Smart/Boost which already reads from the badge alone. */
-.cost-col-tag .dot{width:7px;height:7px;border-radius:2px;box-shadow:none;}
 .cost-col-tag.elec{color:var(--pink);}
-.cost-col-tag.elec .dot{background:var(--pink);}
 .cost-col-tag.gas{color:var(--gas-blue);}
-.cost-col-tag.gas .dot{background:var(--gas-blue);}
 .standing-total-line{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-dim);text-align:center;margin-top:12px;}
 .standing-total-line b{color:var(--text);font-weight:600;}
 .cost-stat{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;}
