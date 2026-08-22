@@ -218,9 +218,8 @@ button{font-family:inherit;cursor:pointer;}
 .bar-fill{height:100%;background:linear-gradient(90deg,var(--text-dim),var(--text));border-radius:100px;transition:width .4s ease;}
 
 /* EV */
-.ev-row{display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
-.ev-detail-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;}
-.ev-detail-value{font-size:17px;font-weight:600;}
+/* v2.224: .ev-row/.ev-detail-label/.ev-detail-value removed — those were
+   only used by "Next planned dispatch window", now gone (see app.js). */
 .ev-mini-row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;}
 .ev-mini{flex:1;min-width:110px;background:var(--bg-panel-2);border-radius:12px;padding:10px 12px;}
 .ev-mini-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}

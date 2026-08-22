@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.224';
+const APP_VERSION = 'v2.225';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2333,7 +2333,6 @@ async function loadEV() {
   } else {
     $('ev-tag').textContent = 'Unavailable';
     $('ev-tag').className = 'card-tag tag-dim';
-    $('ev-ready').textContent = '—';
     $('ev-added').textContent = '—';
     $('ev-battery-row').classList.add('hidden');
     $('ev-schedule-preview').classList.add('hidden');
@@ -2649,23 +2648,13 @@ async function loadEVSmartFlex() {
   $('ev-tag').className = activeDispatch ? 'card-tag tag-pink' : (planned.length ? 'card-tag tag-amber' : 'card-tag tag-dim');
   applyEvCollapse(!!activeDispatch || planned.length > 0);
 
-  // v2.221: was `planned[0]` unconditionally — but planned is sorted by
-  // start time and includes the currently-active window too (that's how
-  // activeDispatch above finds it), so whenever a dispatch was already in
-  // progress, planned[0] was still that same active window, not the
-  // genuinely next one — "Next dispatch window" showed the window
-  // literally happening right now. Confirmed via a user screenshot: next
-  // window and the "Dispatching now" row both showed the identical
-  // 20:00–08:00 time range. Now explicitly looks for the first window
-  // that hasn't started yet.
-  const nextWindow = planned.find(d => new Date(d.start) > now);
-  if (nextWindow) {
-    const s = new Date(nextWindow.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const e = new Date(nextWindow.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    $('ev-ready').textContent = `${s} – ${e}`;
-  } else {
-    $('ev-ready').textContent = 'None scheduled';
-  }
+  // v2.224: "Next planned dispatch window" removed entirely — it was
+  // exact-duplicate information already shown in the Windows list right
+  // below it (same time range, same "Planned" status), confirmed via a
+  // user screenshot showing both rows stating "08:30 – 12:00" at once.
+  // The v2.221 fix above (finding the first non-active window rather than
+  // blindly using planned[0]) is no longer needed since nothing reads
+  // that value anymore.
 
   // Battery gauge — genuinely new, wasn't available via the legacy path at all
   const soc = vehicle.status?.stateOfCharge?.value;
@@ -3383,7 +3372,6 @@ let evViewMode = 'dispatch'; // v2.150: tracks the user's Dispatch/Sessions tab 
 function populateDemoEV() {
     applyEvCollapse(true);
     $('ev-tag').textContent = 'DEMO DATA';
-    $('ev-ready').textContent = '23:30 – 05:30';
     $('ev-added').textContent = '9.6 kWh';
     $('ev-battery-row').classList.add('hidden');
     $('ev-schedule-preview').classList.add('hidden');
