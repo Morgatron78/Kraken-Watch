@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.231';
+const APP_VERSION = 'v2.234';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2371,10 +2371,22 @@ async function loadEV() {
 // (the common GraphQL Money convention) and worth a sanity check against a
 // real screenshot once deployed; wrong would show as an obviously-scaled
 // number (e.g. "£22" for a small top-up), not a broken query.
-// SmartFlexDispatch.dispatches inside each session gives per-window
-// detail (start/end/type/kWh), so the dispatch-window view is derived
-// from the same one query rather than needing completedDispatches at all
-// — only plannedDispatches stays as its own call, since chargingSessions
+// SmartFlexDispatch.dispatches inside each session was meant to give
+// per-window detail (start/end/type/kWh) so the Windows tab's completed
+// rows could come from this one query rather than needing
+// completedDispatches at all. v2.232 confirmed via a diagnostic that it
+// comes back empty on this account, even for an ordinary, fully real
+// session — but v2.233: the user reported genuinely seeing real completed
+// windows in earlier testing, meaning it most likely did populate
+// correctly before. A same-version attempt to substitute session-level
+// data instead was reverted — the user correctly pointed out a single
+// session can span multiple real dispatch windows, so that substitute
+// would silently merge them into one misleading row rather than show
+// nothing. Still read here as the real field, unchanged, so if Octopus's
+// data starts populating it again, real completed windows reappear with
+// no further code change needed. buildEVDayBuckets also still checks it
+// as an optional finer-grained fallback (see its own comment). Only
+// plannedDispatches stays as its own separate call, since chargingSessions
 // is explicitly historical.
 const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
@@ -2644,6 +2656,30 @@ async function loadEVSmartFlex() {
   const now = new Date();
   const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
 
+  // TEMPORARY diagnostic — completedDispatches probe. An earlier
+  // investigation tried this same field and found it empty, but a since-
+  // found real-world example (a 2022 GitHub gist) shows it's a genuine
+  // top-level field with real data on other accounts, just under
+  // start/end/delta-style field names that may have changed since 2022.
+  // Testing here against this account's own already-confirmed-working
+  // plannedDispatches shape (start end delta, same query above) rather
+  // than the stale gist's exact names — plannedDispatches and
+  // completedDispatches are natural siblings, so matching shapes is a
+  // much better-informed guess than the old gist alone. Isolated in its
+  // own try/catch so a schema error here can't affect anything else on
+  // the EV card. Remove this whole block once the question's answered.
+  try {
+    const probeData = await krakenGQL(`
+      query CompletedDispatchesProbe($accountNumber: String!) {
+        completedDispatches(accountNumber: $accountNumber) { start end delta source }
+      }`, { accountNumber: store.creds.accountNumber });
+    const completed = probeData.completedDispatches || [];
+    logDebug('completedDispatches probe', `${completed.length} entrie(s) returned${completed.length ? ' — ' + completed.slice(0, 3).map(d => `${d.start}→${d.end} (${d.delta})`).join(' · ') : ''}`);
+  } catch (err) {
+    logDebug('completedDispatches probe', `request failed — ${err.message}`);
+  }
+  renderDiagnostics(); // logDebug() alone doesn't redraw the panel — same lesson as the v2.196 comment elsewhere
+
   $('ev-tag').textContent = activeDispatch ? 'CHARGING' : (planned.length ? 'SCHEDULED' : 'IDLE');
   $('ev-tag').className = activeDispatch ? 'card-tag tag-pink' : (planned.length ? 'card-tag tag-amber' : 'card-tag tag-dim');
   applyEvCollapse(!!activeDispatch || planned.length > 0);
@@ -2849,24 +2885,30 @@ async function loadEVSmartFlex() {
     warningsEl.innerHTML = '';
   }
 
-  // Dispatch-window view — derived from each session's nested dispatches,
-  // flattened and sorted oldest-first (same chronological-timeline
-  // convention as before), now with a real SMART/BOOST badge per window.
+  // v2.233: v2.232's "build from sessions themselves" approach was wrong —
+  // caught by the user, who correctly pointed out a single session can
+  // genuinely span multiple real dispatch windows (charge, pause, resume
+  // later). Substituting session-level data would silently merge those
+  // into one row with the session's overall time range and kWh, not the
+  // real per-window figures — populated, but not honestly representing
+  // what actually happened. Reverted to the real `dispatches` sub-field
+  // only. It's confirmed empty on this account right now (two separate
+  // fields — this one and completedDispatches, tried in an earlier
+  // investigation — have both come back empty), but the user reports
+  // genuinely seeing real completed windows in earlier testing, meaning
+  // this data most likely did populate correctly before and something's
+  // changed since (an Octopus-side change, possibly connected to the
+  // 6-hour smart-charging cap rollout, is the leading theory — nothing
+  // confirmed). Left reading the real field rather than working around
+  // it, so if it starts populating again, real completed windows reappear
+  // on their own with no further code change — see the "no completed
+  // dispatch data" fallback message below for what shows meanwhile.
   const allDispatches = [];
   sessions.forEach(s => (s.dispatches || []).forEach(d => allDispatches.push(d)));
   allDispatches.sort((a, b) => new Date(a.start) - new Date(b.start));
 
   const dispatchSlots = $('ev-slots-dispatch');
   dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
-  // TEMPORARY diagnostic — completed dispatch windows reportedly missing
-  // from this tab again (flagged once before at v2.159, removed before
-  // ever being resolved). Logging exactly what session.dispatches came
-  // back with this time, per session, rather than guessing at a fix or
-  // leaving it unresolved a second time. Remove once the question is
-  // actually answered either way.
-  logDebug('Session dispatches check', sessions.map(s =>
-    `${new Date(s.start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}: ${(s.dispatches || []).length} dispatch(es)`
-  ).join(' · ') || 'no sessions in window');
   dispatchSlots.innerHTML = allDispatches.map(d =>
     // v2.229: checkmark moved from a plain "✓" glued onto the time text
     // into its own icon paired with "Completed", matching how the bolt
@@ -2878,6 +2920,13 @@ async function loadEVSmartFlex() {
     // a fourth distinct color to a row that's deliberately muted.
     `<div class="slot done"><span>${fmtT(d.start)} – ${fmtT(d.end)}${badgeHtml(d.type)}</span><b><span class="live-dot-label"><svg class="completed-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Completed · ${Math.abs(d.energyAddedKwh || 0).toFixed(1)} kWh</span></b></div>`
   ).join('');
+  // v2.233: sessions with real, completed charging exist, but no genuine
+  // per-window data is available to show for them (see comment above) —
+  // says so plainly rather than leaving unexplained blank space where
+  // "Completed" rows would otherwise be.
+  if (!allDispatches.length && sessions.length) {
+    dispatchSlots.insertAdjacentHTML('beforeend', '<div class="slot"><span>Completed windows aren\'t available right now — see Sessions tab for real charging history</span></div>');
+  }
   planned.forEach(d => {
     const isActive = now >= new Date(d.start) && now < new Date(d.end);
     // v2.150: swapped the static "●" character for a pulsating dot.
@@ -3193,15 +3242,24 @@ function renderEVInsights(sessions, now) {
 // Day — hourly buckets, built from sessions directly (same source Week
 // uses via energyAdded.value), not from each session's nested dispatches
 // array. v2.150 fix: the original version bucketed purely off `dispatches`,
-// which is empty for Boost-type manual charges (only Smart/scheduled
-// dispatches appear to generate dispatch records) — so a day charged only
-// via Boost showed real data in Week (session-level) but nothing at all in
-// Day (dispatch-level). Falls back to dispatches only when present, for
-// slightly finer within-session detail on Smart charging days; a session
-// with no dispatches is bucketed as one lump at its own start hour instead
-// of silently vanishing. Reuses evLoadedSessions (the same rolling window
-// already fetched for the live card) — today is always within that
-// window, so no new fetch at all.
+// which was empty for Boost-type manual charges (only Smart/scheduled
+// dispatches appeared to generate dispatch records at the time) — so a day
+// charged only via Boost showed real data in Week (session-level) but
+// nothing at all in Day (dispatch-level). v2.232 found this wasn't
+// Boost-specific after all — a diagnostic confirmed `dispatches` comes
+// back empty even for ordinary Smart sessions on this account right now
+// — though v2.233 notes the user recalls genuinely seeing real completed
+// windows in earlier testing, so this is likely a regression or an
+// Octopus-side change rather than something that was always broken (see
+// the query comment above for the fuller account). Either way, this
+// fallback path is probably what's actually running for every session at
+// the moment, not just Boost ones. Left as a fallback rather than
+// removed — harmless if the field is ever populated again, and this
+// function already degrades gracefully without it: a session with no
+// dispatches is bucketed as one lump at its own
+// start hour instead of silently vanishing. Reuses evLoadedSessions (the
+// same rolling window already fetched for the live card) — today is
+// always within that window, so no new fetch at all.
 function buildEVDayBuckets(sessions, now) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfTomorrow = new Date(startOfToday.getTime() + 86400000);
