@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.216';
+const APP_VERSION = 'v2.217';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -278,6 +278,10 @@ let cachedCurrentRateP = null; // right-now electricity rate — used for the li
 let cachedStandardRateP = null; // most expensive electricity rate seen today — v2.154: used to estimate Boost-session charging cost, since Boost charges happen outside the smart dispatch schedule and so are assumed to land at standard rate, not off-peak
 let cachedElecStandingP = null;
 let cachedGasStandingP = null;
+// v2.217: today's live gas unit rate, from the same rate-API fetch that
+// already populates #gas-unit-rate — kept globally so computeBalanceForecast
+// can use it instead of MTD-derived consumption (see fix there for why).
+let cachedGasRateP = null;
 
 // v2.192: shared cost-estimate helper — same type-based assumption as the
 // existing "This session" mini-box (v2.154), now reused for the Sessions
@@ -1503,8 +1507,19 @@ function todayBlendedRateP(fuel) {
 
 function computeBalanceForecast() {
   if (!billingState.hasNextPayment || billingState.balancePounds === null || billingState.nextPaymentAmount === null) return null;
-  const elecRateP = todayBlendedRateP('elec');
-  const gasRateP = todayBlendedRateP('gas');
+  // v2.217: was todayBlendedRateP('elec')/('gas') only — derived from MTD
+  // consumption, which is fragile right at a month boundary: Octopus's
+  // smart meter data lags roughly a day, so on day 1 of a new month MTD
+  // can genuinely be zero, making todayBlendedRateP return null. Because
+  // this whole 12-month loop below is gated on rate !== null, that single
+  // null collapsed every month to the flat-estimate fallback at once —
+  // confirmed via a user report of the runway suddenly going "every
+  // month looks the same" with no code change on that day. Now prefers
+  // the live current-rate fetch (same one the Current Rate card and
+  // #gas-unit-rate already use, independent of MTD), falling back to the
+  // MTD-blended figure only if that live rate genuinely isn't available.
+  const elecRateP = cachedCurrentRateP ?? todayBlendedRateP('elec');
+  const gasRateP = cachedGasRateP ?? todayBlendedRateP('gas');
   if (elecRateP === null && gasRateP === null) return null;
 
   const monthByKey = new Map(billMonthsData.map(m => [`${m.year}-${m.month}`, m]));
@@ -3522,7 +3537,7 @@ async function loadBilling() {
         const dayEnd1 = new Date(+dayStart1 + 24 * 60 * 60 * 1000 - 60000);
         const gasRatesToday = await fetchGasRates(dayStart1.toISOString(), dayEnd1.toISOString());
         const currentGasRate = rateAt(gasRatesToday, Date.now());
-        if (currentGasRate !== null) $('gas-unit-rate').textContent = `${currentGasRate.toFixed(2)}p`;
+        if (currentGasRate !== null) { $('gas-unit-rate').textContent = `${currentGasRate.toFixed(2)}p`; cachedGasRateP = currentGasRate; }
       } catch { /* keep whatever was already showing (demo or "—") */ }
     }
 
