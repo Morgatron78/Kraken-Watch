@@ -805,7 +805,7 @@ button{font-family:inherit;cursor:pointer;}
 }
 .badge-problem-mini svg{margin:0;}
 .battery-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);white-space:nowrap;}
-.battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--mint);white-space:nowrap;}
+.battery-countdown{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--mint);white-space:nowrap;}
 
 /* v2.156: margin-top/margin-bottom removed — spacing now comes from
    #ev-stack's flex gap. */
