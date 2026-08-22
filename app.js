@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.220';
+const APP_VERSION = 'v2.223';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2649,9 +2649,19 @@ async function loadEVSmartFlex() {
   $('ev-tag').className = activeDispatch ? 'card-tag tag-pink' : (planned.length ? 'card-tag tag-amber' : 'card-tag tag-dim');
   applyEvCollapse(!!activeDispatch || planned.length > 0);
 
-  if (planned[0]) {
-    const s = new Date(planned[0].start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const e = new Date(planned[0].end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // v2.221: was `planned[0]` unconditionally — but planned is sorted by
+  // start time and includes the currently-active window too (that's how
+  // activeDispatch above finds it), so whenever a dispatch was already in
+  // progress, planned[0] was still that same active window, not the
+  // genuinely next one — "Next dispatch window" showed the window
+  // literally happening right now. Confirmed via a user screenshot: next
+  // window and the "Dispatching now" row both showed the identical
+  // 20:00–08:00 time range. Now explicitly looks for the first window
+  // that hasn't started yet.
+  const nextWindow = planned.find(d => new Date(d.start) > now);
+  if (nextWindow) {
+    const s = new Date(nextWindow.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const e = new Date(nextWindow.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     $('ev-ready').textContent = `${s} – ${e}`;
   } else {
     $('ev-ready').textContent = 'None scheduled';
@@ -2859,6 +2869,15 @@ async function loadEVSmartFlex() {
 
   const dispatchSlots = $('ev-slots-dispatch');
   dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
+  // TEMPORARY diagnostic — completed dispatch windows reportedly missing
+  // from this tab again (flagged once before at v2.159, removed before
+  // ever being resolved). Logging exactly what session.dispatches came
+  // back with this time, per session, rather than guessing at a fix or
+  // leaving it unresolved a second time. Remove once the question is
+  // actually answered either way.
+  logDebug('Session dispatches check', sessions.map(s =>
+    `${new Date(s.start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}: ${(s.dispatches || []).length} dispatch(es)`
+  ).join(' · ') || 'no sessions in window');
   dispatchSlots.innerHTML = allDispatches.map(d =>
     `<div class="slot done"><span>✓ ${fmtT(d.start)} – ${fmtT(d.end)}${badgeHtml(d.type)}</span><b>Completed · ${Math.abs(d.energyAddedKwh || 0).toFixed(1)} kWh</b></div>`
   ).join('');
