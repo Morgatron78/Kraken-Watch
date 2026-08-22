@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.229';
+const APP_VERSION = 'v2.230';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2481,7 +2481,7 @@ function renderEVSessionSlots(sessions, now) {
     const costP = estimateSessionCostP(s);
     const costText = costP != null ? `<span class="slot-cost">(Est. <b>${fmtGBP(costP / 100)}</b>)</span>` : '';
     return `<div class="slot">
-      <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
+      <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> · ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
       <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${milesText}</span></div>
       ${detailRowHtml}
     </div>`;
