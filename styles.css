@@ -220,7 +220,16 @@ button{font-family:inherit;cursor:pointer;}
 /* EV */
 /* v2.224: .ev-row/.ev-detail-label/.ev-detail-value removed — those were
    only used by "Next planned dispatch window", now gone (see app.js). */
-.ev-mini-row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;}
+/* v2.225: margin-top removed — #ev-stack's own flex `gap` (see v2.156
+   comment above) already provides the correct spacing between #ev-body
+   and whatever precedes it. This only worked before because the now-
+   removed "Next planned dispatch window" row sat in front of it and
+   absorbed that role via sibling margin collapsing; once .ev-mini-row
+   became #ev-body's first child, its own margin no longer collapses
+   with anything (flex items don't participate in margin collapsing the
+   way plain blocks do) and simply added on top of the flex-gap instead
+   — doubling the real gap to 32px, confirmed by direct measurement. */
+.ev-mini-row{display:flex;gap:10px;flex-wrap:wrap;}
 .ev-mini{flex:1;min-width:110px;background:var(--bg-panel-2);border-radius:12px;padding:10px 12px;}
 .ev-mini-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}
 .ev-mini-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;}
