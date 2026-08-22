@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.226';
+const APP_VERSION = 'v2.227';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2872,10 +2872,21 @@ async function loadEVSmartFlex() {
   ).join('');
   planned.forEach(d => {
     const isActive = now >= new Date(d.start) && now < new Date(d.end);
-    // v2.150: swapped the static "●" character for the same pulsating dot
-    // already used in the live usage view, in pink to match this panel's
-    // electricity-adjacent identity.
-    const label = isActive ? '<span class="live-dot-label"><span class="live-dot pink"></span>Dispatching now</span>' : 'Planned';
+    // v2.150: swapped the static "●" character for a pulsating dot.
+    // v2.227: swapped the dot for the same lightning-bolt shape already
+    // used as this panel's own header icon — reuses the app's existing
+    // "actively charging" symbol rather than an abstract dot, and pairs
+    // naturally with the new clock icon on "Planned" below (bolt = now,
+    // clock = waiting). Pulse animation moved from the old dot's own
+    // inline style onto the new .dispatch-icon class — same keyframes,
+    // works identically on any shape, not just a circle.
+    const iconHtml = isActive
+      ? '<svg class="dispatch-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
+      : '<svg class="planned-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>';
+    // v2.227: "Planned" also gets a small icon now (a clock), matching
+    // the treatment "Dispatching now" already has, instead of being
+    // plain text next to a colored one.
+    const label = `<span class="live-dot-label">${iconHtml}${isActive ? 'Dispatching now' : 'Planned'}</span>`;
     const cls = isActive ? ' active' : ' scheduled';
     dispatchSlots.insertAdjacentHTML('beforeend', `<div class="slot${cls}"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${label}</b></div>`);
   });
