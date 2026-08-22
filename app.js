@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.218';
+const APP_VERSION = 'v2.219';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -1507,21 +1507,23 @@ function todayBlendedRateP(fuel) {
 
 function computeBalanceForecast() {
   if (!billingState.hasNextPayment || billingState.balancePounds === null || billingState.nextPaymentAmount === null) return null;
-  // v2.218: cachedCurrentRateP was the wrong choice here — it's whatever
-  // half-hourly rate is active at the exact moment of sync, swinging
-  // roughly 4x between off-peak (~8p) and standard (~32p) depending
-  // purely on time of day. Applying that single snapshot across a full
-  // month of usage for all 12 forecast months meant the whole shape of
-  // the graph depended on what time of day the app happened to sync, not
-  // on anything real — confirmed via a user screenshot showing a wildly
-  // different forecast than a day before, no usage change to explain it.
-  // Using the average of today's off-peak and standard rates instead —
-  // still independent of MTD (so the original v2.217 fix still holds),
-  // but stable for the whole day rather than swinging per sync.
-  const elecRateP = (cachedOffPeakRateP != null && cachedStandardRateP != null)
-    ? (cachedOffPeakRateP + cachedStandardRateP) / 2
-    : todayBlendedRateP('elec');
-  const gasRateP = cachedGasRateP ?? todayBlendedRateP('gas');
+  // v2.218 got the priority order backwards: it made the flat average of
+  // today's off-peak/standard rates the primary source, with MTD-blended
+  // demoted to a fallback. That fixed the sync-time volatility, but
+  // introduced a real accuracy problem — the blended MTD rate reflects
+  // this account's *actual* mix of off-peak vs standard usage, while a
+  // flat 50/50 average doesn't, and would systematically overstate
+  // electricity cost for any household whose usage skews off-peak (as
+  // an IOG household's typically does). v2.219: flipped back — MTD-
+  // blended first (accurate to real usage mix), the stable-but-cruder
+  // average only as fallback when MTD genuinely isn't available (the
+  // original v2.217 crash case), rather than the reverse.
+  const elecRateP = todayBlendedRateP('elec') ?? (
+    (cachedOffPeakRateP != null && cachedStandardRateP != null)
+      ? (cachedOffPeakRateP + cachedStandardRateP) / 2
+      : null
+  );
+  const gasRateP = todayBlendedRateP('gas') ?? cachedGasRateP;
   if (elecRateP === null && gasRateP === null) return null;
 
   const monthByKey = new Map(billMonthsData.map(m => [`${m.year}-${m.month}`, m]));
