@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.217';
+const APP_VERSION = 'v2.218';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -1507,18 +1507,20 @@ function todayBlendedRateP(fuel) {
 
 function computeBalanceForecast() {
   if (!billingState.hasNextPayment || billingState.balancePounds === null || billingState.nextPaymentAmount === null) return null;
-  // v2.217: was todayBlendedRateP('elec')/('gas') only — derived from MTD
-  // consumption, which is fragile right at a month boundary: Octopus's
-  // smart meter data lags roughly a day, so on day 1 of a new month MTD
-  // can genuinely be zero, making todayBlendedRateP return null. Because
-  // this whole 12-month loop below is gated on rate !== null, that single
-  // null collapsed every month to the flat-estimate fallback at once —
-  // confirmed via a user report of the runway suddenly going "every
-  // month looks the same" with no code change on that day. Now prefers
-  // the live current-rate fetch (same one the Current Rate card and
-  // #gas-unit-rate already use, independent of MTD), falling back to the
-  // MTD-blended figure only if that live rate genuinely isn't available.
-  const elecRateP = cachedCurrentRateP ?? todayBlendedRateP('elec');
+  // v2.218: cachedCurrentRateP was the wrong choice here — it's whatever
+  // half-hourly rate is active at the exact moment of sync, swinging
+  // roughly 4x between off-peak (~8p) and standard (~32p) depending
+  // purely on time of day. Applying that single snapshot across a full
+  // month of usage for all 12 forecast months meant the whole shape of
+  // the graph depended on what time of day the app happened to sync, not
+  // on anything real — confirmed via a user screenshot showing a wildly
+  // different forecast than a day before, no usage change to explain it.
+  // Using the average of today's off-peak and standard rates instead —
+  // still independent of MTD (so the original v2.217 fix still holds),
+  // but stable for the whole day rather than swinging per sync.
+  const elecRateP = (cachedOffPeakRateP != null && cachedStandardRateP != null)
+    ? (cachedOffPeakRateP + cachedStandardRateP) / 2
+    : todayBlendedRateP('elec');
   const gasRateP = cachedGasRateP ?? todayBlendedRateP('gas');
   if (elecRateP === null && gasRateP === null) return null;
 
