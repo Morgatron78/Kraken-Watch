@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.234';
+const APP_VERSION = 'v2.235';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2656,22 +2656,23 @@ async function loadEVSmartFlex() {
   const now = new Date();
   const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
 
-  // TEMPORARY diagnostic — completedDispatches probe. An earlier
-  // investigation tried this same field and found it empty, but a since-
-  // found real-world example (a 2022 GitHub gist) shows it's a genuine
-  // top-level field with real data on other accounts, just under
-  // start/end/delta-style field names that may have changed since 2022.
-  // Testing here against this account's own already-confirmed-working
-  // plannedDispatches shape (start end delta, same query above) rather
-  // than the stale gist's exact names — plannedDispatches and
-  // completedDispatches are natural siblings, so matching shapes is a
-  // much better-informed guess than the old gist alone. Isolated in its
-  // own try/catch so a schema error here can't affect anything else on
-  // the EV card. Remove this whole block once the question's answered.
+  // TEMPORARY diagnostic — completedDispatches probe. v2.234's field
+  // guess (start/end/delta, matching this account's own already-working
+  // plannedDispatches shape) is now confirmed correct via Octopus's real
+  // official docs — start/end/delta are current; startDt/endDt/deltaKwh
+  // are explicitly deprecated. Dropped `source` from the probe — it
+  // wasn't in the documented field list, so keeping the query to only
+  // what's actually confirmed rather than guessing further. Critically,
+  // the docs also state this field is "12 hours behind" by design — a
+  // real processing lag, not a bug — so charging from roughly the last
+  // half-day genuinely won't appear here yet regardless of whether the
+  // query itself works. Isolated in its own try/catch so a schema error
+  // here can't affect anything else on the EV card. Remove this whole
+  // block once the question's answered.
   try {
     const probeData = await krakenGQL(`
       query CompletedDispatchesProbe($accountNumber: String!) {
-        completedDispatches(accountNumber: $accountNumber) { start end delta source }
+        completedDispatches(accountNumber: $accountNumber) { start end delta }
       }`, { accountNumber: store.creds.accountNumber });
     const completed = probeData.completedDispatches || [];
     logDebug('completedDispatches probe', `${completed.length} entrie(s) returned${completed.length ? ' — ' + completed.slice(0, 3).map(d => `${d.start}→${d.end} (${d.delta})`).join(' · ') : ''}`);
