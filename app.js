@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.236';
+const APP_VERSION = 'v2.237';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2678,6 +2678,40 @@ async function loadEVSmartFlex() {
   // the Smart/Boost badge Sessions-tab rows show.
   const windowStart = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
   const completedDispatchWindows = (data.completedDispatches || []).filter(d => new Date(d.start) >= windowStart);
+
+  // TEMPORARY diagnostic — real EV session cost probe. An earlier,
+  // exhaustive investigation (documented in project notes) concluded
+  // real cost was "genuinely unavailable" (cost/costOfCharge returned
+  // null). But Octopus's own official interface docs confirm
+  // SmartFlexChargingSession genuinely has a `cost: Money` field right
+  // now — worth re-checking given today's pattern (two other "empty"
+  // conclusions turned out to just need the right field names/docs).
+  // `Money`'s own sub-fields aren't confirmed — a similarly-named type
+  // elsewhere in Octopus's docs (EstimatedMoneyType) uses
+  // estimatedAmount/costCurrency, so trying `amount` here as the most
+  // likely simple guess for a non-estimated Money type. Deliberately a
+  // tiny, separate, isolated query (first: 5, own try/catch) rather than
+  // added to the main session query above — GraphQL fails a whole query
+  // on one unknown field, and this shouldn't be able to take the real EV
+  // card down over a guess. Remove this whole block once answered.
+  try {
+    const costProbeData = await krakenGQL(`
+      query SessionCostProbe($accountNumber: String!, $after: DateTime!) {
+        devices(accountNumber: $accountNumber) {
+          ... on SmartFlexVehicle {
+            chargingSessions(after: $after, first: 5) {
+              edges { node { ... on SmartFlexChargingSession { start end cost { amount } } } }
+            }
+          }
+        }
+      }`, { accountNumber: store.creds.accountNumber, after: windowStart.toISOString() });
+    const probeVehicle = (costProbeData.devices || []).find(d => d && d.chargingSessions);
+    const probeSessions = (probeVehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+    logDebug('Session cost probe', `${probeSessions.length} session(s) returned${probeSessions.length ? ' — ' + probeSessions.map(s => `${s.start}: cost=${JSON.stringify(s.cost)}`).join(' · ') : ''}`);
+  } catch (err) {
+    logDebug('Session cost probe', `request failed — ${err.message}`);
+  }
+  renderDiagnostics(); // logDebug() alone doesn't redraw the panel — same lesson as the v2.196 comment elsewhere
 
   $('ev-tag').textContent = activeDispatch ? 'CHARGING' : (planned.length ? 'SCHEDULED' : 'IDLE');
   $('ev-tag').className = activeDispatch ? 'card-tag tag-pink' : (planned.length ? 'card-tag tag-amber' : 'card-tag tag-dim');
