@@ -193,11 +193,10 @@ button{font-family:inherit;cursor:pointer;}
    full night's charge rendering as 24 individual rows. */
 .dispatch-run{display:flex;flex-direction:column;gap:6px;}
 .run-summary{cursor:pointer;}
-/* v2.243: window count + chevron as a real pill, replacing the plain-text
-   .run-count — matches the app's existing pill conventions (.card-tag)
-   rather than inventing new spacing/radius values. Flex + align-items so
-   the chevron inside it centers reliably, same fix already proven for
-   the dot/bolt/clock icons elsewhere on this card. */
+/* v2.243: window count + chevron as a real pill, matching the app's
+   existing pill conventions (.card-tag). Flex + align-items so the
+   chevron inside it centers reliably, same fix already proven for the
+   dot/bolt/clock icons elsewhere on this card. */
 .run-count-pill{display:inline-flex;align-items:center;background:rgba(255,255,255,0.08);color:var(--text-dim);font-size:10px;padding:3px 8px 3px 9px;border-radius:100px;margin-left:6px;white-space:nowrap;}
 .expand-chevron{margin-left:6px;flex-shrink:0;transition:transform .2s ease;}
 .expand-chevron.expanded{transform:rotate(180deg);}
@@ -268,10 +267,6 @@ button{font-family:inherit;cursor:pointer;}
    visual language, so an estimate always reads as an estimate regardless
    of which of the two it's attached to. */
 .ev-mini-sub{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--text-dim);margin-top:2px;}
-/* v2.243: inline qualifier text (e.g. "(so far)") sitting right after a
-   stat's main value — smaller and lighter-weight than the value itself,
-   so it reads as a qualifier rather than part of the number. */
-.value-suffix{font-size:9.5px;color:var(--text-dim);font-weight:400;}
 .ev-mini-est{font-size:8.5px;font-weight:400;text-transform:none;letter-spacing:0;}
 /* v2.154: Smart/Boost split caption under the Charge history stat row —
    makes the split explicit rather than requiring a visual read of the
