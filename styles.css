@@ -249,15 +249,16 @@ button{font-family:inherit;cursor:pointer;}
 /* EV */
 /* v2.224: .ev-row/.ev-detail-label/.ev-detail-value removed — those were
    only used by "Next planned dispatch window", now gone (see app.js). */
-/* v2.225: margin-top removed — #ev-stack's own flex `gap` (see v2.156
-   comment above) already provides the correct spacing between #ev-body
-   and whatever precedes it. This only worked before because the now-
-   removed "Next planned dispatch window" row sat in front of it and
-   absorbed that role via sibling margin collapsing; once .ev-mini-row
-   became #ev-body's first child, its own margin no longer collapses
-   with anything (flex items don't participate in margin collapsing the
-   way plain blocks do) and simply added on top of the flex-gap instead
-   — doubling the real gap to 32px, confirmed by direct measurement. */
+/* v2.251: #ev-body converted to flex+gap, same reasoning as #ev-stack
+   above (v2.156/v2.225) — its children (pmeter, the two ev-subpanels) were
+   spacing themselves via margin-top, which doesn't know to disappear when
+   a child is display:none. Confirmed real: with pmeter hidden on idle,
+   ev-subpanel's own margin-top still fired on top of #ev-stack's gap into
+   #ev-body, doubling the gap above "Charging activity". flex gap is
+   layout-aware — a hidden child contributes nothing — so this fixes it
+   structurally rather than special-casing the idle state. Margins removed
+   from .pmeter and .ev-subpanel below now that gap handles it. */
+#ev-body{display:flex;flex-direction:column;gap:16px;}
 /* v2.251: .ev-mini-row and its four boxes (This session/Power/Sessions
    today/Cost) removed entirely — This session was permanently stuck at
    0.0 kWh (see EV session-boundary notes), Sessions today rarely told you
@@ -266,7 +267,6 @@ button{font-family:inherit;cursor:pointer;}
    meter (.pmeter) — see below — shown only while actively charging, kept
    out of the DOM entirely (not shown-with-a-placeholder) when idle, same
    "invisible unless it matters" convention used elsewhere in this file. */
-.pmeter{margin-top:12px;}
 .pmeter-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
 .pmeter-label{font-family:'Inter', sans-serif;font-size:11px;color:var(--text-dim);}
 .pmeter-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;}
@@ -294,7 +294,7 @@ button{font-family:inherit;cursor:pointer;}
 .slot.done{opacity:0.55;}
 .slot.done span{color:var(--text-dim);}
 
-.ev-subpanel{background:var(--bg-panel-2);border-radius:var(--radius-md);padding:16px;border-top:2px solid var(--pink);margin-top:16px;}
+.ev-subpanel{background:var(--bg-panel-2);border-radius:var(--radius-md);padding:16px;border-top:2px solid var(--pink);}
 
 /* Week bars */
 .week-bars{display:flex;align-items:flex-end;gap:8px;height:70px;margin-top:6px;}
