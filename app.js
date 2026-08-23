@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.252';
+const APP_VERSION = 'v2.253';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2404,10 +2404,12 @@ async function loadEV() {
 // per-window detail (start/end/type/kWh) so the Windows tab's completed
 // rows could come from this one query. Confirmed via diagnostic (v2.232)
 // that it comes back empty on this account, even for an ordinary, fully
-// real session — session.dispatches itself is left unused as a result
-// (still empty, no reason to expect it to start working), but not
-// removed from this query since buildEVDayBuckets still optionally
-// checks it as a fallback (see its own comment).
+// real session. Was kept in the query as a fallback for the Day view's
+// hourly buckets, but v2.253 removed Day entirely (nearly every session
+// is an overnight charge straddling two calendar days, making an
+// hour-of-today bucketing close to meaningless) — with that gone, this
+// was its only remaining consumer, so the field itself is now dropped
+// from the query too rather than left in unused.
 // completedDispatches (fetched below, alongside plannedDispatches) is
 // the real replacement — confirmed working via Octopus's own official
 // docs (start/end/delta are current; startDt/endDt/deltaKwh deprecated)
@@ -2666,7 +2668,6 @@ async function loadEVSmartFlex() {
                   start end type
                   energyAdded { value }
                   stateOfChargeFinal
-                  dispatches { start end type energyAddedKwh }
                   problems {
                     __typename
                     ... on SmartFlexChargingError { cause }
@@ -3264,62 +3265,6 @@ function renderEVInsights(sessions, now) {
   }
 }
 
-// Day — hourly buckets, built from sessions directly (same source Week
-// uses via energyAdded.value), not from each session's nested dispatches
-// array. v2.150 fix: the original version bucketed purely off `dispatches`,
-// which was empty for Boost-type manual charges (only Smart/scheduled
-// dispatches appeared to generate dispatch records at the time) — so a day
-// charged only via Boost showed real data in Week (session-level) but
-// nothing at all in Day (dispatch-level). v2.232 found this wasn't
-// Boost-specific after all — a diagnostic confirmed `dispatches` comes
-// back empty even for ordinary Smart sessions on this account, always,
-// not just Boost — this fallback path is what actually runs for every
-// session now. Real per-window data does exist elsewhere
-// (completedDispatches, used for the Windows tab's completed rows — see
-// the query comment above, including its own known ~24-entry cap), but
-// it's not wired into this specific function — could give Day view the
-// same finer-grained detail this fallback was originally meant to
-// provide, left as a possible future improvement rather than done now.
-// Left as a fallback rather than removed — harmless if session.dispatches
-// is ever populated again, and this function already degrades gracefully
-// without it: a session with
-// no dispatches is bucketed as one lump at its own
-// start hour instead of silently vanishing. Reuses evLoadedSessions (the
-// same rolling window already fetched for the live card) — today is
-// always within that window, so no new fetch at all.
-function buildEVDayBuckets(sessions, now) {
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfTomorrow = new Date(startOfToday.getTime() + 86400000);
-  const buckets = Array.from({ length: 24 }, () => ({ smart: 0, boost: 0, sessions: [] }));
-  const dates = Array.from({ length: 24 }, (_, h) => new Date(startOfToday.getTime() + h * 3600000));
-  sessions.forEach(s => {
-    const todaysDispatches = (s.dispatches || []).filter(d => {
-      const start = new Date(d.start);
-      return start >= startOfToday && start < startOfTomorrow;
-    });
-    if (todaysDispatches.length) {
-      todaysDispatches.forEach(d => {
-        const hour = new Date(d.start).getHours();
-        const kwh = Math.abs(d.energyAddedKwh || 0);
-        if (d.type === 'BOOST') buckets[hour].boost += kwh; else buckets[hour].smart += kwh;
-        buckets[hour].sessions.push(s);
-      });
-      return;
-    }
-    // No dispatch records for this session (Boost charges typically have
-    // none) — fall back to the session itself, bucketed at its start hour
-    // using its own total kWh, same as Week/Month already do.
-    const sessionStart = new Date(s.start);
-    if (sessionStart < startOfToday || sessionStart >= startOfTomorrow) return;
-    const hour = sessionStart.getHours();
-    const kwh = Math.abs(s.energyAdded?.value || 0);
-    if (s.type === 'BOOST') buckets[hour].boost += kwh; else buckets[hour].smart += kwh;
-    buckets[hour].sessions.push(s);
-  });
-  const labels = dates.map(d => `${d.getHours()}`);
-  return { buckets, labels, dates, dateFormat: 'hour' };
-}
-
 // Month — the one period needing a genuinely new, wider-range fetch.
 // Deliberately drops the `dispatches` sub-field entirely (only needed for
 // the Windows view / Day's hourly detail, neither of which apply at
@@ -3397,9 +3342,6 @@ async function setEVHistoryPeriod(period) {
   if (period === 'week') {
     $('ev-history-period-label').textContent = 'This week';
     result = buildEVWeekBuckets(evLoadedSessions || [], now);
-  } else if (period === 'day') {
-    $('ev-history-period-label').textContent = 'Today';
-    result = buildEVDayBuckets(evLoadedSessions || [], now);
   } else {
     $('ev-history-period-label').textContent = 'This month';
     const monthData = await loadEVMonthData(now);

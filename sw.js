@@ -1,9 +1,9 @@
-const CACHE = 'kraken-watch-v2.252';
+const CACHE = 'kraken-watch-v2.253';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=2.252',
-  './app.js?v=2.252',
+  './styles.css?v=2.253',
+  './app.js?v=2.253',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
