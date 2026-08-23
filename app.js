@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.248';
+const APP_VERSION = 'v2.249';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2305,10 +2305,17 @@ async function loadVehicleInfoOnce() {
 // still held. Investigated Kraken GraphQL's billing/ledger surface via
 // live introspection instead: `completedDispatches(accountNumber) ->
 // UpsideDispatchType` looked like the strongest lead by field shape
-// (start/end/delta) but returned genuinely empty for this account —
-// likely a different Octopus smart-device program (battery/solar
-// dispatches) sharing the naming convention, not functionally connected
-// to EV charging. The other real lead, `account.transactions(fromDate,
+// (start/end/delta), and an early test at the time returned genuinely
+// empty. Correction, found later the same session: that field is real
+// and does work — it's now the live data source for the Windows tab's
+// Completed rows (see loadEVSmartFlex). The earlier "empty" result was
+// most likely querying deprecated field names (startDt/endDt/deltaKwh)
+// rather than the current ones (start/end/delta), not evidence the field
+// itself is disconnected from EV charging. It still doesn't answer the
+// cost question this paragraph is about, though: UpsideDispatchType has
+// no cost or rate field at all, only kWh (`delta`) — confirmed working
+// for energy, still no path to real cost through it. The other real
+// lead, `account.transactions(fromDate,
 // toDate)` — already proven, working code, used by the Billing panel
 // above — does return real settled Charge transactions with a
 // `consumption { startDate endDate }` window, but only at *billed-period*
@@ -2317,7 +2324,10 @@ async function loadVehicleInfoOnce() {
 // resolution exists at that level either. Both realistic GraphQL avenues
 // are now genuinely tested and exhausted, not just assumed — reinforcing
 // the original conclusion via a completely different path. EV cost stays
-// an estimate; nothing found changes that.
+// an estimate; nothing found changes that. (Separately, real cost was
+// found — after this comment was written — to possibly exist as a
+// `Money` field directly on the session itself; see the still-open probe
+// noted in project memory, not yet conclusive.)
 
 async function loadEV() {
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
@@ -2650,7 +2660,6 @@ async function loadEVSmartFlex() {
         }
       }
       plannedDispatches(accountNumber: $accountNumber) { start end delta }
-      completedDispatches(accountNumber: $accountNumber) { start end delta }
       completedDispatches(accountNumber: $accountNumber) { start end delta }
     }`, {
       accountNumber: store.creds.accountNumber,
