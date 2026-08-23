@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.249';
+const APP_VERSION = 'v2.250';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2704,6 +2704,20 @@ async function loadEVSmartFlex() {
   // blindly using planned[0]) is no longer needed since nothing reads
   // that value anymore.
 
+  // Target SoC/time — actual model is a list of per-day schedule entries
+  // (SmartFlexDeviceSchedule: dayOfWeek/time/max/min/upperLimit), not the
+  // flat weekday/weekend pair originally assumed from an unrelated,
+  // deprecated type. Matches today's day-of-week against the list; DayOfWeek
+  // enum values are assumed to be standard uppercase day names (unconfirmed
+  // directly, but this is client-side matching after a successful fetch —
+  // a wrong guess here just shows no target text, it can't break the query
+  // the way a wrong GraphQL field/fragment guess would).
+  // Hoisted above the battery gauge block (v2.250) so the gauge's limit
+  // marker can use this same value — see note below.
+  const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const schedules = vehicle.preferences?.schedules || [];
+  const todaySchedule = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
+
   // Battery gauge — genuinely new, wasn't available via the legacy path at all
   const soc = vehicle.status?.stateOfCharge?.value;
   if (soc != null) {
@@ -2712,17 +2726,26 @@ async function loadEVSmartFlex() {
     $('ev-battery-pct').textContent = `${Math.round(pct)}%`;
     $('ev-battery-fill').style.width = `${pct}%`;
 
-    // Limit marker — only shown when Octopus reports a real upper bound.
-    // The striped "restricted" zone beyond it naturally disappears once
-    // the fill genuinely exceeds the limit, since you're now visibly past
-    // the boundary — the warning line above explains why, this just shows
-    // where the line was.
-    const limit = vehicle.status?.stateOfChargeLimit?.upperSocLimit;
+    // Limit marker (v2.250 fix) — previously driven entirely by
+    // stateOfChargeLimit.upperSocLimit, a separate device-level absolute
+    // cap that's distinct from the "Target X% by HH:MM" schedule shown
+    // just below (todaySchedule.max) — confirmed via a real screenshot
+    // showing a live 90% schedule target with zero marker/hatch, meaning
+    // upperSocLimit was null on this account even while a schedule target
+    // was actively in effect. Now prefers today's actual schedule target
+    // (what's really governing charging behaviour day to day), falling
+    // back to the device-level limit only if no schedule entry exists for
+    // today. Also fixed: the restricted zone previously only showed while
+    // strictly below the limit (limitPct > pct) — once SoC reached the
+    // target exactly ("Target reached"), the zone vanished even though the
+    // region beyond target is still genuinely restricted. Now shows
+    // whenever pct hasn't gone past the limit (limitPct >= pct).
+    const limit = todaySchedule?.max ?? vehicle.status?.stateOfChargeLimit?.upperSocLimit;
     if (limit != null) {
       const limitPct = Math.min(100, Math.max(0, limit));
       $('ev-battery-limit').classList.remove('hidden');
       $('ev-battery-limit').style.left = `${limitPct}%`;
-      if (limitPct > pct) {
+      if (limitPct >= pct) {
         $('ev-battery-restricted').classList.remove('hidden');
         $('ev-battery-restricted').style.width = `${100 - limitPct}%`;
       } else {
@@ -2736,18 +2759,8 @@ async function loadEVSmartFlex() {
     $('ev-battery-row').classList.add('hidden');
   }
 
-  // Target SoC/time — actual model is a list of per-day schedule entries
-  // (SmartFlexDeviceSchedule: dayOfWeek/time/max/min/upperLimit), not the
-  // flat weekday/weekend pair originally assumed from an unrelated,
-  // deprecated type. Matches today's day-of-week against the list; DayOfWeek
-  // enum values are assumed to be standard uppercase day names (unconfirmed
-  // directly, but this is client-side matching after a successful fetch —
-  // a wrong guess here just shows no target text, it can't break the query
-  // the way a wrong GraphQL field/fragment guess would).
-  const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-  const schedules = vehicle.preferences?.schedules || [];
-
-  const todaySchedule = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
+  // Target SoC/time text — todaySchedule already computed above the
+  // battery gauge block (v2.250), reused here.
   if (todaySchedule && todaySchedule.max != null && todaySchedule.time) {
     $('ev-battery-target').textContent = `Target ${Math.round(todaySchedule.max)}% by ${todaySchedule.time.slice(0, 5)}`;
     // Countdown — only shown if today's target time hasn't passed yet;
