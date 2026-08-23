@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.237';
+const APP_VERSION = 'v2.238';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2677,7 +2677,15 @@ async function loadEVSmartFlex() {
   // rather than guessed, so these rows don't carry a type badge, unlike
   // the Smart/Boost badge Sessions-tab rows show.
   const windowStart = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
-  const completedDispatchWindows = (data.completedDispatches || []).filter(d => new Date(d.start) >= windowStart);
+  // v2.238: Octopus's own docs describe completedDispatches as returning
+  // "reverse time order" by design — never re-sorted client-side, so it
+  // was inheriting that raw newest-first order directly while the rest
+  // of this list (Planned/Dispatching now, further below) is naturally
+  // oldest-first, making the combined Windows list read backwards then
+  // forwards. Sorted ascending here to match.
+  const completedDispatchWindows = (data.completedDispatches || [])
+    .filter(d => new Date(d.start) >= windowStart)
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
 
   // TEMPORARY diagnostic — real EV session cost probe. An earlier,
   // exhaustive investigation (documented in project notes) concluded
