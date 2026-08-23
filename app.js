@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.240';
+const APP_VERSION = 'v2.242';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2963,13 +2963,20 @@ async function loadEVSmartFlex() {
   const runIcon = '<svg class="completed-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
   const chevronIcon = '<svg class="expand-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
   dispatchSlots.innerHTML = runs.map((r, i) => {
-    const totalKwh = r.windows.reduce((sum, d) => sum + Math.abs(d.delta || 0), 0);
     const isExpanded = evExpandedDispatchRuns.has(r.start);
     const detail = r.windows.length > 1 ? r.windows.map(d =>
       `<div class="slot done run-detail-row"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${Math.abs(d.delta || 0).toFixed(1)} kWh</b></div>`
     ).join('') : '';
+    // v2.242: kWh total dropped from the summary row entirely — once
+    // "This session" carries a real running total, repeating it here on
+    // the same screen was just saying the same number twice. Individual
+    // windows still show their own kWh once expanded (see detail above)
+    // — that's genuinely new information, not a duplicate of anything.
+    // Chevron moved from next to "Completed" to right next to the window
+    // count instead — it's the count that's expandable, not the status,
+    // so the tap target now sits next to what it actually controls.
     const summaryLabel = r.windows.length > 1
-      ? `${fmtT(r.start)} – ${fmtT(r.end)} · <span class="run-count">${r.windows.length} windows</span>`
+      ? `<span class="live-dot-label">${fmtT(r.start)} – ${fmtT(r.end)} · <span class="run-count">${r.windows.length} windows</span>${chevronIcon.replace('class="expand-chevron"', `class="expand-chevron${isExpanded ? ' expanded' : ''}"`)}</span>`
       : `${fmtT(r.start)} – ${fmtT(r.end)}`;
     // v2.229: checkmark moved from a plain "✓" glued onto the time text
     // into its own icon paired with "Completed", matching how the bolt
@@ -2980,7 +2987,7 @@ async function loadEVSmartFlex() {
     // applies to everything in this row via opacity, rather than adding
     // a fourth distinct color to a row that's deliberately muted.
     return `<div class="dispatch-run">
-      <div class="slot done${r.windows.length > 1 ? ' run-summary' : ''}"${r.windows.length > 1 ? ` onclick="toggleDispatchRun('${r.start}')"` : ''}><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed · ${totalKwh.toFixed(1)} kWh${r.windows.length > 1 ? chevronIcon.replace('class="expand-chevron"', `class="expand-chevron${isExpanded ? ' expanded' : ''}"`) : ''}</span></b></div>
+      <div class="slot done${r.windows.length > 1 ? ' run-summary' : ''}"${r.windows.length > 1 ? ` onclick="toggleDispatchRun('${r.start}')"` : ''}><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed</span></b></div>
       <div class="run-detail${isExpanded ? '' : ' hidden'}">${detail}</div>
     </div>`;
   }).join('');
@@ -3093,7 +3100,28 @@ async function loadEVSmartFlex() {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todaysSessions = sessions.filter(s => new Date(s.start) >= startOfToday);
   const sessionKwh = todaysSessions.reduce((sum, s) => sum + Math.abs(s.energyAdded?.value || 0), 0);
-  $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
+  // v2.240: sessions only appear in `sessions` once they've fully
+  // completed (per the SmartFlex API) — so while actively charging,
+  // sessionKwh reads 0.0 for the entire duration, which looks like "not
+  // charging" even with real power flowing. Not a fully honest fix (see
+  // the earlier back-and-forth on why a true session-boundary figure
+  // isn't reliably knowable from dispatch data alone — a genuine pause
+  // mid-session would still under-count), but a much smaller gap than
+  // the one it replaces: reuses the same contiguous-run grouping built
+  // for the Completed list, extended to check whether the currently
+  // active window connects directly to the most recent completed run.
+  // If so, that run's real summed kWh fills in here instead of a flat
+  // zero, labeled "(so far)" so it doesn't read as a final total.
+  let displayKwh = sessionKwh;
+  let isPartial = false;
+  if (sessionKwh === 0 && activeDispatch) {
+    const lastRun = runs[runs.length - 1];
+    if (lastRun && new Date(lastRun.end).getTime() === new Date(activeDispatch.start).getTime()) {
+      const runKwh = lastRun.windows.reduce((sum, d) => sum + Math.abs(d.delta || 0), 0);
+      if (runKwh > 0) { displayKwh = runKwh; isPartial = true; }
+    }
+  }
+  $('ev-added').textContent = `${displayKwh.toFixed(1)} kWh${isPartial ? ' (so far)' : ''}`;
 
   // v2.154: estimated range added, inline with the kWh figure. Real cost
   // was ruled out (see above), but range is a straightforward unit
@@ -3104,7 +3132,7 @@ async function loadEVSmartFlex() {
   // rather than showing "0 mi" for a genuinely empty day.
   const rangeEl = $('ev-added-range');
   if (rangeEl) {
-    rangeEl.textContent = sessionKwh > 0 ? `≈ ${Math.round(sessionKwh * getEvRangeMiPerKwh())} mi (est.)` : '';
+    rangeEl.textContent = displayKwh > 0 ? `≈ ${Math.round(displayKwh * getEvRangeMiPerKwh())} mi (est.)` : '';
   }
 
   // v2.154: estimated cost, third mini box. Real per-dispatch rate can't
