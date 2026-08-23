@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.238';
+const APP_VERSION = 'v2.239';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2656,7 +2656,11 @@ async function loadEVSmartFlex() {
   evLoadedSessions = sessions; // Day view reuses this — no new fetch needed, today is always within this rolling window
   const planned = data.plannedDispatches || [];
   const now = new Date();
-  const activeDispatch = planned.find(d => now >= new Date(d.start) && now < new Date(d.end));
+  // v2.239: pulled out into a shared helper — used here, and again below
+  // when filtering stale planned entries, rather than duplicating the
+  // same start/end comparison in three separate places.
+  const isActiveWindow = (d, n) => n >= new Date(d.start) && n < new Date(d.end);
+  const activeDispatch = planned.find(d => isActiveWindow(d, now));
 
   // v2.236: real completed-window data, at last. Two earlier attempts at
   // this failed: session.dispatches (v2.150 onward) turned out to always
@@ -2958,8 +2962,19 @@ async function loadEVSmartFlex() {
   if (!completedDispatchWindows.length && sessions.length) {
     dispatchSlots.insertAdjacentHTML('beforeend', '<div class="slot"><span>Completed windows can take a little while to appear after charging — see Sessions tab for real charging history in the meantime</span></div>');
   }
-  planned.forEach(d => {
-    const isActive = now >= new Date(d.start) && now < new Date(d.end);
+  // v2.239: was `planned.forEach` unconditionally — but plannedDispatches
+  // can genuinely hold stale entries whose time has already fully passed
+  // without ever being cleared, if Octopus's own backend later revises
+  // the schedule and supersedes an old window with a new one (a real,
+  // documented behavior — planned windows can change dynamically after
+  // being viewed). Confirmed via a user screenshot: an old "00:30–01:00"
+  // window still showing "Planned" well after 01:00, sitting directly
+  // above the genuinely active "01:00–12:00" window that superseded it.
+  // Filtering out anything whose end time has already passed and isn't
+  // the currently active one, rather than rendering every stale entry
+  // Octopus happens to still be holding onto.
+  planned.filter(d => isActiveWindow(d, now) || new Date(d.end) > now).forEach(d => {
+    const isActive = isActiveWindow(d, now);
     // v2.150: swapped the static "●" character for a pulsating dot.
     // v2.227: swapped the dot for the same lightning-bolt shape already
     // used as this panel's own header icon — reuses the app's existing
