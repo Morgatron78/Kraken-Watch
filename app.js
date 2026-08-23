@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.253';
+const APP_VERSION = 'v2.255';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2933,12 +2933,11 @@ async function loadEVSmartFlex() {
 
   // v2.240: individual half-hourly rows don't scale to a real overnight
   // session (a 12h charge is 24 separate rows) — grouped into runs of
-  // contiguous windows instead, each collapsed to one summary row with a
-  // tap-to-expand toggle for the full breakdown. A genuine gap between
-  // windows (nothing dispatched in between) naturally starts a new run
-  // rather than being hidden inside one. No badgeHtml() here — this data
-  // source has no type (Smart/Boost) field (confirmed absent, not
-  // guessed — see the meta.source investigation, since closed).
+  // contiguous windows instead. A genuine gap between windows (nothing
+  // dispatched in between) naturally starts a new run rather than being
+  // hidden inside one. No badgeHtml() here — this data source has no type
+  // (Smart/Boost) field (confirmed absent, not guessed — see the
+  // meta.source investigation, since closed).
   const dispatchSlots = $('ev-slots-dispatch');
   dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
   const runs = [];
@@ -2952,24 +2951,21 @@ async function loadEVSmartFlex() {
     }
   });
   const runIcon = '<svg class="completed-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-  const chevronIcon = '<svg class="expand-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+  // v2.255: expand-to-see-per-window-detail removed entirely — once the
+  // summary row itself started showing the run's total kWh (see below),
+  // the child rows' only remaining unique information was per-window
+  // granularity (0.4 kWh at 09:00, 0.5 at 09:30, etc.), which turned out
+  // to be low-value once you already know the run's total. Removing it
+  // also meant the tap target, chevron, and the run's window-count pill
+  // no longer had a purpose — a run of 1 window and a run of 9 now render
+  // through the exact same summary line, just with a different number in
+  // it, rather than needing two different formats. Was: v2.240 (grouping
+  // + expand), v2.242 (kWh dropped from summary), v2.243 (window count +
+  // chevron pill), v2.254 (single-window kWh fix) — this supersedes all
+  // four; see git history if any of that reasoning is needed again.
   dispatchSlots.innerHTML = runs.map((r, i) => {
-    const isExpanded = evExpandedDispatchRuns.has(r.start);
-    const detail = r.windows.length > 1 ? r.windows.map(d =>
-      `<div class="slot done run-detail-row"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${Math.abs(d.delta || 0).toFixed(1)} kWh</b></div>`
-    ).join('') : '';
-    // v2.242: kWh total dropped from the summary row — was redundant
-    // once "This session" showed its own total; that reasoning no longer
-    // fully applies now "This session" doesn't sum from this data (see
-    // its own comment), but the simplification still holds on its own
-    // merits — individual windows still show their own kWh once
-    // expanded, and the summary row stays about "when", not "how much".
-    // v2.243: window count + chevron in a pill — separates "how many
-    // windows" from the time range visually, pill boundary doubles as
-    // the tap target for the expand action.
-    const summaryLabel = r.windows.length > 1
-      ? `${fmtT(r.start)} – ${fmtT(r.end)} <span class="run-count-pill">${r.windows.length} windows${chevronIcon.replace('class="expand-chevron"', `class="expand-chevron${isExpanded ? ' expanded' : ''}"`)}</span>`
-      : `${fmtT(r.start)} – ${fmtT(r.end)}`;
+    const totalKwh = r.windows.reduce((sum, d) => sum + Math.abs(d.delta || 0), 0);
+    const summaryLabel = `${fmtT(r.start)} – ${fmtT(r.end)} · ${totalKwh.toFixed(1)} kWh`;
     // v2.229: checkmark moved from a plain "✓" glued onto the time text
     // into its own icon paired with "Completed", matching how the bolt
     // and clock icons pair with "Dispatching now"/"Planned" — all three
@@ -2978,10 +2974,7 @@ async function loadEVSmartFlex() {
     // accent, so it inherits the same dim treatment .slot.done already
     // applies to everything in this row via opacity, rather than adding
     // a fourth distinct color to a row that's deliberately muted.
-    return `<div class="dispatch-run">
-      <div class="slot done${r.windows.length > 1 ? ' run-summary' : ''}"${r.windows.length > 1 ? ` onclick="toggleDispatchRun('${r.start}')"` : ''}><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed</span></b></div>
-      <div class="run-detail${isExpanded ? '' : ' hidden'}">${detail}</div>
-    </div>`;
+    return `<div class="slot done"><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed</span></b></div>`;
   }).join('');
   // Octopus's own docs describe completedDispatches as running roughly 12
   // hours behind — so very recent charging (that hasn't been processed
@@ -3410,21 +3403,6 @@ let evWeekBuckets = null;
 let evWeekSelectedDay = null;
 let evHistoryPeriod = 'week';
 let evLoadedSessions = null;
-// v2.240: which contiguous-window "runs" the user has manually expanded
-// in the Windows tab's Completed section — keyed by the run's start
-// timestamp (stable across re-renders, unlike an array index). A plain
-// Set rather than anything persisted, so it resets to fully-collapsed on
-// reload, matching how the rest of this app doesn't remember UI-only
-// state across sessions either.
-let evExpandedDispatchRuns = new Set();
-function toggleDispatchRun(runStart) {
-  if (evExpandedDispatchRuns.has(runStart)) evExpandedDispatchRuns.delete(runStart);
-  else evExpandedDispatchRuns.add(runStart);
-  const chevron = document.querySelector(`[onclick="toggleDispatchRun('${runStart}')"] .expand-chevron`);
-  const detail = chevron?.closest('.dispatch-run')?.querySelector('.run-detail');
-  if (chevron) chevron.classList.toggle('expanded');
-  if (detail) detail.classList.toggle('hidden');
-}
 let evMonthCache = null; // { key: 'YYYY-M', sessions: [...] } — avoids refetching when toggling back to a month already viewed
 let evHistoryDates = null;
 let evHistoryDateFormat = 'weekday';

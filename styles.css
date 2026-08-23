@@ -188,21 +188,12 @@ button{font-family:inherit;cursor:pointer;}
 .dispatch-icon{margin-right:4px;flex-shrink:0;animation:live-pulse 1.6s ease-in-out infinite;}
 .planned-icon{color:var(--amber);margin-right:4px;flex-shrink:0;}
 .completed-icon{margin-right:4px;flex-shrink:0;}
-/* v2.240: Windows tab's Completed section — contiguous windows collapse
-   into one summary row with a tap-to-expand detail list, rather than a
-   full night's charge rendering as 24 individual rows. */
-.dispatch-run{display:flex;flex-direction:column;gap:6px;}
-.run-summary{cursor:pointer;}
-/* v2.243: window count + chevron as a real pill, matching the app's
-   existing pill conventions (.card-tag). Flex + align-items so the
-   chevron inside it centers reliably, same fix already proven for the
-   dot/bolt/clock icons elsewhere on this card. */
-.run-count-pill{display:inline-flex;align-items:center;background:rgba(255,255,255,0.08);color:var(--text-dim);font-size:10px;padding:3px 8px 3px 9px;border-radius:100px;margin-left:6px;white-space:nowrap;}
-.expand-chevron{margin-left:6px;flex-shrink:0;transition:transform .2s ease;}
-.expand-chevron.expanded{transform:rotate(180deg);}
-.run-detail{display:flex;flex-direction:column;gap:6px;padding-left:16px;}
-.run-detail-row{opacity:0.6;padding-top:6px;padding-bottom:6px;}
-.run-detail-row b{font-size:11.5px;}
+/* v2.255: Windows tab's Completed section — was contiguous windows
+   collapsed into a tap-to-expand summary+detail structure (v2.240,
+   v2.243), now just one plain row per run: time range · total kWh. The
+   expand affordance, count pill, and per-window detail rows it needed
+   are gone along with it — a run of 1 window and a run of 9 render
+   through the exact same shape now, so no special-casing needed here. */
 /* v2.199: rate-pill's dot was a literal "●" text character, sized by the
    surrounding font rather than an explicit box — rendered visibly bigger/
    differently-positioned than live-tag's proper .live-dot span right next
