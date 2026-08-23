@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.242';
+const APP_VERSION = 'v2.243';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2975,8 +2975,13 @@ async function loadEVSmartFlex() {
     // Chevron moved from next to "Completed" to right next to the window
     // count instead — it's the count that's expandable, not the status,
     // so the tap target now sits next to what it actually controls.
+    // v2.243: window count + chevron wrapped in a pill — user preference
+    // after seeing the plain-text version live; visually separates "how
+    // many windows" from the time range rather than reading as one run
+    // of text, and the pill boundary doubles as a clearer tap target for
+    // the expand action.
     const summaryLabel = r.windows.length > 1
-      ? `<span class="live-dot-label">${fmtT(r.start)} – ${fmtT(r.end)} · <span class="run-count">${r.windows.length} windows</span>${chevronIcon.replace('class="expand-chevron"', `class="expand-chevron${isExpanded ? ' expanded' : ''}"`)}</span>`
+      ? `${fmtT(r.start)} – ${fmtT(r.end)} <span class="run-count-pill">${r.windows.length} windows${chevronIcon.replace('class="expand-chevron"', `class="expand-chevron${isExpanded ? ' expanded' : ''}"`)}</span>`
       : `${fmtT(r.start)} – ${fmtT(r.end)}`;
     // v2.229: checkmark moved from a plain "✓" glued onto the time text
     // into its own icon paired with "Completed", matching how the bolt
@@ -3121,7 +3126,10 @@ async function loadEVSmartFlex() {
       if (runKwh > 0) { displayKwh = runKwh; isPartial = true; }
     }
   }
-  $('ev-added').textContent = `${displayKwh.toFixed(1)} kWh${isPartial ? ' (so far)' : ''}`;
+  // v2.243: "(so far)" moved into its own smaller, dimmer inline span —
+  // was inline in the main value text at full size/weight, reading as
+  // part of the number itself rather than a qualifier on it.
+  $('ev-added').innerHTML = `${displayKwh.toFixed(1)} kWh${isPartial ? ' <span class="value-suffix">(so far)</span>' : ''}`;
 
   // v2.154: estimated range added, inline with the kWh figure. Real cost
   // was ruled out (see above), but range is a straightforward unit
