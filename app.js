@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.250';
+const APP_VERSION = 'v2.251';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -43,6 +43,27 @@ const EV_BATTERY_KWH_FALLBACK = 67;
 function getEvBatteryKwh() {
   const c = store.creds || {};
   return (c.wltpBatteryKwh > 0) ? c.wltpBatteryKwh : EV_BATTERY_KWH_FALLBACK;
+}
+
+// v2.251: compact power meter, replacing the old This Session/Power/
+// Sessions today/Cost mini boxes (see styles.css comment for the reasoning).
+// No Settings field for max charger output yet — unlike the WLTP range/
+// battery kWh pair above, this hasn't been asked for, so it's a plain
+// fallback constant for now, same pattern as those before Settings support
+// was added. Set to 7.1kW (7.1kW home wallbox), not the current ~2.3kW
+// granny-charger figure — the meter is meant to read "how full is the
+// pipe", which should stay meaningful once the faster charger arrives
+// rather than needing a code change at that point too.
+const EV_CHARGER_MAX_KW_FALLBACK = 7.1;
+const EV_PMETER_SEGMENTS = 7;
+function renderPowerMeter(kw) {
+  const maxKw = EV_CHARGER_MAX_KW_FALLBACK;
+  $('ev-pmeter-value').textContent = `${kw.toFixed(1)} kW`;
+  const onCount = Math.max(0, Math.min(EV_PMETER_SEGMENTS, Math.round((kw / maxKw) * EV_PMETER_SEGMENTS)));
+  const bar = $('ev-pmeter-bar');
+  bar.innerHTML = Array.from({ length: EV_PMETER_SEGMENTS }, (_, i) =>
+    `<div class="pmeter-seg${i < onCount ? ' on' : ''}"></div>`
+  ).join('');
 }
 
 const store = {
@@ -2343,12 +2364,10 @@ async function loadEV() {
   } else {
     $('ev-tag').textContent = 'Unavailable';
     $('ev-tag').className = 'card-tag tag-dim';
-    $('ev-added').textContent = '—';
     $('ev-battery-row').classList.add('hidden');
     $('ev-schedule-preview').classList.add('hidden');
     $('ev-warnings').classList.add('hidden');
-    $('ev-power-box').classList.add('hidden');
-    $('ev-sessions-box').classList.add('hidden');
+    $('ev-pmeter').classList.add('hidden');
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.add('hidden');
     $('ev-slots-session').classList.add('hidden');
@@ -3063,67 +3082,18 @@ async function loadEVSmartFlex() {
   $('ev-view-toggle').classList.remove('hidden');
   $('ev-week-legend').classList.remove('hidden');
 
-  // This session — real per-session kWh. Cost was removed: Octopus's
-  // SmartFlex API confirmed via diagnostics to return cost:null for every
-  // session tested (not zero, not a query mistake), so showing "£0.00"
-  // would misleadingly read as free rather than "unavailable". Matches
-  // the original EV panel's decision from early in the project, made for
-  // the same reason via the older dispatch API.
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todaysSessions = sessions.filter(s => new Date(s.start) >= startOfToday);
-  const sessionKwh = todaysSessions.reduce((sum, s) => sum + Math.abs(s.energyAdded?.value || 0), 0);
-  $('ev-added').textContent = `${sessionKwh.toFixed(1)} kWh`;
-
-  // v2.154: estimated range added, inline with the kWh figure. Real cost
-  // was ruled out (see above), but range is a straightforward unit
-  // conversion using getEvRangeMiPerKwh() (v2.191: Settings-configurable
-  // per vehicle, was a single hardcoded Polestar 2 constant) — no
-  // rate-matching involved, so none of the reasons cost was dropped apply
-  // here. Only shown once there's something to show; kept out of the DOM
-  // rather than showing "0 mi" for a genuinely empty day.
-  const rangeEl = $('ev-added-range');
-  if (rangeEl) {
-    rangeEl.textContent = sessionKwh > 0 ? `≈ ${Math.round(sessionKwh * getEvRangeMiPerKwh())} mi (est.)` : '';
-  }
-
-  // v2.154: estimated cost, third mini box. Real per-dispatch rate can't
-  // be matched (confirmed dead end — see EV cost investigation notes), so
-  // this uses a simple type-based assumption instead: Smart sessions are
-  // priced at today's known off-peak rate, Boost sessions at today's known
-  // standard rate, since Boost charging happens outside the smart dispatch
-  // schedule. Deliberately approximate and labeled as such — same honesty
-  // convention as every other estimate in this app. Hidden entirely if
-  // today's rates haven't loaded yet, rather than guessing with stale or
-  // absent figures.
-  const costBox = $('ev-cost-box');
-  if (costBox) {
-    if (todaysSessions.length && cachedOffPeakRateP != null && cachedStandardRateP != null) {
-      const estCostP = todaysSessions.reduce((sum, s) => {
-        const kwh = Math.abs(s.energyAdded?.value || 0);
-        const rateP = s.type === 'BOOST' ? cachedStandardRateP : cachedOffPeakRateP;
-        return sum + kwh * rateP;
-      }, 0);
-      costBox.classList.remove('hidden');
-      $('ev-cost').textContent = fmtGBP(estCostP / 100);
-    } else {
-      costBox.classList.add('hidden');
-    }
-  }
-
-  // Second box: charging power while actually charging (immediately useful
-  // in that moment), sessions-today count otherwise (a plain, always-
-  // reliable metric — unlike cost, which turned out to be consistently
-  // null — that also tells you something real: one long overnight charge
-  // vs several short top-ups).
+  // v2.251: This session/Sessions today/Cost mini boxes removed entirely —
+  // see the styles.css comment above .pmeter for why. Replaced with a
+  // single compact power meter, shown only while there's a real power
+  // reading to show (i.e. actively charging); kept fully out of the DOM
+  // otherwise rather than showing a placeholder, same convention used for
+  // the battery-limit marker etc.
   const power = vehicle.chargePointPowerOutput;
   if (activeDispatch && power != null) {
-    $('ev-power-box').classList.remove('hidden');
-    $('ev-sessions-box').classList.add('hidden');
-    $('ev-power').textContent = `${(+power).toFixed(1)} kW`;
+    $('ev-pmeter').classList.remove('hidden');
+    renderPowerMeter(+power);
   } else {
-    $('ev-power-box').classList.add('hidden');
-    $('ev-sessions-box').classList.remove('hidden');
-    $('ev-sessions-count').textContent = `${todaysSessions.length}`;
+    $('ev-pmeter').classList.add('hidden');
   }
 
   await setEVHistoryPeriod(evHistoryPeriod);
@@ -3521,13 +3491,11 @@ let evViewMode = 'dispatch'; // v2.150: tracks the user's Dispatch/Sessions tab 
 function populateDemoEV() {
     applyEvCollapse(true);
     $('ev-tag').textContent = 'DEMO DATA';
-    $('ev-added').textContent = '9.6 kWh';
     $('ev-battery-row').classList.add('hidden');
     $('ev-schedule-preview').classList.add('hidden');
     $('ev-warnings').classList.add('hidden');
-    $('ev-power-box').classList.add('hidden');
-    $('ev-sessions-box').classList.remove('hidden');
-    $('ev-sessions-count').textContent = '2';
+    $('ev-pmeter').classList.remove('hidden');
+    renderPowerMeter(2.3);
     $('ev-view-toggle').classList.add('hidden');
     $('ev-week-legend').classList.remove('hidden');
     $('ev-slots-dispatch').classList.remove('hidden');

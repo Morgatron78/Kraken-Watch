@@ -258,16 +258,21 @@ button{font-family:inherit;cursor:pointer;}
    with anything (flex items don't participate in margin collapsing the
    way plain blocks do) and simply added on top of the flex-gap instead
    — doubling the real gap to 32px, confirmed by direct measurement. */
-.ev-mini-row{display:flex;gap:10px;flex-wrap:wrap;}
-.ev-mini{flex:1;min-width:110px;background:var(--bg-panel-2);border-radius:12px;padding:10px 12px;}
-.ev-mini-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}
-.ev-mini-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;}
-/* v2.154: estimated-range caption under "This session", and an "(est.)"
-   tag reused on both the range caption and the Cost mini box label — same
-   visual language, so an estimate always reads as an estimate regardless
-   of which of the two it's attached to. */
-.ev-mini-sub{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;color:var(--text-dim);margin-top:2px;}
-.ev-mini-est{font-size:8.5px;font-weight:400;text-transform:none;letter-spacing:0;}
+/* v2.251: .ev-mini-row and its four boxes (This session/Power/Sessions
+   today/Cost) removed entirely — This session was permanently stuck at
+   0.0 kWh (see EV session-boundary notes), Sessions today rarely told you
+   anything useful, and Cost/range duplicated numbers already visible in
+   the Charging activity list below. Replaced with a single compact power
+   meter (.pmeter) — see below — shown only while actively charging, kept
+   out of the DOM entirely (not shown-with-a-placeholder) when idle, same
+   "invisible unless it matters" convention used elsewhere in this file. */
+.pmeter{margin-top:12px;}
+.pmeter-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+.pmeter-label{font-family:'Inter', sans-serif;font-size:11px;color:var(--text-dim);}
+.pmeter-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;}
+.pmeter-bar{display:flex;gap:2px;height:8px;}
+.pmeter-seg{flex:1;border-radius:3px;background:rgba(255,255,255,0.14);}
+.pmeter-seg.on{background:linear-gradient(90deg,var(--mint),#5eeab0);}
 /* v2.154: Smart/Boost split caption under the Charge history stat row —
    makes the split explicit rather than requiring a visual read of the
    stacked bar colors below. */
