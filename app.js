@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.243';
+const APP_VERSION = 'v2.244';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2690,6 +2690,27 @@ async function loadEVSmartFlex() {
   const completedDispatchWindows = (data.completedDispatches || [])
     .filter(d => new Date(d.start) >= windowStart)
     .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  // TEMPORARY diagnostic — completedDispatches meta.source probe. A real
+  // GraphQL field (UpsideDispatchType.meta.source) is documented as
+  // distinguishing smart-charge vs bump-charge (Boost) dispatches — but a
+  // real example found elsewhere shows it coming back null even for a
+  // genuine entry, so it's not confirmed reliably populated on this
+  // account. Isolated, separate query rather than added to the main
+  // completedDispatches fetch above — same reasoning as the earlier cost
+  // probe: an unknown/unreliable field shouldn't be able to break the
+  // main dispatch data if this guess is wrong. Remove once answered.
+  try {
+    const metaProbeData = await krakenGQL(`
+      query DispatchMetaProbe($accountNumber: String!) {
+        completedDispatches(accountNumber: $accountNumber) { start meta { location source } }
+      }`, { accountNumber: store.creds.accountNumber });
+    const metaResults = (metaProbeData.completedDispatches || []).slice(0, 5);
+    logDebug('Dispatch meta probe', `${metaResults.length} entrie(s) — ${metaResults.map(d => `${d.start}: source=${JSON.stringify(d.meta?.source)}, location=${JSON.stringify(d.meta?.location)}`).join(' · ')}`);
+  } catch (err) {
+    logDebug('Dispatch meta probe', `request failed — ${err.message}`);
+  }
+  renderDiagnostics(); // logDebug() alone doesn't redraw the panel — same lesson as the v2.196 comment elsewhere
 
   // TEMPORARY diagnostic — real EV session cost probe. An earlier,
   // exhaustive investigation (documented in project notes) concluded
