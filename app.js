@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.239';
+const APP_VERSION = 'v2.240';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2941,9 +2941,36 @@ async function loadEVSmartFlex() {
   // (Smart/Boost) field — confirmed absent from Octopus's own docs, not
   // guessed, so these rows honestly show without a badge rather than a
   // guessed one.
+  // v2.240: individual half-hourly rows don't scale to a real overnight
+  // session (a 12h charge is 24 separate rows) — grouped into runs of
+  // contiguous windows instead, each collapsed to one summary row with a
+  // tap-to-expand toggle for the full breakdown. A genuine gap between
+  // windows (nothing dispatched in between) naturally starts a new run
+  // rather than being hidden inside one — user-approved direction after
+  // comparing three mockup options.
   const dispatchSlots = $('ev-slots-dispatch');
   dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
-  dispatchSlots.innerHTML = completedDispatchWindows.map(d =>
+  const runs = [];
+  completedDispatchWindows.forEach(d => {
+    const last = runs[runs.length - 1];
+    if (last && new Date(last.end).getTime() === new Date(d.start).getTime()) {
+      last.end = d.end;
+      last.windows.push(d);
+    } else {
+      runs.push({ start: d.start, end: d.end, windows: [d] });
+    }
+  });
+  const runIcon = '<svg class="completed-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  const chevronIcon = '<svg class="expand-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+  dispatchSlots.innerHTML = runs.map((r, i) => {
+    const totalKwh = r.windows.reduce((sum, d) => sum + Math.abs(d.delta || 0), 0);
+    const isExpanded = evExpandedDispatchRuns.has(r.start);
+    const detail = r.windows.length > 1 ? r.windows.map(d =>
+      `<div class="slot done run-detail-row"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${Math.abs(d.delta || 0).toFixed(1)} kWh</b></div>`
+    ).join('') : '';
+    const summaryLabel = r.windows.length > 1
+      ? `${fmtT(r.start)} – ${fmtT(r.end)} · <span class="run-count">${r.windows.length} windows</span>`
+      : `${fmtT(r.start)} – ${fmtT(r.end)}`;
     // v2.229: checkmark moved from a plain "✓" glued onto the time text
     // into its own icon paired with "Completed", matching how the bolt
     // and clock icons pair with "Dispatching now"/"Planned" — all three
@@ -2952,8 +2979,11 @@ async function loadEVSmartFlex() {
     // accent, so it inherits the same dim treatment .slot.done already
     // applies to everything in this row via opacity, rather than adding
     // a fourth distinct color to a row that's deliberately muted.
-    `<div class="slot done"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b><span class="live-dot-label"><svg class="completed-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Completed · ${Math.abs(d.delta || 0).toFixed(1)} kWh</span></b></div>`
-  ).join('');
+    return `<div class="dispatch-run">
+      <div class="slot done${r.windows.length > 1 ? ' run-summary' : ''}"${r.windows.length > 1 ? ` onclick="toggleDispatchRun('${r.start}')"` : ''}><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed · ${totalKwh.toFixed(1)} kWh${r.windows.length > 1 ? chevronIcon.replace('class="expand-chevron"', `class="expand-chevron${isExpanded ? ' expanded' : ''}"`) : ''}</span></b></div>
+      <div class="run-detail${isExpanded ? '' : ' hidden'}">${detail}</div>
+    </div>`;
+  }).join('');
   // Octopus's own docs describe completedDispatches as running roughly 12
   // hours behind — so very recent charging (that hasn't been processed
   // into this field yet) can genuinely have zero completed windows here
@@ -3488,6 +3518,21 @@ let evWeekBuckets = null;
 let evWeekSelectedDay = null;
 let evHistoryPeriod = 'week';
 let evLoadedSessions = null;
+// v2.240: which contiguous-window "runs" the user has manually expanded
+// in the Windows tab's Completed section — keyed by the run's start
+// timestamp (stable across re-renders, unlike an array index). A plain
+// Set rather than anything persisted, so it resets to fully-collapsed on
+// reload, matching how the rest of this app doesn't remember UI-only
+// state across sessions either.
+let evExpandedDispatchRuns = new Set();
+function toggleDispatchRun(runStart) {
+  if (evExpandedDispatchRuns.has(runStart)) evExpandedDispatchRuns.delete(runStart);
+  else evExpandedDispatchRuns.add(runStart);
+  const chevron = document.querySelector(`[onclick="toggleDispatchRun('${runStart}')"] .expand-chevron`);
+  const detail = chevron?.closest('.dispatch-run')?.querySelector('.run-detail');
+  if (chevron) chevron.classList.toggle('expanded');
+  if (detail) detail.classList.toggle('hidden');
+}
 let evMonthCache = null; // { key: 'YYYY-M', sessions: [...] } — avoids refetching when toggling back to a month already viewed
 let evHistoryDates = null;
 let evHistoryDateFormat = 'weekday';
