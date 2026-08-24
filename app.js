@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.255';
+const APP_VERSION = 'v2.256';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -2976,13 +2976,16 @@ async function loadEVSmartFlex() {
     // a fourth distinct color to a row that's deliberately muted.
     return `<div class="slot done"><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed</span></b></div>`;
   }).join('');
-  // Octopus's own docs describe completedDispatches as running roughly 12
-  // hours behind — so very recent charging (that hasn't been processed
-  // into this field yet) can genuinely have zero completed windows here
-  // even though real sessions exist. Says so plainly rather than leaving
-  // unexplained blank space.
+  // v2.256: was attributed to completedDispatches running ~12h behind
+  // (Octopus's own docs describe that lag), framing an empty list as
+  // "hasn't synced yet". That's not actually why it goes empty here —
+  // the real cause is the confirmed 24-window rolling cap (see its own
+  // comment/notes): once nothing's been dispatched recently enough to
+  // keep the list populated, older windows have already aged off rather
+  // than being merely delayed. Message corrected to describe the real,
+  // permanent limitation instead of implying a temporary sync delay.
   if (!completedDispatchWindows.length && sessions.length) {
-    dispatchSlots.insertAdjacentHTML('beforeend', '<div class="slot"><span>Completed windows can take a little while to appear after charging — see Sessions tab for real charging history in the meantime</span></div>');
+    dispatchSlots.insertAdjacentHTML('beforeend', '<div class="slot"><span>Only completed windows within the last 12 hours are shown here. See Sessions tab for full charging history.</span></div>');
   }
   // v2.239: was `planned.forEach` unconditionally — but plannedDispatches
   // can genuinely hold stale entries whose time has already fully passed
