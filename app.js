@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.258';
+const APP_VERSION = 'v2.259';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -977,7 +977,18 @@ function buildDaySegments(fuel, day, unit) {
     // "verified reading", not just decoration, and grey doesn't risk
     // being mistaken for the standing-charge hatch (a different axis —
     // charge type, not settlement status).
-    const incomplete = day.hasData === false && ((day.offPeakKwh || 0) > 0 || (day.peakKwh || 0) > 0);
+    // v2.259: widened from requiring some real off-peak/peak data present
+    // to simply `hasData === false` — a day with genuinely ZERO readings
+    // yet (today, or an as-yet-untouched day within the fetched range;
+    // there's no true "future day" case here, every day array this app
+    // builds is capped at today by construction) was still rendering its
+    // standing-charge segment at full, undimmed strength, looking just as
+    // "confirmed" as a real settled day even though nothing at all has
+    // arrived for it. Standing charge is a known, fixed daily rate, not a
+    // guess — showing it isn't inaccurate even for an unsettled day — but
+    // rendering it identically to a genuine day's segment risked the same
+    // "looks confirmed when it isn't" misread this whole fix was about.
+    const incomplete = day.hasData === false;
     const tag = incomplete ? ' seg-incomplete' : '';
     const segs = [];
     if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-standing' + tag });
@@ -985,9 +996,16 @@ function buildDaySegments(fuel, day, unit) {
     segs.push({ value: unit === 'cost' ? day.peakCost : day.peakKwh, cssClass: 'seg-peak' + tag });
     return segs;
   }
+  // v2.259: same treatment as elec above — gas has no off-peak/peak split
+  // so there's no "partial category" case, but a genuinely zero-data day
+  // (today, or one that simply hasn't settled at all yet) was still
+  // rendering its standing-charge segment undimmed, same misleading
+  // "looks confirmed" issue.
+  const incomplete = day.hasData === false;
+  const tag = incomplete ? ' seg-incomplete' : '';
   const segs = [];
-  if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-gas-standing' });
-  segs.push({ value: unit === 'cost' ? day.cost : day.kwh, cssClass: 'seg-gas-usage' });
+  if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-gas-standing' + tag });
+  segs.push({ value: unit === 'cost' ? day.cost : day.kwh, cssClass: 'seg-gas-usage' + tag });
   return segs;
 }
 
