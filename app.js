@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.259';
+const APP_VERSION = 'v2.261';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -521,23 +521,28 @@ async function lastNDaysElecSplit(n, anchor = new Date()) {
         slots.push({ start: r.interval_start, kwh: r.consumption, rate, cost, isOffpeak: offpeak });
       }
       slots.sort((a, b) => +new Date(a.start) - +new Date(b.start));
+      // v2.260 fix: v2.258's tightening (both categories must be nonzero)
+      // inherited a known, previously-safe limitation from costForRange's
+      // own hasData (see its comment) without checking whether the
+      // tradeoff still held here — it doesn't. That function's false
+      // positive (a genuine zero-usage day briefly reading as "pending")
+      // was harmless because it only affected which day got picked as
+      // "latest", and self-corrected once a later real day superseded it.
+      // Once v2.259 started greying out chart bars for any hasData:false
+      // day, the same false positive became permanent for a day sitting
+      // further back in the week/month — confirmed live: a genuine
+      // zero-usage day (away from home) stayed grey forever, never
+      // superseded by anything. Fixed by trusting readings.length alone
+      // once a day is old enough that Octopus's documented 24-48h
+      // settlement lag can't explain a still-empty category — 3 days
+      // gives a safety margin beyond that. Recent days keep the stricter
+      // both-categories check, since the placeholder-zero risk is real
+      // there.
+      const daysOld = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - dates[i]) / 86400000);
+      const settled = daysOld >= 3;
       return {
         offPeakKwh, peakKwh, offPeakCost: offPeakCostP / 100, peakCost: peakCostP / 100,
-        // v2.258 fix: was `readings.length > 0 && (offPeakKwh + peakKwh) >
-        // 0.001` — any nonzero total counted as "has data". But Octopus
-        // returns a day's off-peak readings first, with the peak-hours
-        // readings arriving roughly a day later (confirmed live) — so a
-        // day that's only had its overnight off-peak block settle so far
-        // already satisfied the old check, getting picked as "latest
-        // available day" while still showing just standing charge + a
-        // few pence of off-peak, nothing like the day's real total.
-        // Now requires genuine readings in BOTH categories before a day
-        // counts as usable — matches what actually changed here, not an
-        // indirect proxy like a slot-count threshold. The one theoretical
-        // gap (a real day with literally zero peak-hour consumption)
-        // isn't a practical risk — background household load alone
-        // (fridge, standby devices) makes an exact zero implausible.
-        hasData: readings.length > 0 && offPeakKwh > 0.001 && peakKwh > 0.001,
+        hasData: readings.length > 0 && (settled || (offPeakKwh > 0.001 && peakKwh > 0.001)),
         date: dates[i], slots
       };
     });
@@ -964,48 +969,29 @@ function renderBreakdown(fuel, periodData, index, unit) {
 // Turns one day's split figures into stacked-bar segments, bottom-to-top.
 // Standing charge only appears in £ mode — it has no kWh equivalent.
 function buildDaySegments(fuel, day, unit) {
+  // v2.261: replaces the v2.258/v2.259 grey-segment treatment. Standing
+  // charge is a known, fixed daily rate — true regardless of whether
+  // consumption has settled — so it always renders normally, full
+  // strength, no matter how incomplete the day's readings are; greying
+  // it (as the two prior versions did) implied it was uncertain too,
+  // which it never was. Off-peak/peak (or gas usage) are the genuinely
+  // uncertain part — rather than showing them in a muted grey (still
+  // implies "here's a real, if partial, reading"), an incomplete day's
+  // consumption is zeroed out entirely, so nothing renders for it at
+  // all. A confirmed complete day (hasData: true) is unaffected either
+  // way, and a genuinely-zero-but-settled day (see lastNDaysElecSplit's
+  // age-based hasData fix) correctly still shows its real zero.
+  const incomplete = day.hasData === false;
   if (fuel === 'elec') {
-    // v2.258: a day with SOME real readings but not both categories yet
-    // (see hasData's own comment) still needs to render its partial
-    // segments — hiding them entirely would just be an empty gap, less
-    // honest than showing what's genuinely there. But rendering them in
-    // their normal off-peak/peak colours risks reading as "a real,
-    // low-usage day" rather than "not settled yet" — exactly the bug
-    // that prompted this. Flagged with an extra class instead, which
-    // .seg-incomplete overrides to a flat neutral grey regardless of the
-    // segment's own colour — colour itself becomes a signal that means
-    // "verified reading", not just decoration, and grey doesn't risk
-    // being mistaken for the standing-charge hatch (a different axis —
-    // charge type, not settlement status).
-    // v2.259: widened from requiring some real off-peak/peak data present
-    // to simply `hasData === false` — a day with genuinely ZERO readings
-    // yet (today, or an as-yet-untouched day within the fetched range;
-    // there's no true "future day" case here, every day array this app
-    // builds is capped at today by construction) was still rendering its
-    // standing-charge segment at full, undimmed strength, looking just as
-    // "confirmed" as a real settled day even though nothing at all has
-    // arrived for it. Standing charge is a known, fixed daily rate, not a
-    // guess — showing it isn't inaccurate even for an unsettled day — but
-    // rendering it identically to a genuine day's segment risked the same
-    // "looks confirmed when it isn't" misread this whole fix was about.
-    const incomplete = day.hasData === false;
-    const tag = incomplete ? ' seg-incomplete' : '';
     const segs = [];
-    if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-standing' + tag });
-    segs.push({ value: unit === 'cost' ? day.offPeakCost : day.offPeakKwh, cssClass: 'seg-offpeak' + tag });
-    segs.push({ value: unit === 'cost' ? day.peakCost : day.peakKwh, cssClass: 'seg-peak' + tag });
+    if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-standing' });
+    segs.push({ value: incomplete ? 0 : (unit === 'cost' ? day.offPeakCost : day.offPeakKwh), cssClass: 'seg-offpeak' });
+    segs.push({ value: incomplete ? 0 : (unit === 'cost' ? day.peakCost : day.peakKwh), cssClass: 'seg-peak' });
     return segs;
   }
-  // v2.259: same treatment as elec above — gas has no off-peak/peak split
-  // so there's no "partial category" case, but a genuinely zero-data day
-  // (today, or one that simply hasn't settled at all yet) was still
-  // rendering its standing-charge segment undimmed, same misleading
-  // "looks confirmed" issue.
-  const incomplete = day.hasData === false;
-  const tag = incomplete ? ' seg-incomplete' : '';
   const segs = [];
-  if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-gas-standing' + tag });
-  segs.push({ value: unit === 'cost' ? day.cost : day.kwh, cssClass: 'seg-gas-usage' + tag });
+  if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-gas-standing' });
+  segs.push({ value: incomplete ? 0 : (unit === 'cost' ? day.cost : day.kwh), cssClass: 'seg-gas-usage' });
   return segs;
 }
 
@@ -4010,7 +3996,16 @@ async function lastNDaysCost(fuel, n, anchor = new Date()) {
         kwh += consumption;
         costPence += consumption * rate;
       }
-      return { cost: costPence / 100, kwh, hasData: readings.length > 0 && kwh > 0.001, date: dates[i] };
+      return {
+        cost: costPence / 100, kwh,
+        // v2.260 fix: same reasoning as lastNDaysElecSplit's own comment —
+        // trust readings.length alone once a day is old enough that
+        // Octopus's settlement lag can't explain a still-zero kWh total,
+        // rather than permanently treating a genuine zero-usage day
+        // (holiday, meter genuinely reads ~0) as "no data" in the chart.
+        hasData: readings.length > 0 && (Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - dates[i]) / 86400000) >= 3 || kwh > 0.001),
+        date: dates[i]
+      };
     });
   } catch (err) {
     logIssue(`${isElec ? 'Electricity' : 'Gas'} week breakdown`, err);
