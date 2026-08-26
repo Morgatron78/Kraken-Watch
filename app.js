@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.256';
+const APP_VERSION = 'v2.257';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -3095,6 +3095,43 @@ async function loadEVSmartFlex() {
 
   await setEVHistoryPeriod(evHistoryPeriod);
   renderEVInsights(sessions, now);
+
+  // TEMPORARY diagnostic (v2.257) — re-probing whether
+  // SmartFlexChargingSession.cost ever returns a real value. Previously
+  // confirmed to genuinely exist in the schema, but the one earlier check
+  // came back "0 sessions" — inconclusive rather than a real answer,
+  // since that session likely hadn't settled yet at the time it was
+  // checked. This time there's actual ground truth to check any result
+  // against: the 22–23 Aug overnight session (19:33–12:00, 37.1 kWh),
+  // which the official app has since settled and split as £2.82 (22nd) +
+  // £5.91 (23rd) = £8.73 total across the two calendar days it straddles
+  // — confirmed to be one continuous session, not two, so that combined
+  // figure is the real number to check any returned cost against, not
+  // either day's figure alone. Logged only, doesn't touch the render
+  // above or any UI — remove this whole block once the question is
+  // settled either way.
+  try {
+    const costProbe = await krakenGQL(`
+      query EVCostProbe($accountNumber: String!, $after: DateTime!) {
+        devices(accountNumber: $accountNumber) {
+          ... on SmartFlexVehicle {
+            chargingSessions(after: $after, first: 30) {
+              edges { node { ... on SmartFlexChargingSession { start end cost { amount } } } }
+            }
+          }
+        }
+      }`, {
+        accountNumber: store.creds.accountNumber,
+        after: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
+      });
+    const probeVehicle = (costProbe.devices || []).find(d => d && d.chargingSessions);
+    const probeSessions = (probeVehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
+    const withCost = probeSessions.filter(s => s.cost?.amount != null);
+    logDebug('EV cost probe', `${probeSessions.length} session(s) returned, ${withCost.length} with a real cost — ${withCost.map(s => `${fmtT(s.start)}–${fmtT(s.end)}: £${(s.cost.amount / 100).toFixed(2)}`).join(', ') || 'none'}`);
+  } catch (err) {
+    logDebug('EV cost probe', `request failed — ${err.message}`);
+  }
+  renderDiagnostics(); // logDebug() alone doesn't redraw the panel — same lesson as the v2.196 comment elsewhere
 
   return true;
 }

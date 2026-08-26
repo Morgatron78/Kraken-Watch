@@ -54,6 +54,9 @@ button{font-family:inherit;cursor:pointer;}
 }
 .brand-mark img{width:100%;height:100%;object-fit:cover;}
 .brand-name{font-weight:600;font-size:19px;letter-spacing:0.2px;}
+/* v2.257: capital K and W picked out in the app's existing pink accent —
+   kilowatt wordplay on the app's own name, no new colour introduced. */
+.brand-kw-accent{color:var(--pink);}
 .topbar-right{display:flex;align-items:center;gap:10px;}
 .status{display:flex;align-items:center;gap:7px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 8px var(--mint);flex-shrink:0;}
