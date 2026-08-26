@@ -60,8 +60,8 @@ button{font-family:inherit;cursor:pointer;}
    not centred in the topbar — a deliberate choice, kept as asked even
    though the mockup exploration used centred for comparison. */
 .brand-word{display:inline-flex;align-items:center;}
-.brand-kw-accent{font-size:24px;font-weight:700;color:var(--pink);line-height:1;}
-.brand-rest{font-size:14px;line-height:1;letter-spacing:1px;}
+.brand-kw-accent{font-size:29px;font-weight:700;color:var(--pink);line-height:1;}
+.brand-rest{font-size:17px;line-height:1;letter-spacing:1px;}
 .topbar-right{display:flex;align-items:center;gap:10px;}
 .status{display:flex;align-items:center;gap:7px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 8px var(--mint);flex-shrink:0;}
