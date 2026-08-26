@@ -53,10 +53,15 @@ button{font-family:inherit;cursor:pointer;}
   box-shadow:0 0 0 1px rgba(255,255,255,0.08) inset;
 }
 .brand-mark img{width:100%;height:100%;object-fit:cover;}
-.brand-name{font-weight:600;font-size:19px;letter-spacing:0.2px;}
-/* v2.257: capital K and W picked out in the app's existing pink accent —
-   kilowatt wordplay on the app's own name, no new colour introduced. */
-.brand-kw-accent{color:var(--pink);}
+.brand-name{font-weight:600;display:flex;align-items:center;gap:6px;}
+/* v2.262: replaces the flat "Kraken Watch" text with a two-word wordmark —
+   K and W enlarged (kilowatt wordplay, same pink accent as before), the
+   rest of each word uppercase and smaller. Left-aligned next to the icon,
+   not centred in the topbar — a deliberate choice, kept as asked even
+   though the mockup exploration used centred for comparison. */
+.brand-word{display:inline-flex;align-items:center;}
+.brand-kw-accent{font-size:24px;font-weight:700;color:var(--pink);line-height:1;}
+.brand-rest{font-size:14px;line-height:1;letter-spacing:1px;}
 .topbar-right{display:flex;align-items:center;gap:10px;}
 .status{display:flex;align-items:center;gap:7px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 8px var(--mint);flex-shrink:0;}
