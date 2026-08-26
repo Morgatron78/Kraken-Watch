@@ -215,9 +215,25 @@ reassignment.
 - **Billing cycle assumes a calendar month**, since Octopus's API doesn't
   expose your actual billing/Direct Debit date. **Direct Debit amount** is
   estimated from your last actual payment, labeled "(est.)".
-- **"Latest available day" instead of "Today"** — smart meter data
-  typically lags a day via Octopus's REST API; the app shows whichever day
-  actually has data, labeled with its real date.
+- **"Latest available day" instead of "Today"** — a day only counts once
+  it has genuine readings in every category (both off-peak and peak for
+  electricity; any real reading for gas), not just some. Octopus returns
+  a day's off-peak readings first, with peak-hours readings arriving
+  roughly a day later — an earlier version picked a day that had only
+  partially settled, showing a misleadingly low figure (standing charge
+  + a few pence of off-peak, nothing like the day's real total). A day
+  3+ days old is trusted as genuinely complete even if a category reads
+  exactly zero (e.g. away from home, no gas used) — younger than that, a
+  still-zero category is treated as pending rather than confirmed, since
+  Octopus can return placeholder rows with a real row count but zero kWh
+  before settlement (seen on gas specifically). The Week/Month chart uses
+  the same signal: an incomplete day's off-peak/peak (or gas usage)
+  segments render as nothing at all, rather than a partial, misleadingly
+  low bar — while its standing charge, a known fixed daily rate true
+  regardless of settlement, always shows at full strength either way. An
+  earlier version of this chart fix greyed the whole bar (standing charge
+  included) instead — corrected same night once it became clear that
+  implied the standing charge was uncertain too, when it never was.
 - **Date-picker's standing charge is applied flat from today's cached
   value**, regardless of which historical date is picked — a deliberate
   scope-limiting choice (a full historical lookup would cost an extra API
