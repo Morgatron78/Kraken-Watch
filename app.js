@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.257';
+const APP_VERSION = 'v2.258';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -523,10 +523,21 @@ async function lastNDaysElecSplit(n, anchor = new Date()) {
       slots.sort((a, b) => +new Date(a.start) - +new Date(b.start));
       return {
         offPeakKwh, peakKwh, offPeakCost: offPeakCostP / 100, peakCost: peakCostP / 100,
-        // Same reasoning as before: a placeholder reading-period with rows
-        // present but kwh totalling zero is treated as not-yet-settled
-        // rather than a genuine zero-usage day.
-        hasData: readings.length > 0 && (offPeakKwh + peakKwh) > 0.001,
+        // v2.258 fix: was `readings.length > 0 && (offPeakKwh + peakKwh) >
+        // 0.001` — any nonzero total counted as "has data". But Octopus
+        // returns a day's off-peak readings first, with the peak-hours
+        // readings arriving roughly a day later (confirmed live) — so a
+        // day that's only had its overnight off-peak block settle so far
+        // already satisfied the old check, getting picked as "latest
+        // available day" while still showing just standing charge + a
+        // few pence of off-peak, nothing like the day's real total.
+        // Now requires genuine readings in BOTH categories before a day
+        // counts as usable — matches what actually changed here, not an
+        // indirect proxy like a slot-count threshold. The one theoretical
+        // gap (a real day with literally zero peak-hour consumption)
+        // isn't a practical risk — background household load alone
+        // (fridge, standby devices) makes an exact zero implausible.
+        hasData: readings.length > 0 && offPeakKwh > 0.001 && peakKwh > 0.001,
         date: dates[i], slots
       };
     });
@@ -954,10 +965,24 @@ function renderBreakdown(fuel, periodData, index, unit) {
 // Standing charge only appears in £ mode — it has no kWh equivalent.
 function buildDaySegments(fuel, day, unit) {
   if (fuel === 'elec') {
+    // v2.258: a day with SOME real readings but not both categories yet
+    // (see hasData's own comment) still needs to render its partial
+    // segments — hiding them entirely would just be an empty gap, less
+    // honest than showing what's genuinely there. But rendering them in
+    // their normal off-peak/peak colours risks reading as "a real,
+    // low-usage day" rather than "not settled yet" — exactly the bug
+    // that prompted this. Flagged with an extra class instead, which
+    // .seg-incomplete overrides to a flat neutral grey regardless of the
+    // segment's own colour — colour itself becomes a signal that means
+    // "verified reading", not just decoration, and grey doesn't risk
+    // being mistaken for the standing-charge hatch (a different axis —
+    // charge type, not settlement status).
+    const incomplete = day.hasData === false && ((day.offPeakKwh || 0) > 0 || (day.peakKwh || 0) > 0);
+    const tag = incomplete ? ' seg-incomplete' : '';
     const segs = [];
-    if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-standing' });
-    segs.push({ value: unit === 'cost' ? day.offPeakCost : day.offPeakKwh, cssClass: 'seg-offpeak' });
-    segs.push({ value: unit === 'cost' ? day.peakCost : day.peakKwh, cssClass: 'seg-peak' });
+    if (unit === 'cost') segs.push({ value: day.standing || 0, cssClass: 'seg-standing' + tag });
+    segs.push({ value: unit === 'cost' ? day.offPeakCost : day.offPeakKwh, cssClass: 'seg-offpeak' + tag });
+    segs.push({ value: unit === 'cost' ? day.peakCost : day.peakKwh, cssClass: 'seg-peak' + tag });
     return segs;
   }
   const segs = [];
@@ -3095,43 +3120,6 @@ async function loadEVSmartFlex() {
 
   await setEVHistoryPeriod(evHistoryPeriod);
   renderEVInsights(sessions, now);
-
-  // TEMPORARY diagnostic (v2.257) — re-probing whether
-  // SmartFlexChargingSession.cost ever returns a real value. Previously
-  // confirmed to genuinely exist in the schema, but the one earlier check
-  // came back "0 sessions" — inconclusive rather than a real answer,
-  // since that session likely hadn't settled yet at the time it was
-  // checked. This time there's actual ground truth to check any result
-  // against: the 22–23 Aug overnight session (19:33–12:00, 37.1 kWh),
-  // which the official app has since settled and split as £2.82 (22nd) +
-  // £5.91 (23rd) = £8.73 total across the two calendar days it straddles
-  // — confirmed to be one continuous session, not two, so that combined
-  // figure is the real number to check any returned cost against, not
-  // either day's figure alone. Logged only, doesn't touch the render
-  // above or any UI — remove this whole block once the question is
-  // settled either way.
-  try {
-    const costProbe = await krakenGQL(`
-      query EVCostProbe($accountNumber: String!, $after: DateTime!) {
-        devices(accountNumber: $accountNumber) {
-          ... on SmartFlexVehicle {
-            chargingSessions(after: $after, first: 30) {
-              edges { node { ... on SmartFlexChargingSession { start end cost { amount } } } }
-            }
-          }
-        }
-      }`, {
-        accountNumber: store.creds.accountNumber,
-        after: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
-      });
-    const probeVehicle = (costProbe.devices || []).find(d => d && d.chargingSessions);
-    const probeSessions = (probeVehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
-    const withCost = probeSessions.filter(s => s.cost?.amount != null);
-    logDebug('EV cost probe', `${probeSessions.length} session(s) returned, ${withCost.length} with a real cost — ${withCost.map(s => `${fmtT(s.start)}–${fmtT(s.end)}: £${(s.cost.amount / 100).toFixed(2)}`).join(', ') || 'none'}`);
-  } catch (err) {
-    logDebug('EV cost probe', `request failed — ${err.message}`);
-  }
-  renderDiagnostics(); // logDebug() alone doesn't redraw the panel — same lesson as the v2.196 comment elsewhere
 
   return true;
 }

@@ -310,6 +310,13 @@ button{font-family:inherit;cursor:pointer;}
 .seg-offpeak.today{background:linear-gradient(180deg,#6ee8b0,var(--mint));}
 .seg-peak{background:var(--pink);opacity:0.85;}
 .seg-peak.today{background:linear-gradient(180deg,#ff7ab8,var(--pink));}
+/* v2.258: overrides seg-offpeak/seg-peak/seg-standing's own background
+   (and the .today gradient variant, via !important) to a flat neutral
+   grey for a day that has some real readings but isn't complete yet —
+   see buildDaySegments' own comment. Deliberately not a texture/hatch,
+   to avoid reading as "more standing charge" — this is a genuinely
+   different axis (settlement status, not charge type). */
+.seg-incomplete{background:rgba(156,154,194,0.4) !important;}
 .seg-gas-standing{background:repeating-linear-gradient(135deg,rgba(234,232,255,0.4) 0 3px,rgba(234,232,255,0.15) 3px 6px);}
 .seg-gas-usage{background:var(--gas-blue);opacity:0.85;}
 .seg-gas-usage.today{background:linear-gradient(180deg,#8adfff,var(--gas-blue));}
