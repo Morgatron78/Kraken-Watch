@@ -267,7 +267,6 @@ button{font-family:inherit;cursor:pointer;}
    out of the DOM entirely (not shown-with-a-placeholder) when idle, same
    "invisible unless it matters" convention used elsewhere in this file. */
 .pmeter-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
-.pmeter-label{font-family:'Inter', sans-serif;font-size:11px;color:var(--text-dim);}
 .pmeter-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;}
 .pmeter-bar{display:flex;gap:2px;height:8px;}
 .pmeter-seg{flex:1;border-radius:3px;background:rgba(255,255,255,0.14);}
