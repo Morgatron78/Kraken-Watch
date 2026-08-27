@@ -16,7 +16,7 @@ const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 // Bump alongside CACHE in sw.js on every release — shown in the footer so
 // it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.263';
+const APP_VERSION = 'v2.264';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -3005,15 +3005,21 @@ async function loadEVSmartFlex() {
     // a fourth distinct color to a row that's deliberately muted.
     return `<div class="slot done"><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed</span></b></div>`;
   }).join('');
-  // v2.256: was attributed to completedDispatches running ~12h behind
-  // (Octopus's own docs describe that lag), framing an empty list as
-  // "hasn't synced yet". That's not actually why it goes empty here —
-  // the real cause is the confirmed 24-window rolling cap (see its own
-  // comment/notes): once nothing's been dispatched recently enough to
-  // keep the list populated, older windows have already aged off rather
-  // than being merely delayed. Message corrected to describe the real,
-  // permanent limitation instead of implying a temporary sync delay.
-  if (!completedDispatchWindows.length && sessions.length) {
+  // v2.256: message text describes the real, permanent cause (the
+  // confirmed 24-window rolling cap — once nothing's dispatched recently
+  // enough to keep the list populated, older windows have already aged
+  // off) rather than the earlier, inaccurate framing of a temporary sync
+  // delay.
+  // v2.264 fix: the condition only checked whether Completed was empty,
+  // not whether Planned windows were about to render right below the
+  // note — confirmed via a real screenshot showing the note sitting
+  // directly above five genuine Planned rows, reading as if the whole
+  // tab were empty when it plainly wasn't. Hoisted the same filter the
+  // Planned rows below already use (see v2.239's own comment) so the
+  // note can check it too — only shown now when Completed AND Planned
+  // are both empty, i.e. the tab would otherwise show nothing at all.
+  const visiblePlanned = planned.filter(d => isActiveWindow(d, now) || new Date(d.end) > now);
+  if (!completedDispatchWindows.length && sessions.length && !visiblePlanned.length) {
     dispatchSlots.insertAdjacentHTML('beforeend', '<div class="slot"><span>Only completed windows within the last 12 hours are shown here. See Sessions tab for full charging history.</span></div>');
   }
   // v2.239: was `planned.forEach` unconditionally — but plannedDispatches
@@ -3027,7 +3033,7 @@ async function loadEVSmartFlex() {
   // Filtering out anything whose end time has already passed and isn't
   // the currently active one, rather than rendering every stale entry
   // Octopus happens to still be holding onto.
-  planned.filter(d => isActiveWindow(d, now) || new Date(d.end) > now).forEach(d => {
+  visiblePlanned.forEach(d => {
     const isActive = isActiveWindow(d, now);
     // v2.150: swapped the static "●" character for a pulsating dot.
     // v2.227: swapped the dot for the same lightning-bolt shape already
