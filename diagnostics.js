@@ -99,3 +99,25 @@ export function renderDiagnostics() {
     }
   }
 }
+
+// Several values from Kraken's undocumented GraphQL schema are read with an
+// assumed unit that's never been independently confirmed — smartMeterTelemetry's
+// demand as watts, its consumptionDelta as Wh, chargePointPowerOutput as kW.
+// Getting one wrong wouldn't error (it'd just display a number that's off by
+// a factor of 1000, or negative, or absurdly large), so a schema/unit change
+// on Octopus's side could otherwise ship silently. This doesn't auto-detect
+// or correct anything — the display keeps showing whatever came back either
+// way — it just makes a value outside a plausible household-scale band show
+// up in diagnostics, the same "surface it, don't guess" principle the gas
+// unit detection and the rate-lookup miss counter already follow elsewhere
+// in this app. Bands are best-effort plausibility ranges, not hard limits.
+// Lives here (not live-usage.js/ev.js, its two call sites) since both of
+// those are genuinely separate features and this is a generic diagnostic
+// primitive neither one owns.
+export function sanityCheck(value, { min, max, label, expected }) {
+  if (value == null || Number.isNaN(value)) return value;
+  if (value < min || value > max) {
+    logDebug('Unit check', `${label} = ${value} outside plausible ${min}–${max} (expected ${expected})`);
+  }
+  return value;
+}

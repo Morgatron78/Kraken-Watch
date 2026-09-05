@@ -14,13 +14,16 @@
 
 import { store, logSyncAttempt, getSyncLog } from './store.js';
 import { $, fmtGBP, fmtP, fmtKwh, fmtT, formatElapsed, APP_VERSION } from './format.js';
-import { resetDiagnostics, logIssue, logDebug, logRawDebug, getSyncIssues, renderDiagnostics } from './diagnostics.js';
+import { resetDiagnostics, logIssue, logDebug, logRawDebug, getSyncIssues, renderDiagnostics, sanityCheck } from './diagnostics.js';
 import { octRest, krakenGQL, resetKrakenToken, checkRateLimitBlocked } from './api.js';
 import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelOrBlank, renderWeekBars, renderStackedBars } from './charts.js';
 import {
   clearRateCacheIfNewDay, rateState, estimateSessionCostP, fetchElecRates, fetchGasRates, fetchStandingCharge,
   rateAt, m3ToKwh, detectGasUnit, GAS_M3_THRESHOLD_DAILY, GAS_M3_THRESHOLD_MONTHLY, costForRange, bucketReadingsByDay,
 } from './rates.js';
+import {
+  loadLiveUsage, loadLive30, closeLive30, openLive30, isLive30Open, pauseLive30Polling, resumeLive30PollingIfOpen,
+} from './live-usage.js';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -1496,217 +1499,6 @@ async function loadRates() {
     }
     return false;
   }
-}
-
-/* ------------------------------ Live usage -------------------------------- */
-// Uses Octopus's smartMeterTelemetry field, confirmed working via a
-// documented real-world example (near-10-second-resolution readings from a
-// registered smart device, typically an Octopus Home Mini) — not something
-// every account has, so this degrades to a plain "not available" message
-// rather than faking numbers when no device is found.
-
-let liveDeviceId = null;
-let liveUnavailable = false;
-
-async function getLiveDeviceId() {
-  if (liveDeviceId) return liveDeviceId;
-  if (liveUnavailable) return null;
-  try {
-    const data = await krakenGQL(`
-      query SmartDevices($accountNumber: String!) {
-        account(accountNumber: $accountNumber) {
-          electricityAgreements(active: true) {
-            meterPoint { meters(includeInactive: false) { smartDevices { deviceId } } }
-          }
-        }
-      }`, { accountNumber: store.creds.accountNumber });
-    const agreements = data?.account?.electricityAgreements || [];
-    let meterCount = 0;
-    for (const a of agreements) {
-      for (const m of (a?.meterPoint?.meters || [])) {
-        meterCount++;
-        const deviceId = (m?.smartDevices || [])[0]?.deviceId;
-        if (deviceId) { liveDeviceId = deviceId; return liveDeviceId; }
-      }
-    }
-    // Query succeeded but found nothing — logged so "genuinely no device" and
-    // "a one-off empty result" don't look identical with no way to tell them apart.
-    logDebug('Live device lookup', `${agreements.length} agreement(s), ${meterCount} meter(s) scanned, no smartDevices found on any of them`);
-  } catch (err) {
-    logIssue('Live device lookup', err);
-  }
-  liveUnavailable = true;
-  return null;
-}
-
-// Rough household-scale thresholds, not tied to anything account-specific —
-// meant as a quick "is this normal or is something big running" signal, not
-// a precise measure. Easy to retune once real usage patterns are visible.
-function liveWattsColor(watts) {
-  if (watts < 500) return 'var(--mint)';
-  if (watts < 1500) return 'var(--yellow)';
-  if (watts < 3000) return 'var(--amber)';
-  return 'var(--coral)';
-}
-
-// Several values from Kraken's undocumented GraphQL schema are read with an
-// assumed unit that's never been independently confirmed — smartMeterTelemetry's
-// demand as watts, its consumptionDelta as Wh, chargePointPowerOutput as kW.
-// Getting one wrong wouldn't error (it'd just display a number that's off by
-// a factor of 1000, or negative, or absurdly large), so a schema/unit change
-// on Octopus's side could otherwise ship silently. This doesn't auto-detect
-// or correct anything — the display keeps showing whatever came back either
-// way — it just makes a value outside a plausible household-scale band show
-// up in diagnostics, the same "surface it, don't guess" principle the gas
-// unit detection and the rate-lookup miss counter already follow elsewhere
-// in this file. Bands are best-effort plausibility ranges, not hard limits.
-export function sanityCheck(value, { min, max, label, expected }) {
-  if (value == null || Number.isNaN(value)) return value;
-  if (value < min || value > max) {
-    logDebug('Unit check', `${label} = ${value} outside plausible ${min}–${max} (expected ${expected})`);
-  }
-  return value;
-}
-
-async function loadLiveUsage() {
-  const deviceId = await getLiveDeviceId();
-  if (!deviceId) {
-    $('live-unavailable').classList.remove('hidden');
-    $('live-body').style.display = 'none';
-    $('live-tag').style.display = 'none';
-    $('live30-toggle').classList.add('hidden');
-    closeLive30();
-    return false;
-  }
-  $('live-unavailable').classList.add('hidden');
-  $('live-body').style.display = '';
-  $('live30-toggle').classList.remove('hidden');
-
-  try {
-    const now = new Date();
-    const start = new Date(now.getTime() - 2 * 60 * 1000); // only need the latest reading now — no chart to fill
-    const data = await krakenGQL(`
-      query LiveTelemetry($deviceId: String!, $start: DateTime!, $end: DateTime!) {
-        smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $start, end: $end) {
-          readAt demand consumptionDelta
-        }
-      }`, { deviceId, start: start.toISOString(), end: now.toISOString() });
-
-    const points = data?.smartMeterTelemetry || [];
-    if (!points.length) throw new Error('No telemetry points returned for the last 2 minutes');
-
-    const latest = points[points.length - 1];
-    const watts = sanityCheck(Math.round(latest.demand), { min: 0, max: 30000, label: 'Live demand', expected: 'W' });
-    $('live-watts').innerHTML = `${watts}<span>W</span>`;
-    $('live-watts').style.color = liveWattsColor(watts);
-    $('live-updated').textContent = `Updated ${new Date(latest.readAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
-    $('live-tag').style.display = '';
-    logDebug('Live telemetry', `${points.length} point(s), latest demand ${latest.demand}W, raw consumptionDelta ${latest.consumptionDelta}`);
-
-    // Cost-per-hour if this draw were sustained for a full hour — meant to
-    // translate raw watts into something that actually motivates turning
-    // something off, not a prediction of what you'll really spend.
-    const rateP = rateState.currentRateP ?? rateState.offPeakRateP;
-    if (rateP != null) {
-      const poundsPerHour = (watts / 1000) * rateP / 100;
-      $('live-cost-rate').innerHTML = `≈ <b style="color:var(--mint)">${fmtGBP(poundsPerHour)}</b>/hr at this rate`;
-    } else {
-      $('live-cost-rate').textContent = '';
-    }
-
-    return true;
-  } catch (err) {
-    logIssue('Live usage', err);
-    $('live-tag').style.display = 'none';
-    $('live-updated').textContent = 'Unavailable right now';
-    return false;
-  }
-}
-
-// Last-30-minutes panel — lazy-loaded only when opened (not part of the
-// regular 30s live poll), and kept genuinely live with its own 30s refresh
-// while open, matching the request that this stay "truly live" like the
-// headline draw figure. Goes through krakenGQL (Kraken's GraphQL endpoint),
-// not octRest, so it never touches the REST-call diagnostic counter — that
-// counter only tracks Octopus's separate REST API.
-//
-// Uses the same TEN_SECONDS grouping already proven to work for the 2-minute
-// query above, rather than guessing at an unconfirmed coarser grouping enum
-// value that could break the whole query if wrong (same caution already
-// applied elsewhere in this file, e.g. the EV dispatch type introspection).
-// Up to 180 raw points get bucketed client-side into 1-minute bars instead.
-let live30Open = false;
-let live30Interval = null;
-
-export function bucketTelemetryByMinute(points, now) {
-  const buckets = Array.from({ length: 30 }, () => 0);
-  const windowStart = new Date(now.getTime() - 30 * 60 * 1000);
-  for (const p of points) {
-    const t = new Date(p.readAt);
-    const minutesAgo = Math.floor((now - t) / 60000);
-    const idx = 29 - minutesAgo; // idx 0 = oldest, idx 29 = most recent minute
-    if (idx >= 0 && idx < 30) buckets[idx] += (+p.consumptionDelta || 0);
-  }
-  return buckets;
-}
-
-async function loadLive30() {
-  const deviceId = await getLiveDeviceId();
-  if (!deviceId) return false;
-  try {
-    const now = new Date();
-    const start = new Date(now.getTime() - 30 * 60 * 1000);
-    const data = await krakenGQL(`
-      query LiveTelemetry30($deviceId: String!, $start: DateTime!, $end: DateTime!) {
-        smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $start, end: $end) {
-          readAt consumptionDelta
-        }
-      }`, { deviceId, start: start.toISOString(), end: now.toISOString() });
-
-    const points = data?.smartMeterTelemetry || [];
-    // Checked once across the whole batch (its maximum), not per point —
-    // a genuine unit change would affect essentially every reading, so the
-    // max alone catches it without logging once per point (up to 180 of
-    // them here) on every 30s refresh.
-    sanityCheck(Math.max(...points.map(p => +p.consumptionDelta || 0), 0), { min: 0, max: 1000, label: 'consumptionDelta (10s reading, batch max)', expected: 'Wh' });
-    const buckets = bucketTelemetryByMinute(points, now);
-    const totalWh = buckets.reduce((s, v) => s + v, 0);
-
-    $('live30-total').innerHTML = `<b>${totalWh.toFixed(0)}</b> Wh used`;
-    const max = Math.max(...buckets, 0.01);
-    renderChartScale('live30-scale', max, v => v.toFixed(0));
-    $('live30-bars').innerHTML = buckets.map((v, i) => {
-      const h = Math.max(1, Math.round((v / max) * 70));
-      const isLatest = i === buckets.length - 1;
-      return `<div class="live30-bar${isLatest ? ' latest' : ''}" style="height:${h}px" title="${v.toFixed(1)} Wh"></div>`;
-    }).join('');
-    const startLabel = new Date(now.getTime() - 30 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const midLabel = new Date(now.getTime() - 15 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const endLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    $('live30-axis').innerHTML = `<span>${startLabel}</span><span>${midLabel}</span><span>${endLabel}</span>`;
-    return true;
-  } catch (err) {
-    logIssue('Live usage (30 min)', err);
-    return false;
-  }
-}
-
-function closeLive30() {
-  live30Open = false;
-  $('live30-toggle')?.setAttribute('aria-expanded', 'false');
-  $('live30-panel')?.classList.add('hidden');
-  if (live30Interval) { clearInterval(live30Interval); live30Interval = null; }
-}
-
-function openLive30() {
-  live30Open = true;
-  $('live30-toggle').setAttribute('aria-expanded', 'true');
-  $('live30-panel').classList.remove('hidden');
-  loadLive30();
-  // Own 30s refresh while open, matching the headline draw figure's cadence
-  // — stops the moment the panel closes, so it's not fetching in the
-  // background when nobody's looking at it.
-  live30Interval = setInterval(loadLive30, 30 * 1000);
 }
 
 // EV card collapse: hidden by default whenever idle with nothing scheduled,
@@ -3842,12 +3634,12 @@ function stopAutoRefreshTimers() {
   if (fastTierIntervalId) { clearInterval(fastTierIntervalId); fastTierIntervalId = null; }
   if (slowTierIntervalId) { clearInterval(slowTierIntervalId); slowTierIntervalId = null; }
   if (liveUsageIntervalId) { clearInterval(liveUsageIntervalId); liveUsageIntervalId = null; }
-  // Paused, not closed — live30Open is left as-is (see closeLive30, which
-  // is the actual "the user closed it" path and also resets that flag) so
-  // a tab that goes hidden with the panel open resumes polling it, rather
-  // than silently losing the fact that it was open, when the tab is
-  // visible again.
-  if (live30Interval) { clearInterval(live30Interval); live30Interval = null; }
+  // Paused, not closed — live-usage.js's own live30Open flag is left as-is
+  // (see closeLive30, which is the actual "the user closed it" path and
+  // also resets that flag) so a tab that goes hidden with the panel open
+  // resumes polling it, rather than silently losing the fact that it was
+  // open, when the tab is visible again.
+  pauseLive30Polling();
 }
 
 function startAutoRefreshTimers() {
@@ -3867,7 +3659,7 @@ function startAutoRefreshTimers() {
   // Live usage refreshes faster on its own — 30s, matching roughly how
   // often new telemetry actually shows up, without re-running either tier.
   liveUsageIntervalId = setInterval(() => loadLiveUsage().catch(() => {}), 30 * 1000);
-  if (live30Open) live30Interval = setInterval(loadLive30, 30 * 1000);
+  resumeLive30PollingIfOpen();
 }
 
 // Runs once when the tab regains focus (or returns from the bfcache) after
@@ -3885,7 +3677,7 @@ async function refreshOnResume() {
     await loadFastTier().catch(() => {});
     if (shouldRunSlowTier(lastSlowTierAt, Date.now())) await loadSlowTier().catch(() => {});
     await loadLiveUsage().catch(() => {});
-    if (live30Open) await loadLive30().catch(() => {});
+    if (isLive30Open()) await loadLive30().catch(() => {});
   } finally {
     resumeRefreshInFlight = false;
   }
@@ -3937,7 +3729,7 @@ function init() {
     btn.setAttribute('aria-label', showing ? 'Show API key' : 'Hide API key');
   });
   $('advanced-toggle').addEventListener('click', () => $('advanced-fields').classList.toggle('hidden'));
-  $('live30-toggle').addEventListener('click', () => { live30Open ? closeLive30() : openLive30(); });
+  $('live30-toggle').addEventListener('click', () => { isLive30Open() ? closeLive30() : openLive30(); });
   $('ev-header').addEventListener('click', () => {
     const currentlyExpanded = !$('ev-body').classList.contains('hidden');
     evManualOverride = !currentlyExpanded;

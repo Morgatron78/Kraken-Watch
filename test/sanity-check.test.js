@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { sanityCheck } from '../app.js';
+import { sanityCheck } from '../diagnostics.js';
 
 describe('sanityCheck', () => {
   afterEach(() => vi.restoreAllMocks());
