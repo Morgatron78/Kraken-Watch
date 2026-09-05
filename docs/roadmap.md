@@ -82,16 +82,37 @@ with a visual; read-only unless there's a deliberate reason; new work slots
 in as its own ES module.
 
 ### A. Carbon intensity / "greener periods" — **recommended first**
-- **What:** a card (or an overlay band on the Current-rate curve) showing
-  regional carbon intensity now + the forecast, highlighting the window
-  that's both cheap *and* clean tonight. IOG already shifts load to
-  off-peak; this tells you whether off-peak also happens to be green.
+- **What:** a card showing regional carbon intensity now + a ~16h forecast,
+  banded low/moderate/high, with the cleanest upcoming window called out
+  and cross-referenced against the IOG off-peak window (the "cheap and
+  clean align" story). IOG already shifts load to off-peak; this says
+  whether off-peak also happens to be green.
 - **Data:** NESO Carbon Intensity API — free, no auth, `GET
   /regional/intensity/{from}/fw48h/postcode/{outcode}`.
 - **Fit:** strong — it's a forecast chart, same shape as the rate curve.
 - **Effort:** ~1 day. New `carbon.js` module, one card, its own refresh
   (data updates every 30 min). No credential handling.
 - **Risk:** low. External read-only API; degrades to hidden on failure.
+
+### A2. Carbon in existing panels — the retrospective half of the story
+The card above answers *"when is the grid clean?"* (forecast). These
+answer *"how clean is **my** usage?"* (retrospective, personalised) —
+arguably the more interesting question, and each slots into a panel that
+already exists.
+
+| Panel | Addition | Effort |
+|---|---|---|
+| **EV charging** *(strongest fit)* | Per-session carbon next to the estimated cost (`22.1 kWh · ~£1.66 · ~1.5 kg CO₂`); an EV Insights line (*"smart charging this week averaged 78 gCO₂/kWh — ~40% below a peak-time charge"*); a small intensity tag on the active/planned dispatch window. IOG dispatches run overnight when the grid is usually greenest, so this is a genuinely novel "your smart charging is also low-carbon" angle. | ~1 day |
+| **Live usage** | One line under the existing `≈ £0.11/hr`: `≈ 0.11 kg CO₂/hr at 142 g/kWh`. Reuses the current-intensity value once `carbon.js` exists. | ~½ day |
+| **Current rate** | A `Grid now: Low carbon (142 g)` line, or tint the "Off-peak" pill green when off-peak is also clean. | ~½ day |
+| **Usage / Insights** | `This week's electricity: 48 kWh · ~5.1 kg CO₂`; greenest/dirtiest day; a weekly smart-charging carbon-savings figure — parallels the spend insights. | ~1 day |
+
+**Shared dependency:** the EV / weekly / Insights additions all need
+*historical* regional intensity matched to half-hourly timestamps (the
+NESO API has historical + regional data). Build that matcher once in
+`carbon.js` — `intensityAt(timestamp)` / `intensityForRange(from, to)` —
+and reuse it across all three. The Live usage and Current rate touches
+need only the live value and can ship with the card itself.
 
 ### B. Usage heat map
 - **What:** an hour-of-day × day grid (GitHub-contributions style), colour
@@ -168,11 +189,14 @@ probe, answer the `group_by=month` diagnostic and delete the temp block,
 confirm the `cost.amount` unit. Leaves the current codebase genuinely
 done.
 
-**Phase 3b — carbon intensity card (~1 day).**
-`carbon.js` + one card + its own 30-min refresh. Highest value-to-risk of
-any new feature; no credential surface; slots cleanly into the module
-structure. Optionally fast-follow with the **heat map** sub-panel
-(~½ day, no new API) if the appetite's there.
+**Phase 3b — carbon (~1 day card, then optional cross-panel).**
+`carbon.js` + the standalone card + its own 30-min refresh, plus the two
+cheap live-value touches (Live usage `kg CO₂/hr`, Current rate "grid now"
+line). Highest value-to-risk of any new feature; no credential surface.
+Then, if the appetite's there: the `intensityAt` / `intensityForRange`
+historical matcher and the retrospective touches (EV per-session carbon
+~1 day, weekly CO₂ + Insights ~1 day). And/or the **heat map** sub-panel
+(~½ day, no new API).
 
 **Phase 3c — Octoplus, only if the account participates (~1 day).**
 One live `octoplusAccountInfo` query first to check it's not
