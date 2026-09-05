@@ -13,6 +13,7 @@
    ========================================================================== */
 
 import { store, logSyncAttempt, getSyncLog, recordRestCall, restCallsInLastHour } from './store.js';
+import { $, fmtGBP, fmtP, fmtKwh, fmtT, formatElapsed } from './format.js';
 
 const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
@@ -73,21 +74,6 @@ function renderPowerMeter(kw) {
   ).join('');
 }
 
-// Dev-only warning on a missing id — surfaces HTML/JS drift (a renamed or
-// removed element an existing $() call still expects) as a console message
-// pointing at the exact id, rather than as a downstream "null is not an
-// object" wherever the caller next tried to use it. See scripts/check-ids.mjs
-// for the build-time version of this same check. import.meta.env.DEV is
-// false in a production build, so this adds nothing to what ships.
-const $ = import.meta.env.DEV
-  ? (id) => {
-      const el = document.getElementById(id);
-      if (!el) console.warn(`[kw] missing #${id}`);
-      return el;
-    }
-  : (id) => document.getElementById(id);
-const fmtGBP = (n) => `£${Math.abs(n).toFixed(2)}`;
-
 // Renders a balance figure as a hero number with a small "in credit"/"owed"
 // suffix, coloring coral only when genuinely in debit — the exceptional case
 // worth flagging, not the normal one.
@@ -102,7 +88,6 @@ function renderBalanceFigure(valueId, pillId, pounds) {
     pill.className = 'status-pill ' + (owed ? 'debit' : 'credit');
   }
 }
-const fmtP = (n) => `${n.toFixed(2)}p`;
 
 /* ---------------------------- API helpers -------------------------------- */
 
@@ -738,8 +723,6 @@ function renderWeekBars(containerId, values, colorClass, formatter, maxBarHeight
     return `<div class="week-bar"><div class="col ${colorClass}${isToday ? ' today' : ''}" style="height:${h}px" title="${formatter ? formatter(v) : v}"></div>${label}</div>`;
   }).join('');
 }
-
-const fmtKwh = (v) => `${v.toFixed(1)} kWh`;
 
 // Stacked variant: each day is [{value, cssClass}, ...] segments stacked
 // bottom-to-top (e.g. standing charge, then off-peak, then peak). Segment
@@ -2546,7 +2529,6 @@ async function loadEV() {
 // picture, so long as nothing elsewhere in the app quietly assumes it
 // is. That's specifically why "This session"'s own kWh total does NOT
 // sum from this data — see its own comment for why.
-const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
 
 // v2.187: SmartFlexChargingProblem — a union of SmartFlexChargingError
@@ -2580,17 +2562,6 @@ function realProblemLabel(session) {
 // layout was reverted in favour of the inline right-aligned one below,
 // which needs this same icon markup directly.
 const warnTriangleSvgSm = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-
-// v2.191: elapsed-time formatter for the session row — Octopus's own app
-// shows this next to the time range; this app was leaving the user to
-// work it out from start/end manually.
-export function formatElapsed(startISO, endISO) {
-  const ms = new Date(endISO) - new Date(startISO);
-  if (!(ms > 0)) return '';
-  const totalMin = Math.round(ms / 60000);
-  const h = Math.floor(totalMin / 60), m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
 
 let expandedProblemSessions = new Set(); // keys = session start ISO strings, survives re-renders
 let lastRenderedSessions = null, lastRenderedNow = null; // so the click handler can re-render without needing to know which list (8-day/expanded) is currently showing
