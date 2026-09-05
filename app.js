@@ -161,15 +161,45 @@ function restCallsInLastHour() {
   return restCallLog.length;
 }
 
+// Every fetch in this app previously had no timeout at all — a hung
+// request in a mobile dead zone left the app on "Syncing…" indefinitely,
+// since nothing would ever settle the promise either way. AbortSignal.timeout
+// is available on iOS 16+ (2022), safely within range for an installed PWA
+// at this point. One shared value for every call (REST, the Kraken auth
+// call, and every krakenGQL query, including the heavier billing ones) —
+// 15s is generous for a single request/response round trip even on a slow
+// connection; if a specific query ever needs longer, revisit per-call
+// rather than raising this blanket default.
+const FETCH_TIMEOUT_MS = 15000;
+export function isTimeoutError(err) {
+  return err?.name === 'TimeoutError' || err?.name === 'AbortError';
+}
+// Named specifically in krakenGQL's timeout error (rather than just
+// "GraphQL") so a hung request is diagnosable from the diagnostics panel
+// alone — this file has many differently-shaped krakenGQL calls sharing one
+// function, unlike octRest where the path itself already says what was
+// being fetched.
+export function extractGqlOperationName(query) {
+  const match = /(?:query|mutation)\s+(\w+)/.exec(query);
+  return match ? match[1] : 'GraphQL';
+}
+
 async function octRest(path) {
   const { apiKey } = store.creds || {};
   recordRestCall();
-  const res = await fetch(`${REST_BASE}${path}`, {
-    headers: { Authorization: 'Basic ' + btoa(`${apiKey}:`) },
-    cache: 'no-store' // always hit the network — a browser-cached response for
-    // an identical URL (e.g. re-checking the same past day) could otherwise
-    // serve stale data even after the underlying logic is fixed elsewhere.
-  });
+  let res;
+  try {
+    res = await fetch(`${REST_BASE}${path}`, {
+      headers: { Authorization: 'Basic ' + btoa(`${apiKey}:`) },
+      cache: 'no-store', // always hit the network — a browser-cached response for
+      // an identical URL (e.g. re-checking the same past day) could otherwise
+      // serve stale data even after the underlying logic is fixed elsewhere.
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
+  } catch (err) {
+    if (isTimeoutError(err)) throw new Error(`REST ${path} → timed out after ${FETCH_TIMEOUT_MS / 1000}s`);
+    throw err;
+  }
   if (!res.ok) {
     // Capture what we can rather than just the status — the body especially
     // may say something Octopus-specific ("invalid token" reads very
@@ -193,11 +223,18 @@ async function getKrakenToken() {
   const query = `mutation krakenTokenAuthentication($email: String!, $password: String!) {
     obtainKrakenToken(input: {email: $email, password: $password}) { token }
   }`;
-  const res = await fetch(GQL_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { email, password } })
-  });
+  let res;
+  try {
+    res = await fetch(GQL_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { email, password } }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
+  } catch (err) {
+    if (isTimeoutError(err)) throw new Error(`Kraken auth → timed out after ${FETCH_TIMEOUT_MS / 1000}s`);
+    throw err;
+  }
   const json = await res.json();
   const token = json?.data?.obtainKrakenToken?.token;
   if (!token) throw new Error('Kraken auth failed');
@@ -217,11 +254,19 @@ async function getKrakenToken() {
 
 async function krakenGQL(query, variables, _isRetry) {
   const token = await getKrakenToken();
-  const res = await fetch(GQL_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: token },
-    body: JSON.stringify({ query, variables })
-  });
+  const opName = extractGqlOperationName(query);
+  let res;
+  try {
+    res = await fetch(GQL_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: token },
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
+  } catch (err) {
+    if (isTimeoutError(err)) throw new Error(`${opName} → timed out after ${FETCH_TIMEOUT_MS / 1000}s`);
+    throw err;
+  }
   const json = await res.json();
   if (json.errors) {
     // GraphQL errors often carry a specific machine code in `extensions`

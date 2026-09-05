@@ -165,15 +165,14 @@ Bands: `demand` 0–30000 W; `chargePointPowerOutput` 0–100 kW; per-10s `consu
 
 **Tests:** `sanityCheck`. **Effort:** ~1 hr. (Best after 1A for a DEV gate.)
 
-### 3C. Fetch timeout
-`octRest` (~L162), `getKrakenToken` (~L191), `krakenGQL` (~L215) have no timeout — a hung mobile request leaves the app on "Syncing…" forever. iOS 16+ supports `AbortSignal.timeout`:
-```js
-const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(15000) });
-// catch: if (err.name === 'TimeoutError') throw new Error(`Timed out after 15s: ${url}`);
-```
-15s default; maybe 20s for `LastBill` + transactions. Timeouts become rejected results in the existing `Promise.allSettled` / `logIssue` flow.
+### 3C. Fetch timeout — done
+`octRest`, `getKrakenToken`, `krakenGQL` had no timeout — a hung mobile request left the app on "Syncing…" indefinitely, since nothing would ever settle the promise either way. One shared `FETCH_TIMEOUT_MS = 15000` (not per-call — 15s is generous for any single request/response round trip; revisit per-call only if a specific query genuinely needs longer) wired into all three via `AbortSignal.timeout()`, which iOS 16+ supports comfortably for this app's installed-PWA target.
 
-**Effort:** ~30 min.
+`isTimeoutError(err)` centralizes the `TimeoutError`/`AbortError` name check so all three catch blocks agree on what counts as a timeout, rather than three near-duplicate checks. `krakenGQL`'s timeout error names the actual GraphQL operation (`extractGqlOperationName(query)`, e.g. "AccountBalance → timed out after 15s") rather than a generic "GraphQL" — this file has many differently-shaped `krakenGQL` calls sharing one function, unlike `octRest` where the path itself already identifies the request. Timeouts surface as ordinary rejections through the existing `Promise.allSettled`/`logIssue` flow — no new handling needed there.
+
+**Tests:** 7 assertions in `test/api.test.js` — `isTimeoutError` against both real error names plus a non-timeout error and nullish input; `extractGqlOperationName` against a query, a mutation, and an anonymous operation. 45/45 tests passing overall.
+
+**Effort:** ~30 min, as estimated.
 
 ### 3D. Pause timers when hidden, coalesced refresh on resume
 `startAutoRefresh` (~L4352) sets 3 intervals, IDs discarded, no visibility awareness. `openLive30` has its own.
@@ -205,8 +204,8 @@ Highest-value piece here — catches HTML/JS drift before deploy.
 | 1 | Vite build + Actions deploy + `.gitignore` + `package.json` (1A) | — | ~½ day | **Done** — merged, deployed, verified live |
 | 2 | Vitest + first 7 tests + CI (1C) | 1 | ~2 hr | **Done** — 28 assertions passing, wired into CI |
 | 3 | Gas unit unification + tests (3A) | 2 | ~1–2 hr | **Done** — threshold values corrected during implementation, see 3A |
-| 4 | Fetch timeout (3C) | 1 | ~30 min | Next |
-| 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | |
+| 4 | Fetch timeout (3C) | 1 | ~30 min | **Done** |
+| 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | Next |
 | 6 | Unit sanity checks (3B) | 1 | ~1 hr | |
 | 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | |
 | 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | |
