@@ -116,6 +116,25 @@
       </div>
     </div>
 
+    <!-- CARBON INTENSITY (National Grid ESO — external feed, hidden until it loads) -->
+    <div class="card hidden" id="carbon-card">
+      <div class="card-head">
+        <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--mint)"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg> Carbon intensity</div>
+        <div class="card-tag" id="carbon-tag">—</div>
+      </div>
+      <div class="big-label">Grid now</div>
+      <div class="big-value" id="carbon-value">—<span>g CO₂/kWh</span></div>
+      <div class="predict-day" id="carbon-region">—</div>
+      <div class="carbon-bars" id="carbon-bars"></div>
+      <div class="carbon-axis" id="carbon-axis"></div>
+      <div class="carbon-legend">
+        <span><i style="background:var(--mint)"></i>Low</span>
+        <span><i style="background:var(--amber)"></i>Moderate</span>
+        <span><i style="background:var(--coral)"></i>High</span>
+      </div>
+      <div class="carbon-insight" id="carbon-insight"></div>
+    </div>
+
     <!-- LIVE USAGE — LAST 30 MINUTES (lazy-loaded, only fetched while open) -->
     <div class="live30-panel hidden" id="live30-panel">
       <div class="live30-head">

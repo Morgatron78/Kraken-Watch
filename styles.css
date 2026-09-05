@@ -758,6 +758,28 @@ button{font-family:inherit;cursor:pointer;}
 
 .hidden{display:none !important;}
 
+/* Carbon intensity card */
+.carbon-bars{display:flex;align-items:flex-end;gap:2px;height:46px;margin-top:10px;}
+.carbon-bar{flex:1;border-radius:2px 2px 0 0;min-width:2px;opacity:0.9;}
+.carbon-bar.low{background:var(--mint);}
+.carbon-bar.moderate{background:var(--amber);}
+.carbon-bar.high{background:var(--coral);}
+.carbon-axis{display:flex;justify-content:space-between;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9px;color:var(--text-dim);margin-top:4px;}
+.carbon-tag-low{color:var(--mint);background:var(--mint-soft);border:1px solid var(--mint-line);}
+.carbon-tag-moderate{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);}
+.carbon-tag-high{color:var(--coral);background:var(--coral-soft);border:1px solid var(--coral-line);}
+.carbon-legend{display:flex;gap:14px;margin-top:10px;font-family:'Inter', sans-serif;font-size:10px;color:var(--text-dim);}
+.carbon-legend span{display:inline-flex;align-items:center;gap:5px;}
+.carbon-legend i{width:9px;height:9px;border-radius:2px;display:inline-block;}
+.carbon-insight{
+  display:flex;align-items:flex-start;gap:7px;margin-top:14px;padding:10px 12px;
+  background:var(--tint);border-radius:10px;
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim);line-height:1.5;
+}
+.carbon-insight:empty{display:none;}
+.carbon-insight b{color:var(--text);font-weight:600;}
+.carbon-insight svg{flex-shrink:0;margin-top:1px;color:var(--mint);}
+
 /* Live usage — last 30 minutes */
 /* v2.165: was a flat margin-top:10px, disconnected from the line-height-
    based rhythm the two .sub rows above it now use (v2.164) — looked like

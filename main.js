@@ -29,6 +29,7 @@ import {
   handleResetToTodayClick, handleFuelWeekBarClick, handleElecDayBarClick,
 } from './usage.js';
 import { loadBilling, handleBillYearBarClick } from './billing.js';
+import { loadCarbon } from './carbon.js';
 import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insights.js';
 import { meterDebugNote, openSettings, closeSettings, saveSettings, initTheme, handleAppearanceChange } from './settings.js';
 
@@ -131,7 +132,9 @@ export async function loadAll(source = 'app-start') {
   // sync-status calculation below — not having a telemetry device is a
   // normal, expected state for most accounts, not a sync failure.
   lastSlowTierAt = Date.now(); // this call does the slow tier's own work (loadBilling) directly — see shouldRunSlowTier
-  const [, evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadEV(), loadBilling()]);
+  // loadLiveUsage and loadCarbon are best-effort side feeds — excluded from
+  // the sync-status calc below (no device / a NESO blip isn't an Octopus fail).
+  const [, , evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadCarbon(), loadEV(), loadBilling()]);
   const results = [evSettled, billingSettled];
   const allResults = [ratesResult, ...results.map(r => r.status === 'fulfilled' ? r.value : false)];
   // Capture the reason if either promise rejected outright. Internal paths
@@ -183,7 +186,7 @@ async function loadFastTier() {
   resetDiagnostics();
   if (meterDebugNote) logRawDebug(`Meter selection: ${meterDebugNote}`);
   const ratesResult = await loadRates().catch(() => false);
-  const [evSettled] = await Promise.allSettled([loadEV()]);
+  const [, evSettled] = await Promise.allSettled([loadCarbon(), loadEV()]);
   const evResult = evSettled.status === 'fulfilled' ? evSettled.value : false;
   await checkRateLimitBlocked();
   logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot, getSyncIssues());
