@@ -263,6 +263,8 @@ Phase 1 is complete (Vite/ESM build, Vitest, CI, all 8 items shipped and verifie
 
 ## Module breakdown (extraction order — leaf/shared first)
 
+**Status: all 12 modules extracted and shipped** (each verified: tests green, `check-ids` at 225, `vite build` clean, live-verified against the production build, merged to `main`, CI green). `app.js` (~2,715 lines) is now 13 focused ES modules — `api`, `billing`, `charts`, `diagnostics`, `ev`, `format`, `insights`, `live-usage`, `main`, `rates`, `settings`, `store`, `usage` — plus `sw.js`. Row 6.5 (`live-usage.js`) was an unplanned split discovered mid-phase; row 12 was a pure rename. The cross-cutting sub-tasks below (2.A–2.D) are behaviour changes, not pure moves, and were **not** folded into the extractions — they remain as optional follow-up PRs.
+
 | # | Module | Contents | Imports |
 |---|---|---|---|
 | 1 | `store.js` | `store` object, sync log (`logSyncAttempt`/`getSyncLog`), REST-call log | — |
