@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { formatVehicleName } from '../app.js';
+import { formatVehicleName } from '../ev.js';
 import { formatElapsed } from '../format.js';
 import { estimateSessionCostP } from '../rates.js';
 import { bucketTelemetryByMinute } from '../live-usage.js';

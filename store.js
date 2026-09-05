@@ -72,3 +72,9 @@ export function restCallsInLastHour() {
   restCallLog = restCallLog.filter(t => now - t < 60 * 60 * 1000);
   return restCallLog.length;
 }
+
+// A one-line derived accessor on store.creds, used by several feature
+// modules (EV, billing) that each fall back to demo data on a failed sync
+// when the user has opted in — lives next to `store` itself rather than in
+// any one of them.
+export const demoFallbackEnabled = () => store.creds?.useDemoFallback === true;
