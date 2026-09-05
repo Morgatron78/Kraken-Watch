@@ -333,6 +333,18 @@ every sync logs reading counts, rate ranges, and totals.
 - **`current`/`reAuthenticationState`** (device status fields) — confirmed
   to exist via introspection but not useful (one-time onboarding
   milestone) or never resolved to a working value.
+- **A real (not estimated) EV charging cost figure** — investigated twice
+  and closed as a dead end. `SmartFlexChargingSession.cost` returns null
+  for every real session; `costOfCharge` returns an empty array (a
+  successful query with no data, not an error); `completedDispatches`
+  exposes kWh only, no rate; `account.transactions` charges are
+  billed-period granularity (one lump-sum electricity charge per bill), no
+  per-dispatch resolution. The reconciled off-peak rate Octopus's own app
+  shows for a SmartFlex dispatch is a per-appliance override, invisible to
+  the standard rate-history API, so there's nothing to rate-match against.
+  EV cost stays an estimate — kWh × today's approximated rate, the same
+  technique used for elec/gas. One loose end: a `Money` field may exist
+  directly on the session object; unresolved probe.
 
 ## Setup
 
