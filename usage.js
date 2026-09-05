@@ -46,23 +46,12 @@ export async function lastNDaysElecSplit(n, anchor = new Date()) {
         slots.push({ start: r.interval_start, kwh: r.consumption, rate, cost, isOffpeak: offpeak });
       }
       slots.sort((a, b) => +new Date(a.start) - +new Date(b.start));
-      // v2.260 fix: v2.258's tightening (both categories must be nonzero)
-      // inherited a known, previously-safe limitation from costForRange's
-      // own hasData (see its comment) without checking whether the
-      // tradeoff still held here — it doesn't. That function's false
-      // positive (a genuine zero-usage day briefly reading as "pending")
-      // was harmless because it only affected which day got picked as
-      // "latest", and self-corrected once a later real day superseded it.
-      // Once v2.259 started greying out chart bars for any hasData:false
-      // day, the same false positive became permanent for a day sitting
-      // further back in the week/month — confirmed live: a genuine
-      // zero-usage day (away from home) stayed grey forever, never
-      // superseded by anything. Fixed by trusting readings.length alone
-      // once a day is old enough that Octopus's documented 24-48h
-      // settlement lag can't explain a still-empty category — 3 days
-      // gives a safety margin beyond that. Recent days keep the stricter
-      // both-categories check, since the placeholder-zero risk is real
-      // there.
+      // Once a day is ≥3 days old, Octopus's 24-48h settlement lag can't
+      // explain a still-empty category, so trust readings.length alone —
+      // otherwise a genuine zero-usage day (away from home) reads as
+      // "pending" forever and the chart bar stays greyed. Recent days keep
+      // the stricter both-categories-nonzero check, where a placeholder
+      // zero before the real figure settles is a real risk.
       const daysOld = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - dates[i]) / 86400000);
       const settled = daysOld >= 3;
       return {
@@ -77,13 +66,11 @@ export async function lastNDaysElecSplit(n, anchor = new Date()) {
   }
 }
 
-// Whole calendar month containing monthAnchor, capped at today if it's the
-// current month (or returning nothing for a month entirely in the future).
-// Deliberately just computes the right (n, anchor) pair and delegates to
-// the already-anchor-generalized lastNDaysElecSplit above, rather than
-// duplicating its fetch/bucket/slot logic — effectiveLastDay minus n days
-// always equals monthStart by construction, so this is exact, not an
-// approximation.
+// Whole calendar month containing monthAnchor, capped at today for the
+// current month (nothing for a fully-future month). Computes the (n, anchor)
+// pair and delegates to lastNDaysElecSplit rather than duplicating its
+// fetch/bucket logic — effectiveLastDay minus n days always equals
+// monthStart by construction, so this is exact.
 export async function monthElecSplit(monthAnchor) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const monthStart = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
@@ -305,18 +292,12 @@ function renderBreakdown(fuel, periodData, index, unit) {
 // Turns one day's split figures into stacked-bar segments, bottom-to-top.
 // Standing charge only appears in £ mode — it has no kWh equivalent.
 function buildDaySegments(fuel, day, unit) {
-  // v2.261: replaces the v2.258/v2.259 grey-segment treatment. Standing
-  // charge is a known, fixed daily rate — true regardless of whether
-  // consumption has settled — so it always renders normally, full
-  // strength, no matter how incomplete the day's readings are; greying
-  // it (as the two prior versions did) implied it was uncertain too,
-  // which it never was. Off-peak/peak (or gas usage) are the genuinely
-  // uncertain part — rather than showing them in a muted grey (still
-  // implies "here's a real, if partial, reading"), an incomplete day's
-  // consumption is zeroed out entirely, so nothing renders for it at
-  // all. A confirmed complete day (hasData: true) is unaffected either
-  // way, and a genuinely-zero-but-settled day (see lastNDaysElecSplit's
-  // age-based hasData fix) correctly still shows its real zero.
+  // Standing charge is a fixed daily rate, certain regardless of whether
+  // consumption has settled, so it always renders full-strength. Off-peak/
+  // peak (or gas usage) is the uncertain part — an incomplete day's
+  // consumption is zeroed out entirely rather than shown muted. A settled
+  // day (hasData true, or the age-based zero-usage case in
+  // lastNDaysElecSplit) still shows its real values, including a real zero.
   const incomplete = day.hasData === false;
   if (fuel === 'elec') {
     const segs = [];
@@ -332,9 +313,9 @@ function buildDaySegments(fuel, day, unit) {
 }
 
 // Electricity's daily records are split (offPeakCost/peakCost/standing) for
-// the stacked chart, while gas's are a flat {cost, kwh}. This normalizes
-// either shape into one total — the bug this replaces read `.cost` directly,
-// which is undefined on electricity's split shape and produced "£NaN".
+// the stacked chart; gas's are a flat {cost, kwh}. Normalizes either shape
+// into one total (reading `.cost` directly is undefined on the split shape
+// and produces "£NaN").
 export function dayTotal(fuel, day, unit) {
   if (fuel === 'elec') {
     if (unit === 'cost') return (day.offPeakCost || 0) + (day.peakCost || 0) + (day.standing || 0);
@@ -370,13 +351,10 @@ export function renderFuelPanel(fuel) {
     $('gas-day-unavailable').classList.toggle('hidden', !isGasDay);
   }
 
-  // Legend and "Unit rate now" footer: swap content for Year, since it's a
-  // single-color total per month, not the standing/off-peak/peak split the
-  // Week/Month legend describes — showing that legend in Year mode was a
-  // real, confirmed bug (the legend markup existed but had no JS wiring at
-  // all, so it silently never changed no matter what was on screen). The
-  // unit-rate footer is hidden entirely in Year mode rather than relabeled,
-  // since Year shows no cost figures at all for that rate to relate to.
+  // Legend/footer swap for Year: it's a single-colour total per month, not
+  // the standing/off-peak/peak split the Week/Month legend describes. The
+  // unit-rate footer is hidden entirely in Year mode (no cost figures for
+  // that rate to relate to) rather than relabelled.
   const legendEl = $(`${fuel}-wmy-legend`);
   if (legendEl) {
     legendEl.innerHTML = isYear
@@ -394,10 +372,8 @@ export function renderFuelPanel(fuel) {
   const toggleWrap = document.querySelector(`.unit-toggle[data-fuel="${fuel}"]`);
   if (toggleWrap) {
     toggleWrap.classList.toggle('hidden', isYear);
-    // Sync the active button state here, unconditionally, rather than at the
-    // end of the function — Day/Year both return early below, and this was
-    // previously stranded after those returns, so the toggle's underlying
-    // data changed correctly but the button itself never visually updated.
+    // Sync the active button state here, not at the end — Day/Year both
+    // return early below, so anything after those returns never runs for them.
     toggleWrap.querySelectorAll('.unit-toggle-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.unit === unit);
     });
@@ -411,10 +387,9 @@ export function renderFuelPanel(fuel) {
   // --- Week / Month (existing behaviour, unchanged) ---
 
   // "Latest available day" instead of a fixed Yesterday/Today pair — smart
-  // meter data for both fuels typically lags into the next day (sometimes
-  // further), so "Today" was reliably empty and "Yesterday" occasionally
-  // was too. Scans the week array backward from today for the most recent
-  // day that actually has data, and labels it with its real date.
+  // meter data for both fuels lags into the next day or further, so neither
+  // is reliably populated. Scans the week array backward for the most recent
+  // day with data and labels it with its real date.
   if (d.week) {
     const today = new Date();
     let found = null, daysAgo = -1;
@@ -690,10 +665,9 @@ async function fetchElecDayHalfHourly(anchor = null) {
   const { elecMpan, elecSerial } = store.creds;
   if (!elecMpan || !elecSerial) throw new Error('No elec meter point on file');
   // A full day is 48 half-hour slots (46/47 on a DST-change day) — require
-  // most of that before accepting a day as "available". A handful of early
-  // readings trickling in for today passed the old "any data at all" check,
-  // producing a near-empty 2-bar chart that looked broken rather than
-  // genuinely incomplete.
+  // most of that before accepting a day as "available", so a handful of
+  // early readings trickling in for today don't produce a near-empty
+  // 2-bar chart that looks broken rather than genuinely incomplete.
   const MIN_SLOTS_FOR_COMPLETE_DAY = 40;
   // A specific picked date: fetch exactly that day, no stepping back to an
   // earlier one — the user asked for that date specifically, so an honest
@@ -733,21 +707,17 @@ async function fetchElecDayHalfHourly(anchor = null) {
   return { date: anchor || null, slots: [] }; // genuinely no complete day available
 }
 
-// Monthly kWh totals for the calendar year so far, one API call per fuel via
-// group_by=month. Deliberately kWh-only, not £ — a monthly total can't be
-// converted to an accurate cost without knowing exactly when within the
-// month the energy was used (rates change over time, and for electricity
-// also vary by time of day), which group_by=month doesn't preserve. Getting
-// real £ would mean the same day-by-day rate-matching Month view already
-// does, just for the whole year — far more calls, so deliberately skipped
-// for now in favour of an honest, exact kWh figure over a slow, blended-rate
-// estimate.
-// v2.214: accepts an optional yearsAgo offset (default 0 = current year) —
-// added to probe whether a prior year's group_by=month request retains
-// data past the ~2-month floor already confirmed for finer daily/half-
-// hourly queries (that floor was only ever tested at that finer
-// granularity, never for this coarser monthly aggregation, which many
-// billing systems retain much longer than raw interval data).
+// Monthly kWh totals for the calendar year so far, one API call per fuel
+// via group_by=month. kWh-only, not £: a monthly total can't be costed
+// accurately without knowing when within the month the energy was used
+// (rates vary over time and, for electricity, by time of day). Real £ would
+// need the same day-by-day rate matching the Month view does, for the whole
+// year — far more calls.
+//
+// The optional yearsAgo offset (default 0) exists to probe whether a prior
+// year's group_by=month retains data past the ~2-month floor confirmed for
+// finer queries — that floor was only ever tested at daily/half-hourly
+// granularity, not this coarser aggregation.
 export async function fetchYearMonthly(fuel, yearsAgo = 0) {
   const creds = store.creds;
   const isElec = fuel === 'elec';
@@ -792,11 +762,9 @@ async function lastNDaysCost(fuel, n, anchor = new Date()) {
       isElec ? fetchElecRates(rangeStart.toISOString(), rangeEnd.toISOString()) : fetchGasRates(rangeStart.toISOString(), rangeEnd.toISOString())
     ]);
     if (!rates.length) throw new Error(`No ${fuel} rate data`);
-    // Decided once across every reading in the whole fetched range, not
-    // per day-bucket — the meter's reporting unit doesn't change day to
-    // day within one fetch, so there's no reason to re-guess it per bucket
-    // (and every reason not to: a bucket that happens to start with an
-    // atypical reading previously risked flipping just that one day).
+    // Decided once across the whole fetched range, not per day-bucket — the
+    // meter's reporting unit doesn't change day to day within one fetch, and
+    // a bucket starting with an atypical reading could flip just that day.
     const gasUnit = !isElec ? detectGasUnit((consData.results || []).map(r => r.consumption), GAS_M3_THRESHOLD_DAILY) : null;
     const buckets = bucketReadingsByDay(consData.results || [], n, now);
     return buckets.map((readings, i) => {
@@ -811,11 +779,9 @@ async function lastNDaysCost(fuel, n, anchor = new Date()) {
       }
       return {
         cost: costPence / 100, kwh,
-        // v2.260 fix: same reasoning as lastNDaysElecSplit's own comment —
-        // trust readings.length alone once a day is old enough that
-        // Octopus's settlement lag can't explain a still-zero kWh total,
-        // rather than permanently treating a genuine zero-usage day
-        // (holiday, meter genuinely reads ~0) as "no data" in the chart.
+        // Same age-based rule as lastNDaysElecSplit: past the settlement
+        // lag, trust readings.length so a genuine zero-usage day (holiday)
+        // isn't permanently treated as "no data" in the chart.
         hasData: readings.length > 0 && (Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - dates[i]) / 86400000) >= 3 || kwh > 0.001),
         date: dates[i]
       };
@@ -826,9 +792,9 @@ async function lastNDaysCost(fuel, n, anchor = new Date()) {
   }
 }
 
-// Same trick as monthElecSplit above — compute the (n, anchor) pair for the
-// whole calendar month containing monthAnchor (capped at today for the
-// current month), delegate to the already-anchor-generalized lastNDaysCost.
+// Same trick as monthElecSplit — compute the (n, anchor) pair for the whole
+// calendar month (capped at today for the current month) and delegate to
+// lastNDaysCost.
 async function monthFuelSplit(fuel, monthAnchor) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const monthStart = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
@@ -840,7 +806,7 @@ async function monthFuelSplit(fuel, monthAnchor) {
   return lastNDaysCost(fuel, n, effectiveLastDay);
 }
 
-/* ------------------------- Click handlers (wired from app.js's init()) ------------------------- */
+/* ------------------------- Click handlers (wired from main.js's init()) ------------------------- */
 
 // £ / kWh toggle — per fuel panel, instant re-render from cached data.
 export function handleUnitToggleClick(e) {
@@ -850,11 +816,10 @@ export function handleUnitToggleClick(e) {
   renderFuelPanel(fuel);
 }
 
-// Day / Week / Month / Year toggle — shared across both fuel panels.
-// Month/Year data is fetched lazily on first use rather than on every
-// sync; Day is electricity-only, but the fetch is harmless to attempt
-// unconditionally since renderFuelPanel handles gas's "not available"
-// state regardless of whether fuelData.elec.day ends up populated.
+// Day / Week / Month / Year toggle, shared across both fuel panels.
+// Month/Year data is fetched lazily on first use, not every sync. Day is
+// electricity-only, but attempting the fetch unconditionally is harmless —
+// renderFuelPanel handles gas's "not available" state either way.
 export async function handlePeriodToggleClick(e) {
   const btn = e.currentTarget;
   periodMode = btn.dataset.period;
@@ -885,11 +850,8 @@ export async function handlePeriodToggleClick(e) {
       catch (err) { logIssue('Year view (gas)', err); fuelData.gas.year = []; }
     }
     // TEMPORARY diagnostic — probing whether electricity's group_by=month
-    // aggregation retains data beyond the ~2-month floor already
-    // confirmed for finer-grained queries (see fetchYearMonthly comment
-    // above). Does not affect the visible Year view at all — separate
-    // fetch, logged only, not wired into fuelData or any chart. Remove
-    // this whole block once the question is answered either way.
+    // retains data past the ~2-month floor (see fetchYearMonthly). Logged
+    // only, not wired into any chart. Remove once answered.
     try {
       const priorYearElec = await fetchYearMonthly('elec', 1);
       const withData = priorYearElec.filter(m => m.kwh > 0).length;

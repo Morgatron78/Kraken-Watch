@@ -56,15 +56,11 @@ function insightsMonthDate(index) {
   return new Date(now.getFullYear(), now.getMonth(), index + 1);
 }
 
-// Extracted from the (previously duplicated, elec+gas) "today vs 7-day
-// average" trend pill. Arrow/text follow the raw numeric direction, but the
-// colour needs to be inverted from it: spending MORE than average is bad
-// news (coral), spending LESS is good news (mint) — the opposite of the
-// balance-trend pill elsewhere, where "up" (a bigger incoming payment than
-// predicted cost) is the good outcome. Getting this backwards is the exact
-// bug the README documents as having shipped twice, caught by the user
-// rather than review both times — pulled into one tested function so a
-// third slip shows up as a failing test instead.
+// The "today vs 7-day average" trend pill. Arrow/text follow the raw
+// direction, but the colour is inverted from it: spending MORE than average
+// is bad (coral), LESS is good (mint) — the opposite of the balance-trend
+// pill, where a bigger incoming payment is the good outcome. This has
+// shipped inverted before, hence a tested function.
 export function trendVsAverage(value, avg) {
   const diffPct = avg > 0 ? ((value - avg) / avg) * 100 : 0;
   const goodNews = diffPct <= 0;
@@ -79,12 +75,10 @@ function renderInsightsElec() {
   const week = fuelData.elec?.week;
   const month = fuelData.elec?.month;
 
-  // Trend vs 7-day average. Deliberately starts from YESTERDAY, not today —
-  // today's REST data is essentially always partial (the well-established
-  // settlement lag means only a handful of early readings exist for most of
-  // the day), so hasData:true for today means "something exists", not "this
-  // day is actually complete". Treating a barely-started day as a genuine
-  // low point was a real bug, not just an edge case.
+  // Trend vs 7-day average. Starts from YESTERDAY, not today — today's REST
+  // data is essentially always partial (settlement lag), so hasData:true for
+  // today means "something exists", not "this day is complete", and a
+  // barely-started day reads as a false low point.
   if (week) {
     let found = null, daysAgo = -1;
     for (let i = week.length - 2; i >= 0; i--) {
@@ -259,11 +253,9 @@ function renderInsightsGas() {
       $('insights-gas-extremes-block').classList.add('hidden');
     }
 
-    // v2.164: weekday/weekend and trajectory — gas equivalents of the two
-    // elec-only Insights features, mirrored exactly (same thresholds, same
-    // wording, same fmtGBP/trend-pill conventions) so the two fuels read
-    // consistently. These were never carried over when gas's Insights
-    // panel was originally built; no reason found for the gap on review.
+    // Weekday/weekend and trajectory — gas equivalents of the two elec-only
+    // Insights features, mirrored exactly (same thresholds, wording,
+    // conventions) so the two fuels read consistently.
     if (weekdayCount > 0 && weekendCount > 0) {
       const weekdayAvg = weekdayTotal / weekdayCount, weekendAvg = weekendTotal / weekendCount;
       const totalAvg = weekdayAvg + weekendAvg || 1;
@@ -350,17 +342,11 @@ function todayBlendedRateP(fuel) {
 
 function computeBalanceForecast() {
   if (!billingState.hasNextPayment || billingState.balancePounds === null || billingState.nextPaymentAmount === null) return null;
-  // v2.218 got the priority order backwards: it made the flat average of
-  // today's off-peak/standard rates the primary source, with MTD-blended
-  // demoted to a fallback. That fixed the sync-time volatility, but
-  // introduced a real accuracy problem — the blended MTD rate reflects
-  // this account's *actual* mix of off-peak vs standard usage, while a
-  // flat 50/50 average doesn't, and would systematically overstate
-  // electricity cost for any household whose usage skews off-peak (as
-  // an IOG household's typically does). v2.219: flipped back — MTD-
-  // blended first (accurate to real usage mix), the stable-but-cruder
-  // average only as fallback when MTD genuinely isn't available (the
-  // original v2.217 crash case), rather than the reverse.
+  // MTD-blended rate first — it reflects the account's actual off-peak/
+  // standard mix, where a flat 50/50 average of today's two rates would
+  // systematically overstate electricity cost for an off-peak-skewed (IOG)
+  // household. The flat average is only a fallback for when MTD data isn't
+  // available at all.
   const elecRateP = todayBlendedRateP('elec') ?? (
     (rateState.offPeakRateP != null && rateState.standardRateP != null)
       ? (rateState.offPeakRateP + rateState.standardRateP) / 2
@@ -386,8 +372,7 @@ function computeBalanceForecast() {
       gasCost = gasRateP !== null ? (histMonth.gasKwh * gasRateP / 100) + ((rateState.gasStandingP || 0) / 100 * days) : 0;
       fallback = false;
     } else {
-      // No matching month last year — flat repeat of this month's own
-      // predicted cost, same assumption the original single-cycle trend made.
+      // No matching month last year — flat repeat of this month's predicted cost.
       elecCost = fuelData.elec?.predicted?.cost || 0;
       gasCost = fuelData.gas?.predicted?.cost || 0;
       fallback = true;
@@ -445,12 +430,9 @@ function renderBalanceForecastChart() {
   const maxNeg = hasNegative ? Math.abs(minCumulative) : 0;
   const range = (maxPos + maxNeg) || 1; // only guards true div-by-zero, never fakes a negative range
   const chartH = 100;
-  // No genuine debit cycle at all (common case, e.g. a well-sized DD) —
-  // bars grow from a true bottom baseline instead of reserving space for a
-  // negative region that doesn't exist. Previously this fell back to a
-  // fake £1 negative range just to avoid dividing by zero, which pushed
-  // the £0 label to sit almost exactly on top of a fabricated bottom
-  // label — a real collision, not just a rounding artifact.
+  // No debit cycle at all (common, e.g. a well-sized DD) — bars grow from a
+  // true bottom baseline rather than reserving space for a negative region
+  // that doesn't exist and colliding the £0 and bottom labels.
   const posH = hasNegative ? (maxPos / range) * chartH : chartH;
   const negH = chartH - posH;
 
@@ -489,14 +471,9 @@ function renderInsightsBilling() {
     return;
   }
 
-  // v2.166: no longer auto-selects the lowest-balance month on load. Was
-  // previously deliberate ("so tapping isn't required to see what 'lowest
-  // point' means"), but the user found it more useful for the breakdown to
-  // only ever open on an actual tap — especially now that it's a richer
-  // ledger (ledger structure below) rather than a 3-line summary, auto-
-  // opening one felt like more content appearing than was asked for.
-  // selectedForecastCycle now stays null until a bar is tapped, so
-  // renderBalanceForecastBreakdown(null) just keeps the box hidden.
+  // The breakdown opens only on an actual tap — selectedForecastCycle stays
+  // null until then, so renderBalanceForecastBreakdown(null) keeps the box
+  // hidden. (It used to auto-select the lowest-balance month on load.)
 
   const allPositive = balanceForecastData.every(c => c.cumulative >= 0);
   if (allPositive) {
@@ -532,9 +509,7 @@ function renderInsightsStanding() {
   const startOfYear = new Date(now.getFullYear(), 0, 1);
   const daysElapsed = Math.max(1, Math.round((now - startOfYear) / 86400000));
   const daysInYear = (now.getFullYear() % 4 === 0 && (now.getFullYear() % 100 !== 0 || now.getFullYear() % 400 === 0)) ? 366 : 365;
-  // v2.212: broken out per-fuel (each fuel its own box) instead of only
-  // ever showing the combined total — the total line below still sums
-  // both, just no longer as its own separate box (see CSS notes).
+  // Per-fuel boxes; the total line below still sums both.
   $('insights-standing-elec-ytd').textContent = fmtGBP((rateState.elecStandingP || 0) * daysElapsed / 100);
   $('insights-standing-elec-full').textContent = fmtGBP((rateState.elecStandingP || 0) * daysInYear / 100);
   $('insights-standing-gas-ytd').textContent = fmtGBP((rateState.gasStandingP || 0) * daysElapsed / 100);

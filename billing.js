@@ -38,10 +38,9 @@ export let billingState = { balancePounds: null, trend: null, hasNextPayment: fa
 let selectedBillMonth = null;
 export let billMonthsData = [];
 
-// Bill-year chart's tap-to-breakdown — same pattern as renderBreakdown
-// above, reusing the same .breakdown-box/.breakdown-row markup and CSS.
-// Reads from billMonthsData (populated whenever the chart itself renders)
-// rather than needing its own fetch or access to loadBilling's internals.
+// Bill-year chart's tap-to-breakdown — reuses the same .breakdown-box /
+// .breakdown-row markup as the usage breakdowns, reading from billMonthsData
+// (populated whenever the chart renders) so it needs no fetch of its own.
 function renderBillYearBreakdown(index) {
   const box = $('bill-year-breakdown');
   if (!box) return;
@@ -64,22 +63,15 @@ function renderBillYearBreakdown(index) {
     + linkHtml;
 }
 
-// Moves the persistent #bill-history-toggle button back to its safe static
-// position (directly before #bill-history) if it's currently living inside
-// #last-bill-row from a previous sync. This is the fully-diagnosed root
-// cause of billing intermittently failing — nothing to do with the API,
-// rate limits, or credentials. loadBilling() moves this same element INTO
-// last-bill-row's rendered content on a successful render; FOUR separate
-// places in this file reassign last-bill-row's innerHTML on a later call
-// (the real render, the demo-data path, the generic-failure path, and the
-// optimistic per-sync reset) — any one of them, if the toggle is currently
-// parked inside, destroys it outright, and every later reference throws
-// "null is not an object" (or "Argument 1 ('node') ... must be an
-// instance of Node" if a stale null gets passed to appendChild) before any
-// of loadBilling()'s own try/catch blocks even run. An earlier version of
-// this fix only guarded the real-render path and missed the other three —
-// calling this once, unconditionally, at the very top of loadBilling()
-// covers all four regardless of which one runs first.
+// Moves the persistent #bill-history-toggle back before #bill-history if a
+// previous sync parked it inside #last-bill-row. loadBilling() moves this
+// element INTO last-bill-row's content on a successful render, and four
+// separate paths reassign last-bill-row.innerHTML on a later call (real
+// render, demo, generic-failure, per-sync reset) — any of them destroys the
+// parked toggle, and the next reference to it throws before loadBilling's
+// own try/catch blocks run. Called unconditionally at the top of
+// loadBilling() so all four paths are covered. This was the actual root
+// cause of billing intermittently failing — not the API or rate limits.
 function restoreToggleToSafety() {
   const existingToggle = document.getElementById('bill-history-toggle');
   const billHistoryEl = document.getElementById('bill-history');
@@ -114,22 +106,18 @@ export async function loadBilling() {
       // Query succeeded (no GraphQL error, krakenGQL didn't throw) but the
       // balance field itself came back missing/null — every real account
       // has one, so this is a genuine anomaly, not a normal empty state.
-      // Previously this was silently skipped: no exception means no catch
-      // block, which meant no logIssue() call at all — exactly the gap
-      // found in testing, where a sync could report "Billing: false" with
-      // zero captured detail because nothing ever technically threw.
+      // Nothing throws here, so without this explicit logIssue a sync could
+      // report "Billing: false" with no captured detail at all.
       logIssue('Account balance', new Error(`Query succeeded but balance was ${JSON.stringify(balancePence)} (account: ${JSON.stringify(data?.account)})`));
     }
   } catch (err) { logIssue('Account balance', err); }
 
   // --- Next scheduled payment (for "balance after next Direct Debit") ---
-  // Uses the documented `account.payments` field (confirmed field names:
-  // amount, paymentDate, status — Octopus's own docs example shows
-  // status: "SCHEDULED" as a real value). Originally filtered strictly to
-  // status === 'SCHEDULED', which found nothing for some accounts — most
-  // likely because Octopus doesn't materialize the individual payment
-  // record until closer to the collection date. Relaxed to just "nearest
-  // future-dated payment, whatever its status," which is more forgiving.
+  // Uses the documented `account.payments` field. Takes the nearest
+  // future-dated payment whatever its status, not just status ===
+  // 'SCHEDULED' — Octopus doesn't seem to materialize the individual
+  // payment record until closer to the collection date, so a strict filter
+  // found nothing for some accounts.
   let nextPayment = null;
   try {
     const data = await krakenGQL(`
@@ -221,10 +209,8 @@ export async function loadBilling() {
       fuelData.gas.predicted = { cost: gasPredictedCost, kwh: gasPredictedKwh };
       if (gasStanding) $('gas-standing').textContent = `£${(gasStanding / 100).toFixed(2)}/day`;
       try {
-        // v2.167: same UTC-vs-local date-boundary bug as loadRates() above
-        // (see that fix's comment for the full explanation) — was using
-        // isoDate(now) with a literal Z, which silently resolves to
-        // yesterday's date for roughly an hour each night during BST.
+        // Local date components, not isoDate(now) + a literal Z — see
+        // loadRates in main.js for the BST boundary bug that avoids.
         const dayStart1 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const dayEnd1 = new Date(+dayStart1 + 24 * 60 * 60 * 1000 - 60000);
         const gasRatesToday = await fetchGasRates(dayStart1.toISOString(), dayEnd1.toISOString());
@@ -327,15 +313,10 @@ export async function loadBilling() {
           }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
         const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
 
-        // Usage (kWh + sub-period) fetched separately, on its own risk.
-        // Two rounds of real API errors got us here: first confirmed
-        // transactions.edges.node is a concrete TransactionType (no bare
-        // `consumption` field, no inline fragment needed there); the API's
-        // own error then named the correct fragment target directly —
-        // `... on Charge`, not `BillCharge` (that name only existed on a
-        // different, unrelated type from earlier introspection). Kept
-        // decoupled from the main query either way, so a future failure
-        // here only drops kWh rather than the whole breakdown again.
+        // Usage (kWh + sub-period) fetched in its own query, decoupled from
+        // the main one so a failure here only drops kWh, not the whole
+        // breakdown. The fragment target is `... on Charge` (confirmed by
+        // the API's own error message — `BillCharge` is an unrelated type).
         try {
           const consData = await krakenGQL(`
             query BillChargeConsumption($accountNumber: String!, $fromDate: Date, $toDate: Date) {
@@ -465,24 +446,16 @@ export async function loadBilling() {
       });
 
       // Bill total over time, grouped by calendar month (not one bar per
-      // bill) — some months genuinely have more than one bill (a tariff
-      // switch mid-month, for example), and showing those as two separate
-      // bars with the same month label reads as a mistake even though the
-      // data's correct. Grouping gives a true "spend per month" picture.
-      // Deliberately a rolling window, not a Jan–Dec calendar year — that
-      // would drop any bill from before January (thrown away for no good
-      // reason) and pad the second half of the year with empty
-      // not-happened-yet placeholders.
+      // bill) — a tariff switch mid-month produces two bills for one month,
+      // which as two same-labelled bars reads as a mistake. Grouping gives a
+      // true "spend per month" picture. Rolling window, not a Jan–Dec year,
+      // so bills from before January aren't dropped and the back half of the
+      // year isn't padded with empty placeholders.
       //
-      // Fetches 15 bills, not 12 — a month with 2+ bills "eats" one fetch
-      // slot without adding a new distinct month, so 12 bills alone can
-      // undershoot a genuine 12-month picture whenever that happens (which
-      // it will, on any tariff switch). 15 is a buffer, not a guarantee —
-      // someone who switches tariffs several times in a year could still
-      // come up short — but it covers the common case. The chart itself
-      // is capped to the most recent 12 distinct months after grouping
-      // (see .slice(-12) below), so it stays a consistent width regardless
-      // of how many bills that took.
+      // Fetches 15 bills, not 12: a month with 2+ bills eats a fetch slot
+      // without adding a distinct month, so 12 alone undershoots on any
+      // tariff switch. The chart is capped to the most recent 12 distinct
+      // months after grouping (.slice(-12)), staying a consistent width.
       try {
         // consumption.unit is usually KILOWATT_HOUR for electricity and
         // either KILOWATT_HOUR or CUBIC_METERS for gas depending on the
@@ -550,17 +523,10 @@ export async function loadBilling() {
     $('bill-year-block').style.display = 'none';
   }
 
-  // --- Octopoints: archived v2.150, deactivated pending Octopus forum ---
-  // Live testing returned Unauthorized (KT-CT-1111) — most likely an
-  // account reader-permission gap rather than a code bug (a lead worth
-  // checking: the JWT may carry the account's permission scopes directly).
-  // Deactivated here to stop spending API calls on a feature that isn't
-  // working, without deleting it — the full working implementation
-  // (queries, ledger rendering, capping/sorting) is preserved in full in
-  // octopoints-archive.js, a new file alongside this release, kept
-  // separate from the pre-existing ev-legacy-archive.js since it's an
-  // unrelated feature. Reinstate by moving this block back in and
-  // un-hiding #octo-block once permissions are confirmed.
+  // Octopoints: deactivated — live testing returned Unauthorized
+  // (KT-CT-1111), most likely an account reader-permission gap. The full
+  // implementation is preserved in octopoints-archive.js; reinstate by
+  // moving it back and un-hiding #octo-block once permissions are confirmed.
   $('octo-block').classList.add('hidden');
 
   return anyLive;
