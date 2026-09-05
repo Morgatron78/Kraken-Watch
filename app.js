@@ -17,6 +17,10 @@ import { $, fmtGBP, fmtP, fmtKwh, fmtT, formatElapsed, APP_VERSION } from './for
 import { resetDiagnostics, logIssue, logDebug, logRawDebug, getSyncIssues, renderDiagnostics } from './diagnostics.js';
 import { octRest, krakenGQL, resetKrakenToken, checkRateLimitBlocked } from './api.js';
 import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelOrBlank, renderWeekBars, renderStackedBars } from './charts.js';
+import {
+  clearRateCacheIfNewDay, rateState, estimateSessionCostP, fetchElecRates, fetchGasRates, fetchStandingCharge,
+  rateAt, m3ToKwh, detectGasUnit, GAS_M3_THRESHOLD_DAILY, GAS_M3_THRESHOLD_MONTHLY, costForRange, bucketReadingsByDay,
+} from './rates.js';
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -60,235 +64,6 @@ function renderBalanceFigure(valueId, pillId, pounds) {
   }
 }
 
-/* ------------------------- Rates & cost calculation ----------------------- */
-// Shared helpers so the rate curve, billing, EV and consumption cards all use
-// the same underlying rate/consumption data instead of each re-fetching it.
-
-const rateCache = {}; // key: `${tariffCode}_${fromISO}_${toISO}` -> [{from,to,rate}]
-// rateCache is never explicitly sized/evicted by key — instead the whole
-// thing gets wiped once a day (see clearRateCacheIfNewDay, called from
-// loadFastTier since that's the most frequent trigger). Without this, a
-// PWA left open for days would accumulate one new set of entries per day
-// forever — modest per-day (roughly 20-30 entries), but genuinely
-// unbounded over a long enough session.
-let rateCacheDay = new Date().toDateString();
-function clearRateCacheIfNewDay() {
-  const today = new Date().toDateString();
-  if (today !== rateCacheDay) {
-    for (const key in rateCache) delete rateCache[key];
-    rateCacheDay = today;
-  }
-}
-let cachedOffPeakRateP = null; // cheapest electricity rate seen today — fallback rate for Live Usage's £/hr estimate when the current rate hasn't loaded yet
-let cachedCurrentRateP = null; // right-now electricity rate — used for the live-usage £/hr estimate
-let cachedStandardRateP = null; // most expensive electricity rate seen today — v2.154: used to estimate Boost-session charging cost, since Boost charges happen outside the smart dispatch schedule and so are assumed to land at standard rate, not off-peak
-let cachedElecStandingP = null;
-let cachedGasStandingP = null;
-// v2.217: today's live gas unit rate, from the same rate-API fetch that
-// already populates #gas-unit-rate — kept globally so computeBalanceForecast
-// can use it instead of MTD-derived consumption (see fix there for why).
-let cachedGasRateP = null;
-
-// v2.192: shared cost-estimate helper — same type-based assumption as the
-// existing "This session" mini-box (v2.154), now reused for the Sessions
-// tab and Charge History too, rather than duplicating the logic three
-// times. Uses TODAY's off-peak/standard rate for every session regardless
-// of how old it is, a deliberate simplification confirmed reasonable with
-// the user: their electricity tariff is fixed for 12-month periods and
-// rarely changes, so a genuine per-session historical-rate fetch (which
-// this app doesn't otherwise do) would add real complexity for a
-// difference that would only actually matter right at a tariff renewal
-// boundary. Returns null (not a guess) if today's rates haven't loaded.
-// `rates` defaults to today's cached rates so every existing single-argument
-// call site (estimateSessionCostP(s)) behaves exactly as before; the
-// optional second argument exists so this is testable without touching the
-// module-level cache directly.
-export function estimateSessionCostP(session, rates = { offPeakP: cachedOffPeakRateP, standardP: cachedStandardRateP }) {
-  const { offPeakP, standardP } = rates;
-  if (offPeakP == null || standardP == null) return null;
-  const kwh = Math.abs(session.energyAdded?.value || 0);
-  const rateP = session.type === 'BOOST' ? standardP : offPeakP;
-  return kwh * rateP;
-}
-
-// Rate queries use a wider lookback window than the actual date range being
-// priced. Narrow single-day queries (used for the 7-day bars) were missing
-// the currently-active rate period on recent days — gas in particular only
-// has a couple of rate changes a month, so a tight 24h window sometimes
-// doesn't span back far enough to catch the row whose valid_from covers it,
-// leaving every reading that day unmatched and silently priced at £0 usage.
-// The month-wide MTD query never hit this because its window is naturally
-// wide enough. Buffering period_from here gives every query that same safety
-// margin without changing what date range is actually being priced.
-const RATE_LOOKBACK_DAYS = 45;
-function bufferedRateFrom(fromISO) {
-  const d = new Date(fromISO);
-  d.setDate(d.getDate() - RATE_LOOKBACK_DAYS);
-  return d.toISOString();
-}
-
-async function fetchElecRates(fromISO, toISO) {
-  const { elecProductCode, elecTariffCode } = store.creds;
-  const key = `elec_${elecTariffCode}_${fromISO}_${toISO}`;
-  if (rateCache[key]) return rateCache[key];
-  const data = await octRest(`/products/${elecProductCode}/electricity-tariffs/${elecTariffCode}/standard-unit-rates/?period_from=${bufferedRateFrom(fromISO)}&period_to=${toISO}&page_size=1500`);
-  const rows = (data.results || [])
-    .map(r => ({ from: +new Date(r.valid_from), to: r.valid_to ? +new Date(r.valid_to) : +new Date(toISO), rate: r.value_inc_vat }))
-    .sort((a, b) => a.from - b.from);
-  rateCache[key] = rows;
-  return rows;
-}
-
-async function fetchGasRates(fromISO, toISO) {
-  const { gasProductCode, gasTariffCode } = store.creds;
-  if (!gasProductCode || !gasTariffCode) return [];
-  const key = `gas_${gasTariffCode}_${fromISO}_${toISO}`;
-  if (rateCache[key]) return rateCache[key];
-  const data = await octRest(`/products/${gasProductCode}/gas-tariffs/${gasTariffCode}/standard-unit-rates/?period_from=${bufferedRateFrom(fromISO)}&period_to=${toISO}&page_size=1500`);
-  const rows = (data.results || [])
-    .map(r => ({ from: +new Date(r.valid_from), to: r.valid_to ? +new Date(r.valid_to) : +new Date(toISO), rate: r.value_inc_vat }))
-    .sort((a, b) => a.from - b.from);
-  rateCache[key] = rows;
-  return rows;
-}
-
-async function fetchStandingCharge(fuel) {
-  try {
-    if (fuel === 'elec') {
-      const { elecProductCode, elecTariffCode } = store.creds;
-      const data = await octRest(`/products/${elecProductCode}/electricity-tariffs/${elecTariffCode}/standing-charges/?page_size=1`);
-      return data.results?.[0]?.value_inc_vat ?? null;
-    } else {
-      const { gasProductCode, gasTariffCode } = store.creds;
-      if (!gasProductCode || !gasTariffCode) return null;
-      const data = await octRest(`/products/${gasProductCode}/gas-tariffs/${gasTariffCode}/standing-charges/?page_size=1`);
-      return data.results?.[0]?.value_inc_vat ?? null;
-    }
-  } catch (err) {
-    // Previously silent — any failure here (a 401, a network error, a
-    // malformed response) was indistinguishable from the legitimate
-    // "no gas tariff on file" case above, both just returning null with
-    // zero trace anywhere. Now the actual reason gets captured before
-    // falling back to null, so callers keep working exactly as before
-    // (a missing standing charge is still handled gracefully) but a real
-    // failure is no longer invisible.
-    logIssue(`${fuel === 'elec' ? 'Electricity' : 'Gas'} standing charge`, err);
-    return null;
-  }
-}
-
-export function rateAt(rows, timestamp) {
-  // Find the most recent rate period that started at or before this timestamp,
-  // scanning rows sorted ascending by `from`. This is more robust than requiring
-  // an exact `to` boundary match: a strict range check silently fell back to
-  // rows[0] (often the cheapest rate) whenever a boundary didn't line up exactly,
-  // which quietly mispriced standard-rate electricity usage as off-peak. Only
-  // returns null if the timestamp is before every known rate period.
-  let match = null;
-  for (const r of rows) {
-    if (r.from <= timestamp) match = r;
-    else break;
-  }
-  return match ? match.rate : null;
-}
-
-// Calorific value drifts slightly over time and Octopus states the exact
-// figure used on each bill — configurable in Settings → Advanced, defaulting
-// to 40.0 (a typical current UK value) rather than an older hardcoded figure.
-function gasCalorificValue() {
-  return store.creds?.calorificValue || 40.0;
-}
-
-// Gas smart meters usually report m3, not kWh — this applies the standard
-// industry conversion (volume correction 1.02264 × calorific value ÷ 3.6).
-// See detectGasUnit below for how callers decide whether a given batch of
-// readings actually needs this at all.
-
-export function m3ToKwh(m3) {
-  return m3 * 1.02264 * gasCalorificValue() / 3.6;
-}
-
-// Octopus's REST consumption endpoint carries no unit field at all
-// (confirmed: a result row is just {consumption, interval_start,
-// interval_end}, nothing else) — so deciding m3 vs kWh is a magnitude
-// heuristic. This used to be decided per-reading, keyed off only the
-// *first* reading in whatever batch happened to be in scope (the whole
-// range for costForRange, a single day's bucket for lastNDaysCost) — one
-// anomalous first value silently flipped the conversion for every other
-// reading in the same batch. Decided once per whole same-granularity batch
-// instead — but the two threshold VALUES themselves (50, 500) are kept
-// exactly as they were, not re-tuned: they were presumably already
-// validated against this app's own real account history, which is better
-// evidence than a fresh back-of-envelope estimate. What was genuinely
-// broken was the inconsistency (each site quietly used a different one)
-// and the per-first-reading fragility, not the numbers.
-//
-// Gas readings from this account's meter are daily totals, not
-// half-hourly (see the "Hourly view isn't available for gas" message in
-// index.html) — a whole day's gas use is a few m3 at most, while a MONTH's
-// aggregate (fetchYearMonthly's group_by=month) can reach into the
-// hundreds of m3 for a large house in winter, hence the very different
-// cutoff between the two.
-const GAS_M3_THRESHOLD_DAILY = 50;
-const GAS_M3_THRESHOLD_MONTHLY = 500;
-export function detectGasUnit(values, threshold) {
-  const nums = values.filter(v => Number.isFinite(v));
-  if (!nums.length) return 'KILOWATT_HOUR';
-  return Math.max(...nums) < threshold ? 'CUBIC_METERS' : 'KILOWATT_HOUR';
-}
-
-async function costForRange(fuel, fromISO, toISO, debugLabel) {
-  const creds = store.creds;
-  const isElec = fuel === 'elec';
-  const mp = isElec ? creds.elecMpan : creds.gasMprn;
-  const serial = isElec ? creds.elecSerial : creds.gasSerial;
-  if (!mp || !serial) throw new Error(`No ${fuel} meter point on file`);
-
-  const consPath = isElec
-    ? `/electricity-meter-points/${mp}/meters/${serial}/consumption/?period_from=${fromISO}&period_to=${toISO}&page_size=1500`
-    : `/gas-meter-points/${mp}/meters/${serial}/consumption/?period_from=${fromISO}&period_to=${toISO}&page_size=1500`;
-
-  const [consData, rates] = await Promise.all([
-    octRest(consPath),
-    isElec ? fetchElecRates(fromISO, toISO) : fetchGasRates(fromISO, toISO)
-  ]);
-  if (!rates.length) throw new Error(`No ${fuel} rate data`);
-
-  const gasUnit = !isElec ? detectGasUnit((consData.results || []).map(r => r.consumption), GAS_M3_THRESHOLD_DAILY) : null;
-  let kwh = 0, costPence = 0, missed = 0;
-  for (const r of (consData.results || [])) {
-    let consumption = r.consumption;
-    if (gasUnit === 'CUBIC_METERS') consumption = m3ToKwh(consumption);
-    const rate = rateAt(rates, +new Date(r.interval_start));
-    if (rate === null) { missed++; continue; }
-    kwh += consumption;
-    costPence += consumption * rate;
-  }
-  if (debugLabel) {
-    const readingCount = (consData.results || []).length;
-    const rateVals = rates.map(r => r.rate);
-    const minR = rateVals.length ? Math.min(...rateVals).toFixed(2) : 'n/a';
-    const maxR = rateVals.length ? Math.max(...rateVals).toFixed(2) : 'n/a';
-    const unitNote = gasUnit ? `, detected ${gasUnit === 'CUBIC_METERS' ? 'm³' : 'kWh'}` : '';
-    logDebug(debugLabel, `${readingCount} reading(s)${unitNote}, ${rates.length} rate period(s) (${minR}p–${maxR}p), ${kwh.toFixed(2)} kWh total, ${missed} unmatched`);
-  }
-  if (missed > 0) {
-    logIssue(`${fuel === 'elec' ? 'Electricity' : 'Gas'} rate lookup`,
-      new Error(`${missed}/${(consData.results || []).length} reading(s) had no matching rate period and were excluded from the cost total`));
-  }
-  // hasData distinguishes "genuinely used this much" from "no readings back
-  // yet" — smart meter consumption data usually lags 24-48h behind real
-  // time, so very recent windows (today, sometimes yesterday) often have no
-  // rows at all. But a reading-period placeholder can also land with rows
-  // present and kwh totalling exactly zero before the real consumption
-  // figure has settled — seen on gas specifically, worse than the usual
-  // lag. A genuine zero-usage day (away on holiday) is rare enough that
-  // treating 0 kWh as "not settled yet" is the safer default; it just means
-  // an actual holiday day briefly shows as pending rather than £0, which
-  // self-corrects once a later day's data supersedes it as "latest".
-  const hasData = (consData.results || []).length > 0 && kwh > 0.001;
-  return { kwh, cost: costPence / 100, hasData };
-}
 
 function daysElapsedInMonth(now = new Date()) {
   return now.getDate();
@@ -298,23 +73,6 @@ function daysInMonth(now = new Date()) {
 }
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 
-// Splits an array of half-hourly readings into n local-calendar-day buckets,
-// oldest first — same day ordering the old per-day-fetch loop produced, so
-// every caller downstream needs no changes. A reading belongs to the day
-// its own interval_start falls in, in local time (not UTC), matching how
-// day boundaries are computed everywhere else in the app.
-export function bucketReadingsByDay(results, n, now = new Date()) {
-  const buckets = Array.from({ length: n }, () => []);
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  for (const r of results) {
-    const readingDay = new Date(+new Date(r.interval_start));
-    const dayStart = new Date(readingDay.getFullYear(), readingDay.getMonth(), readingDay.getDate());
-    const daysAgo = Math.round((+todayStart - +dayStart) / 86400000);
-    const idx = n - 1 - daysAgo; // idx 0 = oldest, idx n-1 = today, matching the old loop's ordering
-    if (idx >= 0 && idx < n) buckets[idx].push(r);
-  }
-  return buckets;
-}
 
 async function lastNDaysElecSplit(n, anchor = new Date()) {
   const { elecMpan, elecSerial } = store.creds;
@@ -1264,11 +1022,11 @@ function computeBalanceForecast() {
   // average only as fallback when MTD genuinely isn't available (the
   // original v2.217 crash case), rather than the reverse.
   const elecRateP = todayBlendedRateP('elec') ?? (
-    (cachedOffPeakRateP != null && cachedStandardRateP != null)
-      ? (cachedOffPeakRateP + cachedStandardRateP) / 2
+    (rateState.offPeakRateP != null && rateState.standardRateP != null)
+      ? (rateState.offPeakRateP + rateState.standardRateP) / 2
       : null
   );
-  const gasRateP = todayBlendedRateP('gas') ?? cachedGasRateP;
+  const gasRateP = todayBlendedRateP('gas') ?? rateState.gasRateP;
   if (elecRateP === null && gasRateP === null) return null;
 
   const monthByKey = new Map(billMonthsData.map(m => [`${m.year}-${m.month}`, m]));
@@ -1284,8 +1042,8 @@ function computeBalanceForecast() {
     let elecCost, gasCost, fallback;
 
     if (histMonth && (histMonth.elecKwh > 0 || histMonth.gasKwh > 0) && elecRateP !== null) {
-      elecCost = (histMonth.elecKwh * elecRateP / 100) + ((cachedElecStandingP || 0) / 100 * days);
-      gasCost = gasRateP !== null ? (histMonth.gasKwh * gasRateP / 100) + ((cachedGasStandingP || 0) / 100 * days) : 0;
+      elecCost = (histMonth.elecKwh * elecRateP / 100) + ((rateState.elecStandingP || 0) / 100 * days);
+      gasCost = gasRateP !== null ? (histMonth.gasKwh * gasRateP / 100) + ((rateState.gasStandingP || 0) / 100 * days) : 0;
       fallback = false;
     } else {
       // No matching month last year — flat repeat of this month's own
@@ -1429,7 +1187,7 @@ function renderInsightsBilling() {
 }
 
 function renderInsightsStanding() {
-  if (!cachedElecStandingP && !cachedGasStandingP) return;
+  if (!rateState.elecStandingP && !rateState.gasStandingP) return;
   const now = new Date();
   const startOfYear = new Date(now.getFullYear(), 0, 1);
   const daysElapsed = Math.max(1, Math.round((now - startOfYear) / 86400000));
@@ -1437,11 +1195,11 @@ function renderInsightsStanding() {
   // v2.212: broken out per-fuel (each fuel its own box) instead of only
   // ever showing the combined total — the total line below still sums
   // both, just no longer as its own separate box (see CSS notes).
-  $('insights-standing-elec-ytd').textContent = fmtGBP((cachedElecStandingP || 0) * daysElapsed / 100);
-  $('insights-standing-elec-full').textContent = fmtGBP((cachedElecStandingP || 0) * daysInYear / 100);
-  $('insights-standing-gas-ytd').textContent = fmtGBP((cachedGasStandingP || 0) * daysElapsed / 100);
-  $('insights-standing-gas-full').textContent = fmtGBP((cachedGasStandingP || 0) * daysInYear / 100);
-  const dailyRateP = (cachedElecStandingP || 0) + (cachedGasStandingP || 0);
+  $('insights-standing-elec-ytd').textContent = fmtGBP((rateState.elecStandingP || 0) * daysElapsed / 100);
+  $('insights-standing-elec-full').textContent = fmtGBP((rateState.elecStandingP || 0) * daysInYear / 100);
+  $('insights-standing-gas-ytd').textContent = fmtGBP((rateState.gasStandingP || 0) * daysElapsed / 100);
+  $('insights-standing-gas-full').textContent = fmtGBP((rateState.gasStandingP || 0) * daysInYear / 100);
+  const dailyRateP = (rateState.elecStandingP || 0) + (rateState.gasStandingP || 0);
   $('insights-standing-ytd').textContent = fmtGBP((dailyRateP * daysElapsed) / 100);
   $('insights-standing-full-year').textContent = fmtGBP((dailyRateP * daysInYear) / 100);
 }
@@ -1498,14 +1256,14 @@ async function loadPickedPeriodData() {
     if (fuelData.elec?.pickedWeekFor !== key) {
       fuelData.elec = fuelData.elec || {};
       const days = await lastNDaysElecSplit(7, weekEnd);
-      const standing = cachedElecStandingP ? cachedElecStandingP / 100 : 0;
+      const standing = rateState.elecStandingP ? rateState.elecStandingP / 100 : 0;
       fuelData.elec.pickedWeek = days.map(d => ({ ...d, standing }));
       fuelData.elec.pickedWeekFor = key;
     }
     if (fuelData.gas?.pickedWeekFor !== key) {
       fuelData.gas = fuelData.gas || {};
       const days = await lastNDaysCost('gas', 7, weekEnd);
-      const standing = cachedGasStandingP ? cachedGasStandingP / 100 : 0;
+      const standing = rateState.gasStandingP ? rateState.gasStandingP / 100 : 0;
       fuelData.gas.pickedWeek = days.map(d => ({ ...d, standing }));
       fuelData.gas.pickedWeekFor = key;
     }
@@ -1514,14 +1272,14 @@ async function loadPickedPeriodData() {
     if (fuelData.elec?.pickedMonthFor !== key) {
       fuelData.elec = fuelData.elec || {};
       const days = await monthElecSplit(pickedDate);
-      const standing = cachedElecStandingP ? cachedElecStandingP / 100 : 0;
+      const standing = rateState.elecStandingP ? rateState.elecStandingP / 100 : 0;
       fuelData.elec.pickedMonth = days.map(d => ({ ...d, standing }));
       fuelData.elec.pickedMonthFor = key;
     }
     if (fuelData.gas?.pickedMonthFor !== key) {
       fuelData.gas = fuelData.gas || {};
       const days = await monthFuelSplit('gas', pickedDate);
-      const standing = cachedGasStandingP ? cachedGasStandingP / 100 : 0;
+      const standing = rateState.gasStandingP ? rateState.gasStandingP / 100 : 0;
       fuelData.gas.pickedMonth = days.map(d => ({ ...d, standing }));
       fuelData.gas.pickedMonthFor = key;
     }
@@ -1545,12 +1303,12 @@ async function loadPickedPeriodData() {
 // charge segment doesn't need its own API call per day.
 async function lastNDaysElecSplitWithStanding(n) {
   const days = await lastNDaysElecSplit(n);
-  const standing = cachedElecStandingP ? cachedElecStandingP / 100 : 0;
+  const standing = rateState.elecStandingP ? rateState.elecStandingP / 100 : 0;
   return days.map(d => ({ ...d, standing }));
 }
 async function lastNDaysGasSplitWithStanding(n) {
   const days = await lastNDaysCost('gas', n);
-  const standing = cachedGasStandingP ? cachedGasStandingP / 100 : 0;
+  const standing = rateState.gasStandingP ? rateState.gasStandingP / 100 : 0;
   return days.map(d => ({ ...d, standing }));
 }
 
@@ -1688,9 +1446,9 @@ async function loadRates() {
     const current = points[nowIdx];
     const threshold = Math.min(...points) + 1; // treat near-minimum as off-peak window
 
-    cachedOffPeakRateP = Math.min(...points);
-    cachedCurrentRateP = current;
-    cachedStandardRateP = Math.max(...points);
+    rateState.offPeakRateP = Math.min(...points);
+    rateState.currentRateP = current;
+    rateState.standardRateP = Math.max(...points);
 
     $('rate-value').innerHTML = `${Math.round(current)}<span>p/kWh</span>`;
     $('elec-unit-rate').textContent = `${current.toFixed(1)}p`;
@@ -1699,7 +1457,7 @@ async function loadRates() {
     $('rate-pill').className = 'card-tag ' + (isCheap ? 'tag-mint' : 'tag-pink');
     $('rate-pill').innerHTML = isCheap ? '<span class="status-dot"></span>Off-peak' : '<span class="status-dot pink"></span>Standard';
     $('rate-standard').textContent = fmtP(Math.max(...points));
-    $('rate-offpeak').textContent = fmtP(cachedOffPeakRateP);
+    $('rate-offpeak').textContent = fmtP(rateState.offPeakRateP);
 
     // Next change: look at the actual rate-change rows, not the expanded points.
     const nextRow = rows.find(r => r.from > +now);
@@ -1715,9 +1473,9 @@ async function loadRates() {
   } catch (err) {
     logIssue('Rates', err);
     if (demoFallbackEnabled()) {
-      cachedOffPeakRateP = 7.5;
-      cachedCurrentRateP = 7.5;
-      cachedStandardRateP = 28.9;
+      rateState.offPeakRateP = 7.5;
+      rateState.currentRateP = 7.5;
+      rateState.standardRateP = 28.9;
       $('rate-value').innerHTML = `8<span>p/kWh</span>`;
       $('rate-value').style.color = 'var(--mint)';
       $('elec-unit-rate').textContent = '7.5p (demo)';
@@ -1848,7 +1606,7 @@ async function loadLiveUsage() {
     // Cost-per-hour if this draw were sustained for a full hour — meant to
     // translate raw watts into something that actually motivates turning
     // something off, not a prediction of what you'll really spend.
-    const rateP = cachedCurrentRateP ?? cachedOffPeakRateP;
+    const rateP = rateState.currentRateP ?? rateState.offPeakRateP;
     if (rateP != null) {
       const poundsPerHour = (watts / 1000) * rateP / 100;
       $('live-cost-rate').innerHTML = `≈ <b style="color:var(--mint)">${fmtGBP(poundsPerHour)}</b>/hr at this rate`;
@@ -2973,10 +2731,10 @@ function renderEVInsights(sessions, now) {
   // same hasAnyData check above) rather than always-visible, since it's
   // only relevant once there's some EV charging activity to speak of.
   const milesPerKwh = getEvRangeMiPerKwh();
-  if (cachedOffPeakRateP != null && cachedStandardRateP != null && milesPerKwh > 0) {
+  if (rateState.offPeakRateP != null && rateState.standardRateP != null && milesPerKwh > 0) {
     const batteryKwh = getEvBatteryKwh();
-    const smartPPerMile = cachedOffPeakRateP / milesPerKwh;
-    const boostPPerMile = cachedStandardRateP / milesPerKwh;
+    const smartPPerMile = rateState.offPeakRateP / milesPerKwh;
+    const boostPPerMile = rateState.standardRateP / milesPerKwh;
     $('insights-ev-cost-smart-mile').textContent = `${smartPPerMile.toFixed(1)}p`;
     $('insights-ev-cost-boost-mile').textContent = `${boostPPerMile.toFixed(1)}p`;
     // Per 100 miles: pence/mile × 100 miles = pence total, ÷100 = pounds.
@@ -2989,8 +2747,8 @@ function renderEVInsights(sessions, now) {
     // Full charge: battery kWh × rate directly, not derived from the
     // per-mile figure a second time — more accurate, avoids compounding
     // the rounding already applied to the displayed per-mile pence figure.
-    $('insights-ev-cost-smart-full').textContent = fmtGBP(batteryKwh * cachedOffPeakRateP / 100);
-    $('insights-ev-cost-boost-full').textContent = fmtGBP(batteryKwh * cachedStandardRateP / 100);
+    $('insights-ev-cost-smart-full').textContent = fmtGBP(batteryKwh * rateState.offPeakRateP / 100);
+    $('insights-ev-cost-boost-full').textContent = fmtGBP(batteryKwh * rateState.standardRateP / 100);
     $('insights-ev-cost-caption').textContent = `Full charge assumes ${batteryKwh} kWh usable battery (Settings → EV)`;
   } else {
     ['smart-mile', 'boost-mile', 'smart-100mi', 'boost-100mi', 'smart-full', 'boost-full'].forEach(id => {
@@ -3289,8 +3047,8 @@ async function loadBilling() {
 
     const elecStandingTotal = elecStanding ? (elecStanding / 100) * elapsedDays : 0;
     const gasStandingTotal = gasStanding ? (gasStanding / 100) * elapsedDays : 0;
-    if (elecStanding) cachedElecStandingP = elecStanding;
-    if (gasStanding) cachedGasStandingP = gasStanding;
+    if (elecStanding) rateState.elecStandingP = elecStanding;
+    if (gasStanding) rateState.gasStandingP = gasStanding;
     const elecMTD = elec.cost + elecStandingTotal;
     const gasMTD = gas ? gas.cost + gasStandingTotal : null;
     const combinedMTD = elecMTD + (gasMTD ?? 0);
@@ -3337,7 +3095,7 @@ async function loadBilling() {
         const dayEnd1 = new Date(+dayStart1 + 24 * 60 * 60 * 1000 - 60000);
         const gasRatesToday = await fetchGasRates(dayStart1.toISOString(), dayEnd1.toISOString());
         const currentGasRate = rateAt(gasRatesToday, Date.now());
-        if (currentGasRate !== null) { $('gas-unit-rate').textContent = `${currentGasRate.toFixed(2)}p`; cachedGasRateP = currentGasRate; }
+        if (currentGasRate !== null) { $('gas-unit-rate').textContent = `${currentGasRate.toFixed(2)}p`; rateState.gasRateP = currentGasRate; }
       } catch { /* keep whatever was already showing (demo or "—") */ }
     }
 

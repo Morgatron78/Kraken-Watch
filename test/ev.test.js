@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { bucketTelemetryByMinute, estimateSessionCostP, formatVehicleName } from '../app.js';
+import { bucketTelemetryByMinute, formatVehicleName } from '../app.js';
 import { formatElapsed } from '../format.js';
+import { estimateSessionCostP } from '../rates.js';
 
 describe('bucketTelemetryByMinute', () => {
   it('buckets a point into its minutes-ago slot, oldest first', () => {

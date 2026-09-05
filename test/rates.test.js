@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rateAt, bucketReadingsByDay } from '../app.js';
+import { rateAt, bucketReadingsByDay } from '../rates.js';
 
 describe('rateAt', () => {
   // Rows as produced by fetchElecRates/fetchGasRates: sorted ascending by

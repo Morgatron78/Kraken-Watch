@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { m3ToKwh, detectGasUnit } from '../app.js';
+import { m3ToKwh, detectGasUnit } from '../rates.js';
 
 describe('m3ToKwh', () => {
   beforeEach(() => localStorage.clear());
