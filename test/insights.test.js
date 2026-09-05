@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { trendVsAverage } from '../app.js';
+import { trendVsAverage } from '../insights.js';
 
 // This is the exact logic the README documents as having shipped inverted
 // twice: colour/arrow must follow whether spending MORE or LESS than
