@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chartMax, isChartDense, chartLabelOrBlank } from '../app.js';
+import { chartMax, isChartDense, chartLabelOrBlank } from '../charts.js';
 
 describe('chartMax', () => {
   it('returns the largest value in the array', () => {
