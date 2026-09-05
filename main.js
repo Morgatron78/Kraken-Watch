@@ -29,7 +29,7 @@ import {
   handleResetToTodayClick, handleFuelWeekBarClick, handleElecDayBarClick,
 } from './usage.js';
 import { loadBilling, handleBillYearBarClick } from './billing.js';
-import { loadCarbon } from './carbon.js';
+import { loadCarbon, gridCarbonText } from './carbon.js';
 import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insights.js';
 import { meterDebugNote, openSettings, closeSettings, saveSettings, initTheme, handleAppearanceChange } from './settings.js';
 
@@ -92,6 +92,7 @@ async function loadRates() {
     } else {
       $('rate-next').textContent = 'No change today';
     }
+    $('rate-carbon').textContent = gridCarbonText(); // whatever the carbon feed has so far ("—" until its first load)
     return true;
   } catch (err) {
     logIssue('Rates', err);
@@ -107,6 +108,7 @@ async function loadRates() {
       $('rate-standard').textContent = '28.9p';
       $('rate-offpeak').textContent = '8.0p';
       $('rate-next').textContent = '05:30 → 28.90p';
+      $('rate-carbon').textContent = gridCarbonText();
     } else {
       $('rate-value').innerHTML = `—<span>p/kWh</span>`;
       $('rate-value').style.color = 'var(--text-dim)';
@@ -116,6 +118,7 @@ async function loadRates() {
       $('rate-standard').textContent = '—';
       $('rate-offpeak').textContent = '—';
       $('rate-next').textContent = '—';
+      $('rate-carbon').textContent = gridCarbonText();
     }
     return false;
   }

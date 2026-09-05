@@ -4,6 +4,7 @@ import { logIssue, logDebug, sanityCheck } from './diagnostics.js';
 import { krakenGQL } from './api.js';
 import { renderChartScale } from './charts.js';
 import { rateState } from './rates.js';
+import { carbonState } from './carbon.js';
 
 // Uses Octopus's smartMeterTelemetry field, confirmed working via a
 // documented real-world example (near-10-second-resolution readings from a
@@ -101,11 +102,22 @@ export async function loadLiveUsage() {
       $('live-cost-rate').textContent = '';
     }
 
+    // Same idea in carbon terms — this draw sustained for an hour, at the
+    // current grid intensity. Only shown once the carbon feed has loaded.
+    if (carbonState.currentGco2 != null) {
+      const kgPerHour = (watts / 1000) * carbonState.currentGco2 / 1000;
+      $('live-carbon-rate').innerHTML = `≈ <b>${kgPerHour.toFixed(2)} kg</b> CO₂/hr at ${carbonState.currentGco2} g/kWh`;
+    } else {
+      $('live-carbon-rate').textContent = '';
+    }
+
     return true;
   } catch (err) {
     logIssue('Live usage', err);
     $('live-tag').style.display = 'none';
     $('live-updated').textContent = 'Unavailable right now';
+    $('live-cost-rate').textContent = '';
+    $('live-carbon-rate').textContent = '';
     return false;
   }
 }

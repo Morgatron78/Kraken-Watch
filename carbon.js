@@ -29,6 +29,13 @@ const bandOf = index => BAND[index] || 'moderate';
 const isoMinute = d => d.toISOString().slice(0, 16) + 'Z'; // YYYY-MM-DDThh:mmZ, the format NESO wants
 const hhmm = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+// One-liner for the Current rate card's "Grid" row — "Low · 38 g", or "—".
+export function gridCarbonText() {
+  if (carbonState.currentGco2 == null) return '—';
+  const lbl = LABEL[carbonState.currentIndex] || '';
+  return lbl ? `${lbl} · ${carbonState.currentGco2} g` : `${carbonState.currentGco2} g`;
+}
+
 async function fetchJson(path) {
   const res = await fetch(`${API}${path}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) throw new Error(`carbonintensity ${path} → ${res.status}`);
@@ -74,6 +81,7 @@ export async function loadCarbon() {
 
 function renderCarbonCard(slots, current, region) {
   $('carbon-card').classList.remove('hidden');
+  $('rate-carbon').textContent = gridCarbonText();
   const idx = current.intensity.index;
   $('carbon-value').innerHTML = `${carbonState.currentGco2}<span>g CO₂/kWh</span>`;
   const pill = $('carbon-tag');
