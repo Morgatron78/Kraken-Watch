@@ -121,7 +121,7 @@ export async function loadEV() {
     $('ev-slots-dispatch').innerHTML = '<div class="slot">Unavailable right now</div>';
     $('ev-week').innerHTML = '';
     $('ev-week-scale').innerHTML = '';
-    $('ev-history-period-label').textContent = 'This week';
+    $('ev-history-period-label').textContent = 'Week';
     $('ev-week-kwh-total').textContent = '—';
     $('ev-week-session-count').textContent = '—';
     $('insights-ev-panel').classList.add('hidden');
@@ -145,12 +145,13 @@ export async function loadEV() {
 // session"'s kWh total is NOT summed from this data.
 const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
 
-// Small grid-intensity chip for a dispatch-window row — mint/amber/coral to
-// match the Carbon card's low/moderate/high ramp. Empty when there's no
-// matched intensity for the window (history not warmed that far back, or the
-// window is beyond the 48h forecast).
+// Small grid-intensity marker for a dispatch-window row — a leaf glyph plus
+// the figure, coloured mint/amber/coral to match the Carbon card's
+// low/moderate/high ramp. Empty when there's no matched intensity for the
+// window (history not warmed that far back, or beyond the 48h forecast).
+const leafSvgSm = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>';
 const carbonChip = (band, g) => (band && g != null)
-  ? `<span class="win-carbon win-carbon-${band}" title="Grid carbon intensity over this window">${g} g</span>`
+  ? `<span class="win-carbon win-carbon-${band}" title="Grid carbon intensity over this window">${leafSvgSm}${g} g</span>`
   : '';
 
 // SmartFlexChargingProblem — a union of SmartFlexChargingError (a `cause`
@@ -198,7 +199,7 @@ function renderEVSessionSlots(sessions, now) {
     // marked "(Est.)". Coloured by session type (mint Smart / pink Boost),
     // matching the SMART/BOOST badge and mint's app-wide "cheaper" role.
     const milesText = kwh != null
-      ? `<span class="slot-soc-gain ${s.type === 'BOOST' ? 'slot-miles-boost' : 'slot-miles-smart'}">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles</span><span class="slot-soc-gain"> (Est.)</span>`
+      ? `<span class="slot-miles-line"><span class="slot-soc-gain ${s.type === 'BOOST' ? 'slot-miles-boost' : 'slot-miles-smart'}">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles</span><span class="slot-soc-gain"> (Est.)</span></span>`
       : '';
     // Problem warning: a small icon-only toggle that reveals a detail row
     // with the full message on click. Expand state is keyed by session start
@@ -212,10 +213,10 @@ function renderEVSessionSlots(sessions, now) {
     const detailRowHtml = isExpanded
       ? `<div class="slot-row" style="margin-top:2px;"><span class="slot-badge badge-problem" style="margin-left:0;">${warnTriangleSvgSm}${problem}</span></div>`
       : '';
-    // Estimated cost, paired with kWh (the two "amount" figures grouped
-    // together). See estimateSessionCostP for why today's rate is used.
+    // Estimated cost — right-aligned under the miles figure, at the kWh
+    // figure's size. See estimateSessionCostP for why today's rate is used.
     const costP = estimateSessionCostP(s);
-    const costText = costP != null ? `<span class="slot-cost">(Est. <b>${fmtGBP(costP / 100)}</b>)</span>` : '';
+    const costLine = costP != null ? `<span class="slot-cost-line">${fmtGBP(costP / 100)} <span class="est">(Est.)</span></span>` : '';
     // Carbon for the session: mean regional grid intensity over its window
     // (from carbon.js's on-demand history cache) × kWh. Its own sub-line
     // rather than crammed into the kWh/cost group; absent when the history
@@ -226,7 +227,7 @@ function renderEVSessionSlots(sessions, now) {
       : '';
     return `<div class="slot">
       <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> · ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
-      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${milesText}</span></div>
+      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b></span><span class="soc-col">${milesText}${costLine}</span></div>
       ${co2Row}
       ${detailRowHtml}
     </div>`;
@@ -419,7 +420,7 @@ async function loadEVSmartFlex() {
   if (soc != null) {
     $('ev-battery-row').classList.remove('hidden');
     const pct = Math.min(100, Math.max(0, soc));
-    $('ev-battery-pct').textContent = `${Math.round(pct)}%`;
+    $('ev-battery-pct').innerHTML = `${Math.round(pct)}<span>%</span>`;
     $('ev-battery-fill').style.width = `${pct}%`;
 
     // Limit marker: prefer today's schedule target (todaySchedule.max, what
@@ -726,9 +727,21 @@ function renderEVHistoryBars(buckets, labels) {
   // if today's rates haven't loaded or any session lacks an estimate — a
   // partial total would be misleading, not just imprecise.
   const allSessions = buckets.flatMap(b => b.sessions);
-  const costsP = allSessions.map(estimateSessionCostP);
+  // NB: `.map(s => estimateSessionCostP(s))`, not `.map(estimateSessionCostP)` —
+  // the latter passes the array index as the 2nd `rates` arg, so every call
+  // returns null (this is why the stat silently went to "—").
+  const costsP = allSessions.map(s => estimateSessionCostP(s));
   const costTotalP = costsP.every(c => c != null) ? costsP.reduce((s, c) => s + c, 0) : null;
   $('ev-week-cost-total').textContent = costTotalP != null ? fmtGBP(costTotalP / 100) : '—';
+
+  // Period carbon total — same all-or-"—" rule: shown only when every
+  // session's window resolved against the intensity history.
+  const co2gList = allSessions.map(s => {
+    const g = intensityForRange(new Date(s.start).getTime(), new Date(s.end || s.start).getTime());
+    return g != null ? Math.abs(s.energyAdded?.value || 0) * g : null;
+  });
+  const co2TotalG = co2gList.every(c => c != null) ? co2gList.reduce((s, c) => s + c, 0) : null;
+  $('ev-week-co2-total').textContent = co2TotalG != null ? `${(co2TotalG / 1000).toFixed(1)} kg` : '—';
 
   // Smart/Boost split as an explicit percentage in the legend labels, next
   // to the swatch each describes. Left blank (not hidden) for an empty
@@ -872,7 +885,7 @@ async function loadEVMonthData(now) {
           ... on SmartFlexVehicle {
             chargingSessions(after: $after, first: 100) {
               pageInfo { hasNextPage }
-              edges { node { ... on SmartFlexChargingSession { start type energyAdded { value } } } }
+              edges { node { ... on SmartFlexChargingSession { start end type energyAdded { value } } } }
             }
           }
         }
@@ -920,10 +933,10 @@ async function setEVHistoryPeriod(period) {
   const now = new Date();
   let result;
   if (period === 'week') {
-    $('ev-history-period-label').textContent = 'This week';
+    $('ev-history-period-label').textContent = 'Week';
     result = buildEVWeekBuckets(evLoadedSessions || [], now);
   } else {
-    $('ev-history-period-label').textContent = 'This month';
+    $('ev-history-period-label').textContent = 'Month';
     const monthData = await loadEVMonthData(now);
     if (!monthData) {
       $('ev-week').innerHTML = '<div class="slot">Unable to load right now</div>';
@@ -933,6 +946,10 @@ async function setEVHistoryPeriod(period) {
       renderDiagnostics(); // redraw now so this on-demand failure is visible, not at the next scheduled sync
       return;
     }
+    // Warm the intensity history back to the 1st so the month's EST. CO₂
+    // stat can resolve every session (the 8-day warm-up in loadEVSmartFlex
+    // doesn't reach that far). Best-effort.
+    await ensureHistIntensity(new Date(now.getFullYear(), now.getMonth(), 1).getTime());
     result = buildEVMonthBuckets(monthData.sessions, now);
     if (monthData.hasMore) {
       $('ev-week').insertAdjacentHTML('afterend', '<div class="warning-line amber" id="ev-month-partial-note" style="margin-top:10px;margin-bottom:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Showing partial data — more sessions exist than fetched</div>');
@@ -967,11 +984,11 @@ function renderEVWeekBreakdown(index) {
   // only if every session in it has one; the combined Total only if every
   // session in the bucket does — a partial sum would mislead.
   const costSuffix = costP => costP != null ? ` · £${(costP / 100).toFixed(2)}` : '';
-  const smartCostsP = smartSessions.map(estimateSessionCostP);
+  const smartCostsP = smartSessions.map(s => estimateSessionCostP(s));
   const smartCostP = smartCostsP.every(c => c != null) ? smartCostsP.reduce((s, c) => s + c, 0) : null;
-  const boostCostsP = boostSessions.map(estimateSessionCostP);
+  const boostCostsP = boostSessions.map(s => estimateSessionCostP(s));
   const boostCostP = boostCostsP.every(c => c != null) ? boostCostsP.reduce((s, c) => s + c, 0) : null;
-  const allCostsP = bucket.sessions.map(estimateSessionCostP);
+  const allCostsP = bucket.sessions.map(s => estimateSessionCostP(s));
   const totalCostP = allCostsP.every(c => c != null) ? allCostsP.reduce((s, c) => s + c, 0) : null;
   let rows = '';
   if (smartSessions.length) {
@@ -1008,7 +1025,7 @@ function populateDemoEV() {
       <div class="slot active"><span>● 04:00 – 05:30</span><b>Dispatching now · 7.4kW</b></div>
       <div class="slot"><span>Planned tonight</span><b>23:30 – 05:30</b></div>`;
     renderWeekBars('ev-week', [3.0, 2.2, 4.8, 0.1, 3.6, 2.6, 4.4], '', v => `${v.toFixed(1)} kWh`, 44, 'ev-week-scale');
-    $('ev-history-period-label').textContent = 'This week';
+    $('ev-history-period-label').textContent = 'Week';
     $('ev-week-kwh-total').textContent = '62.4 kWh';
     $('ev-week-session-count').textContent = '9';
     $('insights-ev-panel').classList.add('hidden');

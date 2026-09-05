@@ -204,7 +204,7 @@ function renderInsightsElec() {
       const fmtDay = dt => dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
       const greenest = dayG.reduce((a, b) => (b.g < a.g ? b : a));
       const dirtiest = dayG.reduce((a, b) => (b.g > a.g ? b : a));
-      $('insights-elec-carbon-value').textContent = `${(weekCo2g / 1000).toFixed(1)} kg CO₂`;
+      $('insights-elec-carbon-value').innerHTML = `${(weekCo2g / 1000).toFixed(1)} kg CO<sub>2</sub>`;
       $('insights-elec-carbon-caption').textContent = `${weekKwh.toFixed(0)} kWh over ${dayG.length} days · avg ${Math.round(avgG)} g/kWh`;
       $('insights-elec-carbon-greenest').textContent = `${Math.round(greenest.g)} g/kWh`;
       $('insights-elec-carbon-greenest-date').textContent = fmtDay(greenest.date);

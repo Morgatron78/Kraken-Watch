@@ -308,7 +308,9 @@ button{font-family:inherit;cursor:pointer;}
    other 2-item rows elsewhere still correctly rely on) — equal-width grid
    columns instead, so all three blocks occupy genuinely even space
    regardless of their own content length. */
-.ev-history-stats{display:grid;grid-template-columns:1fr 1fr 1fr;}
+.ev-history-stats{display:grid;grid-template-columns:repeat(4, 1fr);column-gap:6px;}
+.ev-history-stats .stat{min-width:0;}
+.ev-history-stats .stat-value-sm{font-size:15px;}
 .stat{min-width:70px;flex:1;}
 .stat-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
 .stat-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;}
@@ -675,6 +677,9 @@ button{font-family:inherit;cursor:pointer;}
 
 .trend-row{display:flex;align-items:center;gap:10px;}
 .trend-num{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;}
+/* Faux-subscript for CO2 — the Unicode ₂ glyph hangs detached at this size;
+   a real <sub> sits just under the "CO" baseline at a tuned drop. */
+.trend-num sub{font-size:0.7em;vertical-align:baseline;position:relative;bottom:-0.1em;}
 .trend-detail{flex:1;}
 .trend-caption{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
 #insights-body .trend-pill{
@@ -869,9 +874,14 @@ button{font-family:inherit;cursor:pointer;}
    states correctly without any transition needed. */
 .battery-row{display:flex;flex-direction:column;gap:8px;background:var(--bg-panel-2);border-radius:12px;padding:12px 14px;}
 .battery-row-top{display:flex;align-items:center;gap:12px;}
+/* SoC is a live headline figure — same big-number/small-unit treatment as
+   Current rate / Live usage (.big-value). The gauge and the target/countdown
+   line share a right-hand column so the target text starts at the bar's
+   left edge, not the card edge. */
+.battery-pct{flex-shrink:0;}
+.battery-right{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
 .battery-row-meta{display:flex;justify-content:space-between;align-items:baseline;}
-.battery-pct{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;flex-shrink:0;}
-.battery-gauge{flex:1;height:8px;background:var(--tint-track);border:1px solid var(--line);border-radius:100px;overflow:hidden;position:relative;}
+.battery-gauge{height:8px;background:var(--tint-track);border:1px solid var(--line);border-radius:100px;overflow:hidden;position:relative;}
 .battery-gauge-limit{position:absolute;top:0;bottom:0;width:2px;background:var(--amber);z-index:2;}
 .battery-gauge-restricted{
   position:absolute;top:0;bottom:0;right:0;
@@ -942,18 +952,12 @@ button{font-family:inherit;cursor:pointer;}
    SMART/BOOST badge's own colors, "(Est.)" stays the neutral dim color. */
 .slot-miles-smart{color:var(--mint);}
 .slot-miles-boost{color:var(--pink);}
-/* v2.192: estimated session cost, paired with kWh per the approved
-   mockup — parenthetical, dimmed "Est." label with the actual figure in
-   normal text weight so it doesn't compete visually with the kWh value
-   right next to it. */
-.slot-cost{color:var(--text-dim);font-size:10px;margin-left:4px;}
-/* v2.200: .slot b{font-size:13px} (below-ish, meant for the kWh figure)
-   was also winning here — .slot-cost b never set its own font-size, so
-   nothing overrode it, and the cost amount rendered at the kWh figure's
-   size instead of matching the small "Est." label right next to it
-   (confirmed via user screenshot). Explicit font-size added to actually
-   win the cascade. */
-.slot-cost b{color:var(--text-dim);font-weight:400;font-size:10px;}
+/* Estimated session cost — its own right-aligned line under the miles
+   figure (see .soc-col), at the kWh figure's size, with a small dim
+   "(Est.)" qualifier that lines up with the one on the miles line above. */
+.slot-cost-line{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:var(--text);}
+.slot-cost-line .est{font-size:10px;font-weight:400;color:var(--text-dim);}
+.slot-miles-line{display:inline-flex;align-items:baseline;}
 
 /* Retrospective per-session carbon — its own sub-line under the kWh/cost/
    miles row rather than crammed into that group. Dim like .slot-cost, with
@@ -962,17 +966,17 @@ button{font-family:inherit;cursor:pointer;}
 .slot-co2{color:var(--text-dim);font-size:10px;}
 .slot-co2 b{color:var(--text);font-weight:600;font-size:10px;}
 
-/* Grid-intensity chip on a dispatch-window row. Scoped under the container
-   id so the accent colour wins over .slot.scheduled/.slot.done's span-colour
-   overrides without needing !important. */
+/* Grid-intensity marker on a dispatch-window row — leaf glyph + figure, no
+   pill. Scoped under the container id so the accent colour wins over
+   .slot.scheduled/.slot.done's span-colour overrides without !important. */
 #ev-slots-dispatch .win-carbon{
-  margin-left:6px;padding:1px 6px;border-radius:100px;
-  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;font-weight:600;
-  white-space:nowrap;
+  margin-left:8px;white-space:nowrap;
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;font-weight:600;
 }
-#ev-slots-dispatch .win-carbon-low{color:var(--mint);background:var(--mint-soft);}
-#ev-slots-dispatch .win-carbon-moderate{color:var(--amber);background:var(--amber-soft);}
-#ev-slots-dispatch .win-carbon-high{color:var(--coral);background:var(--coral-soft);}
+#ev-slots-dispatch .win-carbon svg{vertical-align:-1.5px;margin-right:2px;}
+#ev-slots-dispatch .win-carbon-low{color:var(--mint);}
+#ev-slots-dispatch .win-carbon-moderate{color:var(--amber);}
+#ev-slots-dispatch .win-carbon-high{color:var(--coral);}
 
 /* v2.206: .slot-soc (the mint SoC start→finish %) removed along with the
    feature — see app.js for why it was never a reliable figure. */
@@ -988,16 +992,18 @@ button{font-family:inherit;cursor:pointer;}
    third live screenshot showed the same disconnected symptom again, so
    rather than keep chasing this specific element through another layout
    technique, the mini-pill has been moved out of this row entirely (see
-   .slot-row-right below) — the two columns left here (kWh+cost, SoC info)
-   never showed the problem on their own. kWh+cost stays a fixed 150px —
-   NOT auto — since each .slot-row-inline is its own independent grid, not
-   one shared template across all session rows, so an auto-sized column
-   would size differently per row depending on that row's own kWh/cost
-   text width, reintroducing the exact row-to-row alignment drift this
-   whole saga started from. */
-.slot-row-inline{width:100%;display:grid;grid-template-columns:150px 1fr;align-items:center;column-gap:8px;}
+   .slot-row-right below) — the two columns left here (kWh, miles/cost)
+   never showed the problem on their own. The left column stays a fixed
+   width — NOT auto — since each .slot-row-inline is its own independent
+   grid, not one shared template across all session rows, so an auto-sized
+   column would size differently per row depending on that row's own text
+   width, reintroducing the exact row-to-row alignment drift this whole
+   saga started from. */
+.slot-row-inline{width:100%;display:grid;grid-template-columns:96px 1fr;align-items:baseline;column-gap:8px;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;}
-.slot-row-inline .soc-col{white-space:nowrap;justify-self:end;text-align:right;}
+/* Right column stacks the miles figure over the estimated cost, both
+   right-aligned; kWh on the left baseline-aligns to the miles line. */
+.slot-row-inline .soc-col{display:flex;flex-direction:column;align-items:flex-end;gap:3px;white-space:nowrap;justify-self:end;text-align:right;}
 
 /* v2.198: the problem mini-pill now sits in the header row, immediately
    left of the SMART/BOOST badge, instead of the stats row it kept

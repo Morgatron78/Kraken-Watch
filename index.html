@@ -165,16 +165,18 @@
       <div id="ev-stack">
         <div class="battery-row hidden" id="ev-battery-row">
           <div class="battery-row-top">
-            <div class="battery-pct" id="ev-battery-pct">—</div>
-            <div class="battery-gauge">
-              <div class="battery-gauge-fill" id="ev-battery-fill" style="width:0%"></div>
-              <div class="battery-gauge-restricted hidden" id="ev-battery-restricted"></div>
-              <div class="battery-gauge-limit hidden" id="ev-battery-limit"></div>
+            <div class="battery-pct big-value" id="ev-battery-pct">—</div>
+            <div class="battery-right">
+              <div class="battery-gauge">
+                <div class="battery-gauge-fill" id="ev-battery-fill" style="width:0%"></div>
+                <div class="battery-gauge-restricted hidden" id="ev-battery-restricted"></div>
+                <div class="battery-gauge-limit hidden" id="ev-battery-limit"></div>
+              </div>
+              <div class="battery-row-meta">
+                <div class="battery-target" id="ev-battery-target"></div>
+                <div class="battery-countdown" id="ev-battery-countdown"></div>
+              </div>
             </div>
-          </div>
-          <div class="battery-row-meta">
-            <div class="battery-target" id="ev-battery-target"></div>
-            <div class="battery-countdown" id="ev-battery-countdown"></div>
           </div>
         </div>
         <div class="schedule-preview hidden" id="ev-schedule-preview"></div>
@@ -209,9 +211,10 @@
             </div>
           </div>
           <div class="stat-row tight ev-history-stats" style="margin-top:14px;">
-            <div class="stat"><div class="stat-label" id="ev-history-period-label">This week</div><div class="stat-value-sm" id="ev-week-kwh-total">—</div></div>
+            <div class="stat"><div class="stat-label" id="ev-history-period-label">Week</div><div class="stat-value-sm" id="ev-week-kwh-total">—</div></div>
             <div class="stat"><div class="stat-label">Sessions</div><div class="stat-value-sm" id="ev-week-session-count">—</div></div>
             <div class="stat"><div class="stat-label">Est. cost</div><div class="stat-value-sm" id="ev-week-cost-total">—</div></div>
+            <div class="stat"><div class="stat-label">Est. CO2</div><div class="stat-value-sm" id="ev-week-co2-total">—</div></div>
           </div>
           <div class="chart-row">
             <div class="chart-scale" id="ev-week-scale"></div>
@@ -485,7 +488,7 @@
           </div>
 
           <div class="insight-block">
-            <div class="insight-label">This month's spend — off-peak vs standard rate</div>
+            <div class="insight-label">This month's spend — off-peak vs standard</div>
             <div class="split2-legend">
               <div class="split2-side">
                 <div class="split2-label offpeak"><span class="dot"></span>Off-peak</div>
@@ -565,7 +568,7 @@
           </div>
 
           <div class="insight-block">
-            <div class="insight-label">This month's bill — standing charge vs usage</div>
+            <div class="insight-label">This month's bill — standing vs usage</div>
             <div class="split2-legend">
               <div class="split2-side">
                 <div class="split2-label standing"><span class="dot"></span>Standing charge</div>
