@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "A personal installable PWA dashboard for Octopus Energy — current rate, live usage, Intelligent Octopus Go EV charging, consumption, and billing.",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
