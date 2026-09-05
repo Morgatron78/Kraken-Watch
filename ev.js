@@ -1,9 +1,10 @@
 import { store, demoFallbackEnabled } from './store.js';
 import { $, fmtGBP, fmtT, formatElapsed } from './format.js';
-import { logIssue, logDebug, sanityCheck } from './diagnostics.js';
+import { logIssue, logDebug, sanityCheck, renderDiagnostics } from './diagnostics.js';
 import { krakenGQL } from './api.js';
 import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelOrBlank, renderWeekBars } from './charts.js';
-import { estimateSessionCostP } from './rates.js';
+import { estimateSessionCostP, rateState } from './rates.js';
+import { daysElapsedInMonth } from './usage.js';
 
 // range in miles, usable battery kWh), from which the actual mi/kWh ratio
 // is derived per-account instead of assuming everyone's on a Polestar 2.
