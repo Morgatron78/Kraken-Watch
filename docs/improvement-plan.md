@@ -151,19 +151,23 @@ All three REST sites now decide the unit once per whole fetched batch (not per f
 
 **Tests:** 10 assertions in `test/gas.test.js` — `m3ToKwh`'s formula and Settings-override behaviour, and `detectGasUnit` at both granularities, including a fixture specifically constructed so the old per-first-reading bug and the new whole-batch fix would disagree (proving the fix actually changes behaviour, not just refactors it). 38/38 tests passing overall. **Effort:** ~1.5 hrs actual, including the threshold correction.
 
-### 3B. Sanity-check unit assumptions
-`latest.demand` assumed W (~L2124); `consumptionDelta` summed as Wh (~L2173); `chargePointPowerOutput` assumed kW (~L59 / ~L3123). Don't auto-detect — make a wrong assumption *visible*:
+### 3B. Sanity-check unit assumptions — done
+`latest.demand` assumed W, `consumptionDelta` assumed Wh, `chargePointPowerOutput` assumed kW — none independently confirmed against Octopus's undocumented schema. Implemented exactly as planned, no auto-detection or correction — a wrong assumption should be *visible*, not silently absorbed or clamped:
 ```js
-function sanityCheck(value, { min, max, label, expected }) {
+export function sanityCheck(value, { min, max, label, expected }) {
   if (value == null || Number.isNaN(value)) return value;
   if (value < min || value > max)
     logDebug('Unit check', `${label} = ${value} outside plausible ${min}–${max} (expected ${expected})`);
   return value;
 }
 ```
-Bands: `demand` 0–30000 W; `chargePointPowerOutput` 0–100 kW; per-10s `consumptionDelta` 0–1000 Wh. Displayed values unchanged while plausible. Optionally clamp only the power-meter fill fraction.
+Wired at all three sites with the planned bands (`demand` 0–30000 W, `chargePointPowerOutput` 0–100 kW, per-10s `consumptionDelta` 0–1000 Wh) — the displayed value is always returned unchanged, plausible or not; only a diagnostics line differs. `consumptionDelta` is checked once against the whole fetched batch's *maximum* in `loadLive30`, not per point — a genuine unit change would affect essentially every reading, so the max alone catches it without logging up to 180 times (one per 10s point) on every 30s refresh. Kept out of the pure, tested `bucketTelemetryByMinute` itself, which stays side-effect-free; the check lives in its caller instead.
 
-**Tests:** `sanityCheck`. **Effort:** ~1 hr. (Best after 1A for a DEV gate.)
+No clamping was added anywhere (the "optionally clamp the power-meter fill" idea from the original plan was dropped) — clamping would have meant the fill bar and the printed number could disagree, which is worse than an occasionally-oversized bar.
+
+**Tests:** 5 assertions in `test/sanity-check.test.js` — in-band passthrough (no log), out-of-band passthrough (still returns the value, still logs — proving it never clamps), below-minimum, null/undefined/NaN all skipping the check entirely, and both band boundaries themselves counting as in-band. Verified via `console.info` spy that the log genuinely fires only when expected. 54/54 tests passing.
+
+**Effort:** ~45 min, as estimated.
 
 ### 3C. Fetch timeout — done
 `octRest`, `getKrakenToken`, `krakenGQL` had no timeout — a hung mobile request left the app on "Syncing…" indefinitely, since nothing would ever settle the promise either way. One shared `FETCH_TIMEOUT_MS = 15000` (not per-call — 15s is generous for any single request/response round trip; revisit per-call only if a specific query genuinely needs longer) wired into all three via `AbortSignal.timeout()`, which iOS 16+ supports comfortably for this app's installed-PWA target.
@@ -210,8 +214,8 @@ Highest-value piece here — catches HTML/JS drift before deploy.
 | 3 | Gas unit unification + tests (3A) | 2 | ~1–2 hr | **Done** — threshold values corrected during implementation, see 3A |
 | 4 | Fetch timeout (3C) | 1 | ~30 min | **Done** |
 | 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | **Done** — verified live via simulated visibility events |
-| 6 | Unit sanity checks (3B) | 1 | ~1 hr | Next |
-| 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | |
+| 6 | Unit sanity checks (3B) | 1 | ~1 hr | **Done** |
+| 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | Next |
 | 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | |
 
 1B runs throughout.

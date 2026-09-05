@@ -2199,6 +2199,25 @@ function liveWattsColor(watts) {
   return 'var(--coral)';
 }
 
+// Several values from Kraken's undocumented GraphQL schema are read with an
+// assumed unit that's never been independently confirmed — smartMeterTelemetry's
+// demand as watts, its consumptionDelta as Wh, chargePointPowerOutput as kW.
+// Getting one wrong wouldn't error (it'd just display a number that's off by
+// a factor of 1000, or negative, or absurdly large), so a schema/unit change
+// on Octopus's side could otherwise ship silently. This doesn't auto-detect
+// or correct anything — the display keeps showing whatever came back either
+// way — it just makes a value outside a plausible household-scale band show
+// up in diagnostics, the same "surface it, don't guess" principle the gas
+// unit detection and the rate-lookup miss counter already follow elsewhere
+// in this file. Bands are best-effort plausibility ranges, not hard limits.
+export function sanityCheck(value, { min, max, label, expected }) {
+  if (value == null || Number.isNaN(value)) return value;
+  if (value < min || value > max) {
+    logDebug('Unit check', `${label} = ${value} outside plausible ${min}–${max} (expected ${expected})`);
+  }
+  return value;
+}
+
 async function loadLiveUsage() {
   const deviceId = await getLiveDeviceId();
   if (!deviceId) {
@@ -2227,7 +2246,7 @@ async function loadLiveUsage() {
     if (!points.length) throw new Error('No telemetry points returned for the last 2 minutes');
 
     const latest = points[points.length - 1];
-    const watts = Math.round(latest.demand);
+    const watts = sanityCheck(Math.round(latest.demand), { min: 0, max: 30000, label: 'Live demand', expected: 'W' });
     $('live-watts').innerHTML = `${watts}<span>W</span>`;
     $('live-watts').style.color = liveWattsColor(watts);
     $('live-updated').textContent = `Updated ${new Date(latest.readAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
@@ -2295,6 +2314,11 @@ async function loadLive30() {
       }`, { deviceId, start: start.toISOString(), end: now.toISOString() });
 
     const points = data?.smartMeterTelemetry || [];
+    // Checked once across the whole batch (its maximum), not per point —
+    // a genuine unit change would affect essentially every reading, so the
+    // max alone catches it without logging once per point (up to 180 of
+    // them here) on every 30s refresh.
+    sanityCheck(Math.max(...points.map(p => +p.consumptionDelta || 0), 0), { min: 0, max: 1000, label: 'consumptionDelta (10s reading, batch max)', expected: 'Wh' });
     const buckets = bucketTelemetryByMinute(points, now);
     const totalWh = buckets.reduce((s, v) => s + v, 0);
 
@@ -3229,7 +3253,7 @@ async function loadEVSmartFlex() {
   const power = vehicle.chargePointPowerOutput;
   if (activeDispatch && power != null) {
     $('ev-pmeter').classList.remove('hidden');
-    renderPowerMeter(+power);
+    renderPowerMeter(sanityCheck(+power, { min: 0, max: 100, label: 'chargePointPowerOutput', expected: 'kW' }));
   } else {
     $('ev-pmeter').classList.add('hidden');
   }
