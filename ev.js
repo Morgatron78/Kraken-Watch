@@ -218,17 +218,20 @@ function renderEVSessionSlots(sessions, now) {
     const costP = estimateSessionCostP(s);
     const costLine = costP != null ? `<span class="slot-cost-line">${fmtGBP(costP / 100)} <span class="est">(Est.)</span></span>` : '';
     // Carbon for the session: mean regional grid intensity over its window
-    // (from carbon.js's on-demand history cache) × kWh. Its own sub-line
-    // rather than crammed into the kWh/cost group; absent when the history
-    // fetch didn't reach this far back.
+    // (from carbon.js's on-demand history cache) × kWh. Sits on the same line
+    // as the cost — left of it, under the kWh figure — absent when the
+    // history fetch didn't reach this far back.
     const gPerKwh = kwh != null ? intensityForRange(startD.getTime(), new Date(s.end).getTime()) : null;
-    const co2Row = gPerKwh != null
-      ? `<div class="slot-row slot-co2-row"><span class="slot-co2">≈ <b>${(Math.abs(kwh) * gPerKwh / 1000).toFixed(1)} kg</b> CO₂ · grid avg ${Math.round(gPerKwh)} g/kWh</span></div>`
+    const co2Text = gPerKwh != null
+      ? `≈ <b>${(Math.abs(kwh) * gPerKwh / 1000).toFixed(1)} kg</b> CO₂ · grid avg ${Math.round(gPerKwh)} g/kWh`
+      : '';
+    const row2 = (co2Text || costLine)
+      ? `<div class="slot-row-inline slot-row-inline-2"><span class="slot-co2">${co2Text}</span><span class="soc-col">${costLine}</span></div>`
       : '';
     return `<div class="slot">
       <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> · ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
-      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b></span><span class="soc-col">${milesText}${costLine}</span></div>
-      ${co2Row}
+      <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b></span><span class="soc-col">${milesText}</span></div>
+      ${row2}
       ${detailRowHtml}
     </div>`;
   }).join('');
@@ -990,14 +993,30 @@ function renderEVWeekBreakdown(index) {
   const boostCostP = boostCostsP.every(c => c != null) ? boostCostsP.reduce((s, c) => s + c, 0) : null;
   const allCostsP = bucket.sessions.map(s => estimateSessionCostP(s));
   const totalCostP = allCostsP.every(c => c != null) ? allCostsP.reduce((s, c) => s + c, 0) : null;
+
+  // Same all-or-nothing rule for carbon as for cost: a group's figure shows
+  // only if every session in it matched the intensity history.
+  const co2Suffix = g => g != null ? ` · ${(g / 1000).toFixed(1)} kg` : '';
+  const sessionCo2g = s => {
+    const g = intensityForRange(new Date(s.start).getTime(), new Date(s.end || s.start).getTime());
+    return g != null ? Math.abs(s.energyAdded?.value || 0) * g : null;
+  };
+  const groupCo2g = list => { const cs = list.map(sessionCo2g); return cs.length && cs.every(c => c != null) ? cs.reduce((a, b) => a + b, 0) : null; };
+  const smartCo2 = groupCo2g(smartSessions);
+  const boostCo2 = groupCo2g(boostSessions);
+  const totalCo2 = groupCo2g(bucket.sessions);
+
+  // Session count sits with the type label (Smart/Boost), keeping the value
+  // line to just the three figures — kWh · cost · carbon — so it doesn't
+  // wrap on a phone.
   let rows = '';
   if (smartSessions.length) {
-    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--mint)"></span>Smart</span><span class="val">${smartSessions.length} session${smartSessions.length === 1 ? '' : 's'} · ${bucket.smart.toFixed(1)} kWh${costSuffix(smartCostP)}</span></div>`;
+    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--mint)"></span>Smart <span class="bd-count">×${smartSessions.length}</span></span><span class="val">${bucket.smart.toFixed(1)} kWh${costSuffix(smartCostP)}${co2Suffix(smartCo2)}</span></div>`;
   }
   if (boostSessions.length) {
-    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--pink)"></span>Boost</span><span class="val">${boostSessions.length} session${boostSessions.length === 1 ? '' : 's'} · ${bucket.boost.toFixed(1)} kWh${costSuffix(boostCostP)}</span></div>`;
+    rows += `<div class="breakdown-row"><span class="label"><span class="dot" style="background:var(--pink)"></span>Boost <span class="bd-count">×${boostSessions.length}</span></span><span class="val">${bucket.boost.toFixed(1)} kWh${costSuffix(boostCostP)}${co2Suffix(boostCo2)}</span></div>`;
   }
-  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh${costSuffix(totalCostP)}</span></div>`;
+  box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh${costSuffix(totalCostP)}${co2Suffix(totalCo2)}</span></div>`;
 }
 
 let evWeekBuckets = null;

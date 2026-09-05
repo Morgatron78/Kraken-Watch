@@ -208,8 +208,10 @@ button{font-family:inherit;cursor:pointer;}
 .tag-amber{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);}
 .tag-dim{color:var(--text-dim);background:var(--dim-fill);border:1px solid var(--dim-line);}
 
-/* Hero / rate */
-.hero{background:linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));position:relative;overflow:hidden;}
+/* Hero / rate — same flat panel background as every other card (the old
+   top-to-bottom gradient read as a faint "dent" against neighbouring cards,
+   especially on white). */
+.hero{position:relative;overflow:hidden;}
 .rate-value{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:44px;font-weight:600;line-height:1;}
 
 .half-row{display:flex;gap:12px;align-items:stretch;}
@@ -406,10 +408,12 @@ button{font-family:inherit;cursor:pointer;}
 .breakdown-date{font-size:12px;font-weight:600;margin-bottom:10px;}
 .breakdown-source{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:-6px;margin-bottom:10px;}
 .breakdown-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;
-  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11.5px;}
-.breakdown-row .label{display:flex;align-items:center;gap:7px;color:var(--text-dim);}
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11.5px;
+  flex-wrap:wrap;column-gap:10px;row-gap:2px;}
+.breakdown-row .label{display:flex;align-items:center;gap:7px;color:var(--text-dim);flex-shrink:0;}
+.breakdown-row .bd-count{opacity:0.65;}
 .breakdown-row .dot{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
-.breakdown-row .val{color:var(--text);}
+.breakdown-row .val{color:var(--text);text-align:right;flex:1;min-width:0;}
 .breakdown-total{display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;
   border-top:1px solid var(--line);font-size:12.5px;font-weight:600;}
 
@@ -721,6 +725,9 @@ button{font-family:inherit;cursor:pointer;}
 
 .minmax-row{display:flex;gap:10px;}
 .minmax-col{flex:1;background:var(--tint);border-radius:10px;padding:10px 12px;}
+/* This block's minmax-row follows a .trend-row (no bottom margin) rather
+   than sitting straight under the label, so it needs its own top gap. */
+#insights-elec-carbon-block .minmax-row{margin-top:12px;}
 .minmax-tag{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;}
 .minmax-tag.high{color:var(--coral);}
 .minmax-tag.low{color:var(--mint);}
@@ -959,10 +966,9 @@ button{font-family:inherit;cursor:pointer;}
 .slot-cost-line .est{font-size:10px;font-weight:400;color:var(--text-dim);}
 .slot-miles-line{display:inline-flex;align-items:baseline;}
 
-/* Retrospective per-session carbon — its own sub-line under the kWh/cost/
-   miles row rather than crammed into that group. Dim like .slot-cost, with
+/* Retrospective per-session carbon — left cell of the row it shares with the
+   estimated cost (see .slot-row-inline-2), under the kWh figure. Dim, with
    the kg figure picked out in the body text colour. */
-.slot-co2-row{margin-top:2px;}
 .slot-co2{color:var(--text-dim);font-size:10px;}
 .slot-co2 b{color:var(--text);font-weight:600;font-size:10px;}
 
@@ -1001,9 +1007,10 @@ button{font-family:inherit;cursor:pointer;}
    saga started from. */
 .slot-row-inline{width:100%;display:grid;grid-template-columns:96px 1fr;align-items:baseline;column-gap:8px;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;}
-/* Right column stacks the miles figure over the estimated cost, both
-   right-aligned; kWh on the left baseline-aligns to the miles line. */
 .slot-row-inline .soc-col{display:flex;flex-direction:column;align-items:flex-end;gap:3px;white-space:nowrap;justify-self:end;text-align:right;}
+/* Second row: carbon on the left (needs more than the 96px the kWh column
+   uses), estimated cost right-aligned under the miles figure above it. */
+.slot-row-inline-2{grid-template-columns:1fr auto;margin-top:3px;}
 
 /* v2.198: the problem mini-pill now sits in the header row, immediately
    left of the SMART/BOOST badge, instead of the stats row it kept
