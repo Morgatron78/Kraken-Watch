@@ -4216,6 +4216,7 @@ async function loadAll(source = 'app-start') {
   // Live usage runs alongside the others but is excluded from the overall
   // sync-status calculation below — not having a telemetry device is a
   // normal, expected state for most accounts, not a sync failure.
+  lastSlowTierAt = Date.now(); // this call does the slow tier's own work (loadBilling) directly — see shouldRunSlowTier
   const [, evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadEV(), loadBilling()]);
   const results = [evSettled, billingSettled];
   const allResults = [ratesResult, ...results.map(r => r.status === 'fulfilled' ? r.value : false)];
@@ -4262,6 +4263,18 @@ async function loadAll(source = 'app-start') {
 // the initial load and the manual refresh button still call the full
 // loadAll() above, so opening the app or tapping refresh always gets
 // everything at once regardless of tier timing.
+
+// Tracks when the slow tier last actually ran (set both here and in
+// loadAll(), which runs the billing-equivalent work directly) — read by
+// the visibility-resume handler below to decide whether reopening the app
+// warrants a fresh billing pull or would just repeat one from moments ago.
+let lastSlowTierAt = null;
+const SLOW_TIER_MIN_INTERVAL_MS = 30 * 60 * 1000;
+export function shouldRunSlowTier(lastAt, now) {
+  if (lastAt == null) return true;
+  return (now - lastAt) >= SLOW_TIER_MIN_INTERVAL_MS;
+}
+
 async function loadFastTier() {
   const apiKeySnapshot = store.creds?.apiKey;
   clearRateCacheIfNewDay();
@@ -4288,6 +4301,10 @@ async function loadFastTier() {
 // the next fast-tier run 5 minutes later, making billing issues
 // effectively invisible in diagnostics.
 async function loadSlowTier() {
+  // Recorded before attempting, not after succeeding — a repeatedly
+  // failing account shouldn't get hammered every time the tab regains
+  // focus, only on the normal interval.
+  lastSlowTierAt = Date.now();
   const apiKeySnapshot = store.creds?.apiKey;
   let billingSettled;
   try {
@@ -4458,6 +4475,69 @@ async function saveSettings() {
 // guards against ever double-starting these on the rare path where both
 // could theoretically fire in the same session (e.g. saving settings again
 // after an initial successful load).
+// Interval IDs, tracked (previously discarded) so every recurring fetch —
+// both tiers, live usage, and the Last-30-min panel's own poll if it's
+// open — can be paused while the tab is hidden and cleanly restarted when
+// it isn't, rather than running unattended in the background indefinitely
+// and burning against Octopus's shared rate limit for a screen nobody is
+// looking at.
+let fastTierIntervalId = null;
+let slowTierIntervalId = null;
+let liveUsageIntervalId = null;
+
+function stopAutoRefreshTimers() {
+  if (fastTierIntervalId) { clearInterval(fastTierIntervalId); fastTierIntervalId = null; }
+  if (slowTierIntervalId) { clearInterval(slowTierIntervalId); slowTierIntervalId = null; }
+  if (liveUsageIntervalId) { clearInterval(liveUsageIntervalId); liveUsageIntervalId = null; }
+  // Paused, not closed — live30Open is left as-is (see closeLive30, which
+  // is the actual "the user closed it" path and also resets that flag) so
+  // a tab that goes hidden with the panel open resumes polling it, rather
+  // than silently losing the fact that it was open, when the tab is
+  // visible again.
+  if (live30Interval) { clearInterval(live30Interval); live30Interval = null; }
+}
+
+function startAutoRefreshTimers() {
+  // Idempotent — pageshow and visibilitychange can both fire for the same
+  // bfcache-restore transition, and without this guard that would double-
+  // schedule every interval rather than the second call being a no-op.
+  if (fastTierIntervalId) return;
+  fastTierIntervalId = setInterval(loadFastTier, 5 * 60 * 1000);
+  // Usage bars/MTD, bills, standing charges, balance/DD — everything
+  // in loadBilling() — genuinely can't reveal new information more often
+  // than this. Smart meter consumption lags 24-48h regardless of how often
+  // we ask; bills land on Octopus's own roughly-monthly schedule; standing
+  // charges change over weeks, not minutes. 30 minutes was needlessly
+  // frequent and was very likely the main contributor to hitting Octopus's
+  // documented 100-calls/hour shared rate limit.
+  slowTierIntervalId = setInterval(loadSlowTier, 6 * 60 * 60 * 1000);
+  // Live usage refreshes faster on its own — 30s, matching roughly how
+  // often new telemetry actually shows up, without re-running either tier.
+  liveUsageIntervalId = setInterval(() => loadLiveUsage().catch(() => {}), 30 * 1000);
+  if (live30Open) live30Interval = setInterval(loadLive30, 30 * 1000);
+}
+
+// Runs once when the tab regains focus (or returns from the bfcache) after
+// having been hidden — not on every visibility event, and never
+// overlapping itself if one is already in flight (e.g. a rapid tab-switch
+// double-fire). Fast tier is cheap enough to always re-run; slow tier only
+// if shouldRunSlowTier says genuinely enough time has passed, so reopening
+// the app a minute after switching away doesn't repeat a ~25-request
+// billing pull for nothing new.
+let resumeRefreshInFlight = false;
+async function refreshOnResume() {
+  if (resumeRefreshInFlight) return;
+  resumeRefreshInFlight = true;
+  try {
+    await loadFastTier().catch(() => {});
+    if (shouldRunSlowTier(lastSlowTierAt, Date.now())) await loadSlowTier().catch(() => {});
+    await loadLiveUsage().catch(() => {});
+    if (live30Open) await loadLive30().catch(() => {});
+  } finally {
+    resumeRefreshInFlight = false;
+  }
+}
+
 let autoRefreshStarted = false;
 function startAutoRefresh() {
   if (autoRefreshStarted) return;
@@ -4466,18 +4546,18 @@ function startAutoRefresh() {
   // runs once per app lifetime (the function itself no-ops on every later
   // call once cached), not on any recurring schedule at all.
   loadVehicleInfoOnce().catch(() => {});
-  setInterval(loadFastTier, 5 * 60 * 1000);
-  // Usage bars/MTD, bills, standing charges, balance/DD — everything
-  // in loadBilling() — genuinely can't reveal new information more often
-  // than this. Smart meter consumption lags 24-48h regardless of how often
-  // we ask; bills land on Octopus's own roughly-monthly schedule; standing
-  // charges change over weeks, not minutes. 30 minutes was needlessly
-  // frequent and was very likely the main contributor to hitting Octopus's
-  // documented 100-calls/hour shared rate limit.
-  setInterval(loadSlowTier, 6 * 60 * 60 * 1000);
-  // Live usage refreshes faster on its own — 30s, matching roughly how
-  // often new telemetry actually shows up, without re-running either tier.
-  setInterval(() => loadLiveUsage().catch(() => {}), 30 * 1000);
+  startAutoRefreshTimers();
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopAutoRefreshTimers();
+    else { refreshOnResume(); startAutoRefreshTimers(); }
+  });
+  // Covers the bfcache-restore case (e.g. an iOS Safari swipe-back into an
+  // already-loaded tab) — visibilitychange alone doesn't always fire here,
+  // but the page is exactly as stale as if it had been hidden the whole
+  // time it sat in the cache.
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) { refreshOnResume(); startAutoRefreshTimers(); }
+  });
 }
 
 function init() {

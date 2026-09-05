@@ -174,15 +174,19 @@ Bands: `demand` 0–30000 W; `chargePointPowerOutput` 0–100 kW; per-10s `consu
 
 **Effort:** ~30 min, as estimated.
 
-### 3D. Pause timers when hidden, coalesced refresh on resume
-`startAutoRefresh` (~L4352) sets 3 intervals, IDs discarded, no visibility awareness. `openLive30` has its own.
+### 3D. Pause timers when hidden, coalesced refresh on resume — done
+`startAutoRefresh` set 3 intervals with their IDs discarded, no visibility awareness at all; `openLive30`'s own 30s poll had the same gap.
 
-- Store interval IDs.
-- `visibilitychange`: `hidden` → `clearInterval` all (incl. live-30). `visible` → coalesced refresh then restart: `loadFastTier()` always; `loadSlowTier()` if `now - lastSlowTierAt > 30min`; `loadLiveUsage()` if live tag active; `loadLive30()` if that panel open.
-- Track `lastSlowTierAt`. Handle `pageshow` `event.persisted` like `visible`. `refreshInFlight` guard.
-- Extract `shouldRunSlowTier(lastAt, now)` (pure, tested in 1C).
+- Interval IDs are now tracked (`fastTierIntervalId`, `slowTierIntervalId`, `liveUsageIntervalId`), split into `startAutoRefreshTimers()`/`stopAutoRefreshTimers()`. `stopAutoRefreshTimers()` also clears `live30Interval` if the Last-30-min panel is open, but deliberately leaves `live30Open` itself untouched — that flag means "the user has this open," which stays true through a hidden tab; `closeLive30()` (the user actually closing it) is the only path that resets it. `startAutoRefreshTimers()` resumes `live30Interval` if `live30Open` is still true, and is idempotent (a `pageshow` and `visibilitychange` can both fire for the same bfcache-restore transition, and a missing guard here would have double-scheduled every interval).
+- `visibilitychange`: `hidden` → `stopAutoRefreshTimers()`. `visible` → `refreshOnResume()` (fire-and-forget) then `startAutoRefreshTimers()`. `refreshOnResume()` always runs `loadFastTier()`, runs `loadSlowTier()` only if `shouldRunSlowTier(lastSlowTierAt, Date.now())`, and runs `loadLiveUsage()`/`loadLive30()` (the latter only if the panel's open) — guarded by `resumeRefreshInFlight` so an overlapping second trigger (e.g. `pageshow` alongside `visibilitychange`) is a no-op rather than a duplicate fetch burst.
+- `lastSlowTierAt` is set both at the top of `loadSlowTier()` (before attempting — a repeatedly-failing account shouldn't get hammered every time the tab regains focus) and in `loadAll()` itself, which does the slow tier's actual work (`loadBilling()`) directly during the initial/manual full sync.
+- `pageshow` with `event.persisted` runs the identical resume path, covering the bfcache-restore case (e.g. an iOS Safari swipe-back into an already-loaded tab).
 
-**Tests:** `shouldRunSlowTier`. **Effort:** ~1–2 hrs.
+**Verified live**, not just unit-tested: seeded fake credentials to get past the connect screen, then used `Object.defineProperty` to fake `document.hidden`/`visibilityState` and dispatched real `visibilitychange`/`pageshow` events against the built production preview. Console error count (each a real, expected 400/401 from the fake credentials, not a JS crash) stayed flat while "hidden," then jumped on each simulated resume — confirming both paths actually fire the refresh and nothing fires while hidden.
+
+**Tests:** 4 assertions for `shouldRunSlowTier` in `test/refresh.test.js` (never-run, just-under, exactly-at, and well-past the interval). 49/49 tests passing overall.
+
+**Effort:** ~1.5 hrs, including live verification.
 
 ### 3E. `$(id)` drift detection
 - **Dev-only warning** (needs 1A): `$` wrapped to `console.warn` on missing id in `import.meta.env.DEV`, bare `getElementById` in prod.
@@ -205,8 +209,8 @@ Highest-value piece here — catches HTML/JS drift before deploy.
 | 2 | Vitest + first 7 tests + CI (1C) | 1 | ~2 hr | **Done** — 28 assertions passing, wired into CI |
 | 3 | Gas unit unification + tests (3A) | 2 | ~1–2 hr | **Done** — threshold values corrected during implementation, see 3A |
 | 4 | Fetch timeout (3C) | 1 | ~30 min | **Done** |
-| 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | Next |
-| 6 | Unit sanity checks (3B) | 1 | ~1 hr | |
+| 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | **Done** — verified live via simulated visibility events |
+| 6 | Unit sanity checks (3B) | 1 | ~1 hr | Next |
 | 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | |
 | 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | |
 
