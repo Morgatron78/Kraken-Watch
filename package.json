@@ -11,7 +11,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check-ids": "node scripts/check-ids.mjs"
   },
   "devDependencies": {
     "jsdom": "^30.0.1",

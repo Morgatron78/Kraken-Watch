@@ -111,7 +111,19 @@ function getSyncLog() {
   catch { return []; }
 }
 
-const $ = (id) => document.getElementById(id);
+// Dev-only warning on a missing id — surfaces HTML/JS drift (a renamed or
+// removed element an existing $() call still expects) as a console message
+// pointing at the exact id, rather than as a downstream "null is not an
+// object" wherever the caller next tried to use it. See scripts/check-ids.mjs
+// for the build-time version of this same check. import.meta.env.DEV is
+// false in a production build, so this adds nothing to what ships.
+const $ = import.meta.env.DEV
+  ? (id) => {
+      const el = document.getElementById(id);
+      if (!el) console.warn(`[kw] missing #${id}`);
+      return el;
+    }
+  : (id) => document.getElementById(id);
 const fmtGBP = (n) => `£${Math.abs(n).toFixed(2)}`;
 
 // Renders a balance figure as a hero number with a small "in credit"/"owed"

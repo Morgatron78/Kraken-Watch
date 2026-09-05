@@ -192,13 +192,15 @@ No clamping was added anywhere (the "optionally clamp the power-meter fill" idea
 
 **Effort:** ~1.5 hrs, including live verification.
 
-### 3E. `$(id)` drift detection
-- **Dev-only warning** (needs 1A): `$` wrapped to `console.warn` on missing id in `import.meta.env.DEV`, bare `getElementById` in prod.
-- **Build-time id cross-check** (`scripts/check-ids.mjs`, in the `pull_request` job): extract `id="…"` from `index.html` (set A) and static `$('…')`/`getElementById('…')` from `app.js` (set B, skip calls with backtick/`+` — dynamic). Error + exit 1 on `B \ A`. Print `A \ B` as info.
+### 3E. `$(id)` drift detection — done
+- **Dev-only warning**: `$` now branches on `import.meta.env.DEV` — the dev version warns and returns `null` on a missing id, the production version is the original bare `document.getElementById(id)`, so nothing changes in what ships. **Verified live, both branches**: removed `#sync-dot` from the DOM and clicked "Sync now" against both a `vite dev` server and the production `vite preview` build. Dev printed `[kw] missing #sync-dot`; production threw the exact same opaque `TypeError: Cannot set properties of null` the README's bill-history-toggle story describes, with zero warning overhead, confirming the dev branch is genuinely compiled away rather than just usually not firing.
+- **Build-time id cross-check** (`scripts/check-ids.mjs`, wired into the CI `build` job via `npm run check-ids`, so it runs on both `push` and `pull_request`): extracts every `id="…"` from `index.html`, plus every id `app.js` **assigns to an element it builds at runtime** (`insertAdjacentHTML`/template-literal markup with `id="…"`, or `el.id = '…'` on a `createElement`'d node — `ev-sessions-toggle-wrap`, `bh-pill-group`, and `ev-month-partial-note` all work this way) — missing that second source on the first run produced 3 false positives before the check was corrected to include it. Cross-references that combined set against every statically-resolvable `$('…')`/`getElementById('…')` call in `app.js`, skipping (and counting, not guessing at) any template-literal call with `${…}` interpolation. Errors and exits 1 on a genuine miss; a real index.html id with no static JS reference is printed as informational only, since it may well be built from an interpolated template the script can't resolve. **Run against the current codebase: zero missing ids, confirming no existing drift** — 24 informational "unreferenced" ids, all explained (template-literal-constructed, referenced only from the archived/disabled `octopoints-archive.js`, or CSS-only anchors).
 
-Highest-value piece here — catches HTML/JS drift before deploy.
+Highest-value piece in this batch — catches HTML/JS drift before deploy, which is exactly the bug class the bill-history-toggle incident was.
 
-**Tests:** the check script. **Effort:** ~1 hr.
+**Tests:** 10 assertions in `test/check-ids.test.js`, covering all four extraction functions plus `findIdIssues` end-to-end (including a fixture specifically constructed with a genuine drift, to prove the check actually fails when it should, not just that it passes on good input). 65/65 tests passing overall.
+
+**Effort:** ~1.5 hrs, including the runtime-defined-id correction.
 
 ### 3F. De-dup dense-chart logic (decision 4 — optional)
 `renderStackedBars` (~L685), `renderEVHistoryBars` (~L3144), partly `renderWeekBars` (~L659) re-implement `max` calc, `isDense = length > 10`, `.dense` toggle, "every 5th label when dense", "always emit `<span>` even when empty (`&nbsp;`)". Extract `chartMax(values)` and `denseLabels(labels, opts)`; refactor all three. Purely visual — verify with demo-mode screenshots. Lowest priority, no bug attached.
@@ -215,8 +217,8 @@ Highest-value piece here — catches HTML/JS drift before deploy.
 | 4 | Fetch timeout (3C) | 1 | ~30 min | **Done** |
 | 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | **Done** — verified live via simulated visibility events |
 | 6 | Unit sanity checks (3B) | 1 | ~1 hr | **Done** |
-| 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | Next |
-| 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | |
+| 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | **Done** — verified live in both dev and prod builds; zero existing drift found |
+| 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | Next (last Phase 1 item; optional) |
 
 1B runs throughout.
 
