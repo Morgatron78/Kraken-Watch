@@ -252,7 +252,7 @@ All three renderers now call these instead of their own inline versions.
 **This is not a rewrite.** It's incremental module extraction along existing seams, behind the Phase 1 test net.
 
 ## Prerequisites
-Phase 1 complete: Vite/ESM build, Vitest, CI. Without the test net and build this is too risky.
+Phase 1 is complete (Vite/ESM build, Vitest, CI, all 8 items shipped and verified in production) — the test net and build this phase depends on are in place, so Phase 2 can start whenever.
 
 ## Principles
 - **One module per PR.** Each PR is *pure move + `import`/`export` rewiring* **or** *pure behaviour change* — never both.
@@ -269,7 +269,7 @@ Phase 1 complete: Vite/ESM build, Vitest, CI. Without the test net and build thi
 | 2 | `format.js` | `fmtGBP`, `fmtP`, `fmtKwh`, `fmtT`, `formatElapsed`, `$` | — |
 | 3 | `diagnostics.js` | `logIssue`, `logDebug`, `syncIssues`/`debugNotes` (as reset + accessor, not bare `let`), `renderDiagnostics` | store, format |
 | 4 | `api.js` | `octRest`, `krakenGQL`, `getKrakenToken`, `checkRateLimitBlocked`, timeout wrapper | store, diagnostics |
-| 5 | `charts.js` | `renderWeekBars`, `renderStackedBars`, `renderChartScale`, `renderPowerMeter`, `chartMax`, `denseLabels` | format |
+| 5 | `charts.js` | `renderWeekBars`, `renderStackedBars`, `renderChartScale`, `renderPowerMeter`, `chartMax`, `isChartDense`, `chartLabelOrBlank` | format |
 | 6 | `rates.js` | `fetchElecRates`/`fetchGasRates`, `rateCache` + eviction, `rateAt`, `costForRange`, `bucketReadingsByDay`, gas conversion, `bufferedRateFrom`; cached-rate globals → exported mutable `rateState` object (only `rates.js` writes it) | api, store, diagnostics |
 | 7 | `ev.js` | all EV (~1,200 lines): `loadEVSmartFlex`, session/dispatch renderers, history buckets, insights, demo | api, charts, rates, format, store |
 | 8 | `usage.js` | fuel panels, `renderFuelPanel`, day/week/month/year, date picker, `lastNDaysElecSplit` etc. | api, rates, charts |
