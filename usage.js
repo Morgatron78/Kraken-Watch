@@ -859,7 +859,7 @@ export async function handlePeriodToggleClick(e) {
     } catch (err) {
       logDebug('Prior-year elec probe', `request failed — ${err.message}`);
     }
-    renderDiagnostics(); // logDebug() alone doesn't redraw the panel — same lesson as the v2.196 comment above, missed here on first pass
+    renderDiagnostics(); // logDebug() alone doesn't redraw the panel
   }
   updateDatePickerUI();
   renderFuelPanel('elec');
