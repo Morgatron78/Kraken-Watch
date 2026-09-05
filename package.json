@@ -12,9 +12,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "lint": "eslint .",
     "check-ids": "node scripts/check-ids.mjs"
   },
   "devDependencies": {
+    "eslint": "^10.10.0",
     "jsdom": "^30.0.1",
     "vite": "^8.2.2",
     "vite-plugin-pwa": "^1.3.0",
