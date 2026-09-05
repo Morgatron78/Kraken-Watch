@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldRunSlowTier } from '../app.js';
+import { shouldRunSlowTier } from '../main.js';
 
 describe('shouldRunSlowTier', () => {
   const THIRTY_MIN = 30 * 60 * 1000;

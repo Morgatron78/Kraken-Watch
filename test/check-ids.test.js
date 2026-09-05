@@ -8,7 +8,7 @@ const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 describe('findAppModuleFiles', () => {
   it('includes the known app modules and excludes the build configs', () => {
     const files = findAppModuleFiles(repoRoot);
-    expect(files).toEqual(expect.arrayContaining(['app.js', 'store.js', 'format.js', 'diagnostics.js']));
+    expect(files).toEqual(expect.arrayContaining(['main.js', 'store.js', 'format.js', 'diagnostics.js']));
     expect(files).not.toContain('vite.config.js');
     expect(files).not.toContain('vitest.config.js');
   });
@@ -83,7 +83,7 @@ describe('findIdIssues', () => {
     expect(missing).toEqual(['typo-id']);
   });
 
-  it('does not flag an id that app.js defines for itself at runtime', () => {
+  it('does not flag an id that a module defines for itself at runtime', () => {
     const html = `<div id="foo"></div>`;
     const js = `
       const wrap = document.createElement('div');

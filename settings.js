@@ -2,7 +2,7 @@ import { store } from './store.js';
 import { $ } from './format.js';
 import { logIssue } from './diagnostics.js';
 import { octRest, resetKrakenToken } from './api.js';
-import { loadAll, startAutoRefresh } from './app.js';
+import { loadAll, startAutoRefresh } from './main.js';
 
 // Populated by saveSettings()'s best-effort meter-point lookup, read by
 // app.js's loadAll()/loadFastTier() at the top of each sync so a genuine

@@ -381,7 +381,7 @@ bump it with `npm version patch`/`minor`/`major` whenever a change feels
 worth naming, but forgetting to has no functional effect (unlike the old
 scheme, where it did — see below).
 
-Cache-busting is automatic too: Vite content-hashes the built `app.js`/
+Cache-busting is automatic too: Vite content-hashes the built `main.js`/
 `styles.css` filenames, so a changed file is a guaranteed cache miss
 without any `?v=` query string to maintain. The service worker
 (`sw.js`, via `vite-plugin-pwa` in `injectManifest` mode) derives its own

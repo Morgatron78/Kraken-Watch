@@ -28,7 +28,7 @@ export default defineConfig({
         injectionPoint: 'self.__WB_MANIFEST',
       },
       manifest: false, // keep the hand-written public/manifest.json as-is
-      injectRegister: false, // app.js already registers the SW itself
+      injectRegister: false, // main.js already registers the SW itself
       devOptions: { enabled: false },
     }),
   ],
