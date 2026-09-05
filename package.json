@@ -1,9 +1,16 @@
 {
-  "name": "kraken-watch-ev-notify",
+  "name": "kraken-watch",
+  "version": "2.265",
   "private": true,
   "type": "module",
-  "description": "GitHub Actions checker for EV dispatch status — sends push notifications on charging start/end. Not part of the deployed app itself.",
-  "dependencies": {
-    "web-push": "^3.6.7"
+  "description": "A personal installable PWA dashboard for Octopus Energy — current rate, live usage, Intelligent Octopus Go EV charging, consumption, and billing.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2",
+    "vite-plugin-pwa": "^1.3.0"
   }
 }

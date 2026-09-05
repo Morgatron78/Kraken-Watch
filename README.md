@@ -351,9 +351,11 @@ device — nothing is sent anywhere except directly to Octopus's own API.
 ## Hosting it
 
 Currently hosted on **GitHub Pages** (free, no deploy-credit limits worth
-worrying about for personal use). Push this folder to a repo (**public**,
-so GitHub Actions minutes are unlimited if you set up notifications later),
-enable Pages in repo settings (`main` branch, `/root`).
+worrying about for personal use), built and deployed by GitHub Actions on
+every push to `main` (**public** repo, so Actions minutes are unlimited).
+In repo Settings → Pages, set Source to **GitHub Actions** (not "Deploy
+from a branch" — there's no `dist/` folder committed to the repo for that
+to point at).
 
 Other free options if needed: Netlify Drop, Vercel — but GitHub Pages is
 what this project actually uses day to day.
@@ -366,43 +368,37 @@ what this project actually uses day to day.
 
 ## Updating after a change
 
-Versioning is MAJOR.MINOR. MINOR bumps (v2.1, v2.2...) cover regular fixes
-and small-to-moderate additions; MAJOR only moves for something that feels
-like a genuine new generation of the app.
+The build is Vite (see `vite.config.js`), deployed via GitHub Actions on
+every push to `main` — see `.github/workflows/deploy.yml`. There is no
+manual release ritual: push, and CI builds and deploys.
 
-The footer shows the app version — check it after a deploy to confirm the
-new build actually landed. On every release, bump **four** things
-together, all to the same number — including a release that only touches
-HTML/CSS with no JS content changes at all, since GitHub Pages' CDN cache
-is keyed on the URL including the query string, not on whether the JS
-specifically changed.
+The footer shows the app version as `v<semver> (<short commit SHA>)` — e.g.
+`v2.265 (a1b2c3d)`. The SHA half is what actually confirms a given deploy
+landed: it's baked in automatically by `vite.config.js` from `git rev-parse
+--short HEAD` at build time, so it changes on every commit with nothing to
+remember. `package.json`'s semver is a separate, purely cosmetic label —
+bump it with `npm version patch`/`minor`/`major` whenever a change feels
+worth naming, but forgetting to has no functional effect (unlike the old
+scheme, where it did — see below).
 
-1. `APP_VERSION` in `app.js`
-2. `CACHE` in `sw.js`
-3. The `?v=NN` query string on `styles.css` and `app.js` in **both**
-   `index.html` (the `<link>`/`<script>` tags) and `sw.js` (the `SHELL`
-   array) — these must match exactly, or the service worker will try to
-   cache a URL that doesn't exist in the page and silently fail to update
-   the shell.
+Cache-busting is automatic too: Vite content-hashes the built `app.js`/
+`styles.css` filenames, so a changed file is a guaranteed cache miss
+without any `?v=` query string to maintain. The service worker
+(`sw.js`, via `vite-plugin-pwa` in `injectManifest` mode) derives its own
+cache name from a hash of the precached file list itself, not from the app
+version — so it changes exactly when a precached file's content actually
+changes, including on the CSS/HTML/icon-only releases the old four-things-
+in-sync scheme existed specifically to cover.
 
-**Why the query strings exist:** GitHub Pages sits behind a CDN with its
-own cache timing that `updateViaCache: 'none'` can't override — that
-setting only controls the *browser's* local cache, not GitHub's edge
-cache. Bumping the query string on every release makes each version a
-guaranteed cache miss everywhere, browser and CDN both.
-
-This doesn't fully solve staleness for `index.html` itself, since the page
-URL can't be query-string-versioned the same way — if the page itself
-seems stale right after a deploy, that's GitHub's CDN propagation delay,
-typically resolving within a few minutes on its own.
-
-If a change still doesn't appear after confirming the version bump:
+If a change still doesn't appear after a deploy:
 
 1. Wait a few minutes for GitHub's CDN to catch up, then reload.
 2. On iPhone: fully close the app (swipe it away in the app switcher), or
    as a last resort go to **Settings → Safari → Advanced → Website Data**,
    find the site, and remove it — clears both the HTTP cache and the
    service worker registration.
+
+See `docs/improvement-plan.md` for the full reasoning behind this setup.
 
 ## App icon
 

@@ -14,9 +14,14 @@
 
 const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
-// Bump alongside CACHE in sw.js on every release — shown in the footer so
-// it's obvious at a glance whether a deploy actually landed.
-const APP_VERSION = 'v2.265';
+// __APP_VERSION__ / __BUILD_SHA__ are injected by Vite at build time (see
+// vite.config.js). The SHA half is what actually confirms a given deploy
+// landed — it changes automatically on every commit, unlike the semver
+// half (package.json's "version", bumped manually and purely cosmetic),
+// which could otherwise go stale if a release forgot to bump it. sw.js's
+// own cache name is versioned independently, from the precache manifest's
+// content — see the comment at the top of sw.js.
+const APP_VERSION = `v${__APP_VERSION__} (${__BUILD_SHA__})`;
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -4652,4 +4657,9 @@ function init() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// As a module script, this file is deferred — DOMContentLoaded may already
+// have fired by the time it runs, so the event can't be relied on alone.
+// (This guard also means importing app.js, e.g. from a test, never runs
+// init() on its own — there's no 'loading' document to trigger it from.)
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
