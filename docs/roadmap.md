@@ -100,6 +100,14 @@ answer *"how clean is **my** usage?"* (retrospective, personalised) —
 arguably the more interesting question, and each slots into a panel that
 already exists.
 
+> **Status:** Live usage + Current rate lines shipped with the card. The
+> historical matcher (`ensureHistIntensity` / `intensityForRange` /
+> `intensityMeanInHourBand` in `carbon.js`) and the two EV retrospective
+> touches — per-session `≈ kg CO₂ · grid avg N g/kWh` sub-line, and the
+> weekly *"Smart charging this week averaged N gCO₂/kWh · ~X% cleaner than a
+> 4–7pm charge"* Insights line — shipped next. Still open: the dispatch-
+> window intensity tag, and the Usage/Insights weekly-electricity CO₂ figure.
+
 | Panel | Addition | Effort |
 |---|---|---|
 | **EV charging** *(strongest fit)* | Per-session carbon next to the estimated cost (`22.1 kWh · ~£1.66 · ~1.5 kg CO₂`); an EV Insights line (*"smart charging this week averaged 78 gCO₂/kWh — ~40% below a peak-time charge"*); a small intensity tag on the active/planned dispatch window. IOG dispatches run overnight when the grid is usually greenest, so this is a genuinely novel "your smart charging is also low-carbon" angle. | ~1 day |

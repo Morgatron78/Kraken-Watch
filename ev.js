@@ -5,6 +5,7 @@ import { krakenGQL } from './api.js';
 import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelOrBlank, renderWeekBars } from './charts.js';
 import { estimateSessionCostP, rateState } from './rates.js';
 import { daysElapsedInMonth } from './usage.js';
+import { ensureHistIntensity, intensityForRange, intensityMeanInHourBand } from './carbon.js';
 
 // Settings takes an optional WLTP spec pair (range in miles, usable battery
 // kWh); the mi/kWh ratio is derived from it per-account. This fallback
@@ -207,9 +208,18 @@ function renderEVSessionSlots(sessions, now) {
     // together). See estimateSessionCostP for why today's rate is used.
     const costP = estimateSessionCostP(s);
     const costText = costP != null ? `<span class="slot-cost">(Est. <b>${fmtGBP(costP / 100)}</b>)</span>` : '';
+    // Carbon for the session: mean regional grid intensity over its window
+    // (from carbon.js's on-demand history cache) × kWh. Its own sub-line
+    // rather than crammed into the kWh/cost group; absent when the history
+    // fetch didn't reach this far back.
+    const gPerKwh = kwh != null ? intensityForRange(startD.getTime(), new Date(s.end).getTime()) : null;
+    const co2Row = gPerKwh != null
+      ? `<div class="slot-row slot-co2-row"><span class="slot-co2">≈ <b>${(Math.abs(kwh) * gPerKwh / 1000).toFixed(1)} kg</b> CO₂ · grid avg ${Math.round(gPerKwh)} g/kWh</span></div>`
+      : '';
     return `<div class="slot">
       <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> · ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
       <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b>${costText}</span><span class="soc-col">${milesText}</span></div>
+      ${co2Row}
       ${detailRowHtml}
     </div>`;
   }).join('');
@@ -284,6 +294,7 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
   const cached = evSessionsCache.get(nextDays);
   if (cached) {
     evSessionsWindowDays = nextDays;
+    await ensureHistIntensity(now.getTime() - nextDays * 24 * 60 * 60 * 1000);
     renderEVSessionSlots(cached, now);
     lessBtn.classList.remove('hidden');
     return;
@@ -297,6 +308,7 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
     if (sessions.length) {
       evSessionsCache.set(nextDays, sessions);
       evSessionsWindowDays = nextDays;
+      await ensureHistIntensity(now.getTime() - nextDays * 24 * 60 * 60 * 1000);
       renderEVSessionSlots(sessions, now);
       lessBtn.classList.remove('hidden');
     }
@@ -357,6 +369,15 @@ async function loadEVSmartFlex() {
   evLoadedSessions = sessions;
   const planned = data.plannedDispatches || [];
   const now = new Date();
+
+  // Warm the grid-intensity history cache back to the oldest session on
+  // screen so the per-session CO₂ lines and the weekly carbon insight have
+  // data to match against. Best-effort — a failure just omits those figures.
+  const oldestSessionMs = sessions.reduce(
+    (min, s) => Math.min(min, new Date(s.start).getTime()),
+    now.getTime() - 8 * 24 * 60 * 60 * 1000
+  );
+  await ensureHistIntensity(oldestSessionMs);
   const isActiveWindow = (d, n) => n >= new Date(d.start) && n < new Date(d.end);
   const activeDispatch = planned.find(d => isActiveWindow(d, now));
   // completedDispatches comes back in reverse time order; sorted ascending
@@ -753,6 +774,38 @@ function renderEVInsights(sessions, now) {
     const busiestDate = new Date(startOfWeek); busiestDate.setDate(busiestDate.getDate() + busiestIdx);
     const b = buckets[busiestIdx];
     $('insights-ev-highlight').innerHTML = `Busiest day: <b>${dayNames[busiestDate.getDay()]}</b>, ${busiestTotal.toFixed(1)} kWh across ${b.sessions.length} session${b.sessions.length === 1 ? '' : 's'}`;
+  }
+
+  // Carbon of this week's Smart charging vs a peak-time charge. kWh-weighted
+  // mean of the regional grid intensity over each Smart session's window
+  // (from carbon.js's history cache), against the mean intensity of the
+  // 4–7pm slots over the same week as the "if you'd charged at peak" baseline.
+  // Only Smart sessions — Boost is the user's deliberate choice, not the
+  // smart-scheduling story this line is about.
+  const weekStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).getTime();
+  let smartKwh = 0, smartCo2g = 0;
+  for (const bk of buckets) {
+    for (const s of bk.sessions) {
+      if (s.type === 'BOOST') continue;
+      const kwh = Math.abs(s.energyAdded?.value || 0);
+      const g = intensityForRange(new Date(s.start).getTime(), new Date(s.end).getTime());
+      if (g != null && kwh > 0) { smartKwh += kwh; smartCo2g += kwh * g; }
+    }
+  }
+  const carbonLine = $('insights-ev-carbon');
+  if (smartKwh > 0) {
+    const avgG = smartCo2g / smartKwh;
+    const peakG = intensityMeanInHourBand(weekStartMs, now.getTime(), 16, 19);
+    let rel = '';
+    if (peakG != null && peakG > 0) {
+      const pct = Math.round((1 - avgG / peakG) * 100);
+      rel = pct > 0 ? ` · ~${pct}% cleaner than a 4–7pm charge`
+        : pct < 0 ? ` · ~${-pct}% dirtier than a typical 4–7pm charge`
+          : ' · about the same as a 4–7pm charge';
+    }
+    carbonLine.innerHTML = `Smart charging this week averaged <b>${Math.round(avgG)} gCO₂/kWh</b>${rel}`;
+  } else {
+    carbonLine.textContent = '';
   }
 
   // Charging costs — point-in-time, not period-based like the rest of this

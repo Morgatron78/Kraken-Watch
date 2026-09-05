@@ -775,6 +775,8 @@ button{font-family:inherit;cursor:pointer;}
 .ev-streak-text b{color:var(--text);font-weight:600;}
 .ev-highlight-line{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
 .ev-highlight-line b{color:var(--text);font-weight:600;}
+/* Carbon insight line only renders when the history match produced a figure. */
+.ev-highlight-line:empty{display:none;}
 
 .hidden{display:none !important;}
 
@@ -952,6 +954,13 @@ button{font-family:inherit;cursor:pointer;}
    (confirmed via user screenshot). Explicit font-size added to actually
    win the cascade. */
 .slot-cost b{color:var(--text-dim);font-weight:400;font-size:10px;}
+
+/* Retrospective per-session carbon — its own sub-line under the kWh/cost/
+   miles row rather than crammed into that group. Dim like .slot-cost, with
+   the kg figure picked out in the body text colour. */
+.slot-co2-row{margin-top:2px;}
+.slot-co2{color:var(--text-dim);font-size:10px;}
+.slot-co2 b{color:var(--text);font-weight:600;font-size:10px;}
 
 /* v2.206: .slot-soc (the mint SoC start→finish %) removed along with the
    feature — see app.js for why it was never a reliable figure. */

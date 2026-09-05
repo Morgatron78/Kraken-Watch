@@ -123,3 +123,86 @@ function renderCarbonCard(slots, current, region) {
 }
 
 const leafSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>';
+
+/* ---------------------- Historical intensity (retrospective) ----------------------
+   The card above is forward-looking ("when is the grid clean?"). This block
+   answers the retrospective half ("how clean was *my* charging?") for the EV
+   panel: a half-hour-keyed cache of past gCO₂/kWh, filled on demand from
+   NESO's historical range endpoint, plus range-average helpers.
+
+   Best-effort throughout — a failed fetch just leaves the cache short and
+   callers treat a missing slot as "no figure", exactly like a null kWh. */
+
+const HALF_HOUR = 30 * 60 * 1000;
+// NESO caps a regional range request at 14 days; 13 keeps clear of the edge.
+const MAX_SPAN_MS = 13 * 24 * 60 * 60 * 1000;
+
+// key = slot start as 'YYYY-MM-DDTHH:mm' (UTC, half-hour-aligned); value = gCO₂/kWh
+const histCache = new Map();
+let histOutcode = null;      // outcode the cache was built for
+let histCoveredFromMs = null; // oldest instant the cache covers (its `to` end is always ~now)
+
+const slotKey = ms => new Date(Math.floor(ms / HALF_HOUR) * HALF_HOUR).toISOString().slice(0, 16);
+
+async function fetchHistWindow(fromMs, toMs, outcode) {
+  const from = isoMinute(new Date(fromMs));
+  const to = isoMinute(new Date(toMs));
+  const path = outcode
+    ? `/regional/intensity/${from}/${to}/postcode/${encodeURIComponent(outcode)}`
+    : `/intensity/${from}/${to}`;
+  const j = await fetchJson(path);
+  // Regional wraps its slots in an object like the forecast endpoint; national
+  // returns the array directly. Regional publishes forecast only for past
+  // periods (no regional "actual"), so forecast ?? actual covers both.
+  const block = outcode ? (Array.isArray(j?.data) ? j.data[0] : j?.data) : null;
+  const slots = (outcode ? block?.data : j?.data) || [];
+  for (const s of slots) {
+    const v = s?.intensity?.forecast ?? s?.intensity?.actual;
+    if (v != null) histCache.set(slotKey(new Date(s.from).getTime()), Math.round(v));
+  }
+}
+
+// Fill the cache back to `fromMs` (up to now). Cheap to call repeatedly: it
+// only fetches the span not already covered, in <=13-day chunks. A chunk
+// failure aborts the rest but keeps whatever was fetched.
+export async function ensureHistIntensity(fromMs) {
+  const outcode = (store.creds?.outcode || '').trim() || null;
+  if (outcode !== histOutcode) { histCache.clear(); histOutcode = outcode; histCoveredFromMs = null; }
+  const stop = histCoveredFromMs == null ? Date.now() : histCoveredFromMs;
+  if (fromMs >= stop) return; // already covered
+  for (let a = fromMs; a < stop; a += MAX_SPAN_MS) {
+    const b = Math.min(a + MAX_SPAN_MS, stop);
+    try {
+      await fetchHistWindow(a, b, outcode);
+    } catch (err) {
+      logIssue('Carbon history', err);
+      return; // partial cache is still usable; don't advance the covered mark
+    }
+  }
+  histCoveredFromMs = fromMs;
+}
+
+// Mean gCO₂/kWh across cached half-hour slots overlapping [fromMs, toMs).
+// null when no slot in range is cached — caller then shows no figure.
+export function intensityForRange(fromMs, toMs) {
+  if (!(toMs > fromMs)) return null;
+  let sum = 0, n = 0;
+  for (let t = Math.floor(fromMs / HALF_HOUR) * HALF_HOUR; t < toMs; t += HALF_HOUR) {
+    const v = histCache.get(slotKey(t));
+    if (v != null) { sum += v; n++; }
+  }
+  return n ? sum / n : null;
+}
+
+// Mean gCO₂/kWh across cached slots that fall in a local-time hour band
+// (e.g. 16–19 for a "peak-time charge" baseline), over [fromMs, toMs).
+export function intensityMeanInHourBand(fromMs, toMs, hourFrom, hourTo) {
+  let sum = 0, n = 0;
+  for (let t = Math.floor(fromMs / HALF_HOUR) * HALF_HOUR; t < toMs; t += HALF_HOUR) {
+    const h = new Date(t).getHours() + new Date(t).getMinutes() / 60;
+    if (h < hourFrom || h >= hourTo) continue;
+    const v = histCache.get(slotKey(t));
+    if (v != null) { sum += v; n++; }
+  }
+  return n ? sum / n : null;
+}
