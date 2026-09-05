@@ -398,7 +398,10 @@ If a change still doesn't appear after a deploy:
    find the site, and remove it — clears both the HTTP cache and the
    service worker registration.
 
-See `docs/improvement-plan.md` for the full reasoning behind this setup.
+See `docs/improvement-plan.md` for the full reasoning behind this setup, and
+`docs/CHANGELOG.md` for the change history up to ~v2.264 (extracted from the
+`// v2.xxx:` source comments — from v2.265 on, the git commit messages carry
+that detail).
 
 ## App icon
 
