@@ -1,26 +1,21 @@
 /* ==========================================================================
-   Kraken Watch — first build
+   Kraken Watch — entry point (init, event wiring, refresh tiers).
    -------------------------------------------------------------------------
    - Octopus REST API (consumption, tariffs, account/balance): documented,
-     stable, uses your API key over HTTP Basic Auth.
-   - Kraken GraphQL API (Intelligent Octopus Go dispatches): this is the
-     same API the official Octopus app uses, but it isn't officially
-     published — field names here are based on community reverse-engineering
-     (see the Home Assistant Octopus Energy integration on GitHub) and may
-     need adjusting if Octopus changes their schema. If a GraphQL call
-     fails, the EV card falls back to demo data and flags itself as such
-     rather than breaking the page.
+     stable, API key over HTTP Basic Auth.
+   - Kraken GraphQL API (Intelligent Octopus Go dispatches): the same API
+     the official Octopus app uses, but not officially published — field
+     names come from community reverse-engineering (the Home Assistant
+     Octopus Energy integration) and may need adjusting if the schema
+     changes. On a GraphQL failure the EV card falls back to demo data and
+     flags itself rather than breaking the page.
    ========================================================================== */
 
-import { store, logSyncAttempt, getSyncLog, demoFallbackEnabled } from './store.js';
-import { $, fmtGBP, fmtP, fmtKwh, fmtT, formatElapsed, APP_VERSION } from './format.js';
-import { resetDiagnostics, logIssue, logDebug, logRawDebug, getSyncIssues, renderDiagnostics, sanityCheck } from './diagnostics.js';
-import { krakenGQL, checkRateLimitBlocked } from './api.js';
-import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelOrBlank, renderWeekBars, renderStackedBars } from './charts.js';
-import {
-  clearRateCacheIfNewDay, rateState, estimateSessionCostP, fetchElecRates, fetchGasRates, fetchStandingCharge,
-  rateAt, m3ToKwh, detectGasUnit, GAS_M3_THRESHOLD_DAILY, GAS_M3_THRESHOLD_MONTHLY, costForRange, bucketReadingsByDay,
-} from './rates.js';
+import { store, logSyncAttempt, demoFallbackEnabled } from './store.js';
+import { $, fmtP, APP_VERSION } from './format.js';
+import { resetDiagnostics, logIssue, logRawDebug, getSyncIssues, renderDiagnostics } from './diagnostics.js';
+import { checkRateLimitBlocked } from './api.js';
+import { clearRateCacheIfNewDay, rateState, fetchElecRates, rateAt } from './rates.js';
 import {
   loadLiveUsage, loadLive30, closeLive30, openLive30, isLive30Open, pauseLive30Polling, resumeLive30PollingIfOpen,
 } from './live-usage.js';
@@ -29,14 +24,11 @@ import {
   handleEvHeaderClick, handleEvViewToggleClick, handleEvWeekClick, handleEvHistoryPeriodToggleClick,
 } from './ev.js';
 import {
-  fuelData, dayTotal, breakdownRow, daysElapsedInMonth, daysInMonth, isoDate,
-  renderFuelPanel, loadMonthData, loadPickedPeriodData,
-  lastNDaysElecSplitWithStanding, lastNDaysGasSplitWithStanding, fetchYearMonthly,
   handleUnitToggleClick, handlePeriodToggleClick, handleDatePickerBtnClick,
   handlePickerPrevMonthClick, handlePickerNextMonthClick, handlePickerGridClick,
   handleResetToTodayClick, handleFuelWeekBarClick, handleElecDayBarClick,
 } from './usage.js';
-import { billingState, billMonthsData, loadBilling, handleBillYearBarClick } from './billing.js';
+import { loadBilling, handleBillYearBarClick } from './billing.js';
 import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insights.js';
 import { meterDebugNote, openSettings, closeSettings, saveSettings } from './settings.js';
 
@@ -53,26 +45,11 @@ function setSyncStatus(state, label) {
 async function loadRates() {
   try {
     const now = new Date();
-    // v2.167: was `isoDate(now)` (= now.toISOString().slice(0,10), always
-    // the UTC calendar date) with a literal Z appended to both boundaries
-    // — meant to mean "today, local midnight to midnight" but actually
-    // meaning "today, UTC midnight to midnight". During BST (UTC+1), local
-    // time crosses into a new day up to an hour before UTC does — so for
-    // roughly that hour every night, todayISO silently resolved to
-    // yesterday's UTC date, and the whole day's rate fetch was anchored to
-    // the wrong 24-hour window: shifted roughly an hour early, and not
-    // reaching far enough into what was genuinely still "later today"
-    // locally. Confirmed live: at 00:21 BST, this showed Standard and
-    // Off-peak as identical (the fetched window had rolled into a stretch
-    // containing only off-peak rate data) and "No change today" (nothing
-    // in that wrongly-scoped array was later than `now`), even though a
-    // real change back to standard rate was still hours away. Fixed by
-    // building the boundary from local date components (`dayStart`, which
-    // this function already computed a few lines below for its own
-    // half-hourly expansion — pulled up here so both uses share it) and
-    // letting `.toISOString()` do the correct UTC conversion itself,
-    // rather than assembling a UTC-labelled string from a UTC-derived date
-    // and treating it as local.
+    // Build the day boundary from local date components and let
+    // `.toISOString()` do the UTC conversion — don't assemble a
+    // UTC-labelled string from a UTC-derived date and treat it as local.
+    // During BST that shifted the whole 24h rate window ~1h early, so for
+    // about an hour each night the fetch anchored to yesterday's UTC date.
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const dayEnd = new Date(+dayStart + 24 * 60 * 60 * 1000 - 60000);
     const fromISO = dayStart.toISOString();
@@ -157,13 +134,10 @@ export async function loadAll(source = 'app-start') {
   const [, evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadEV(), loadBilling()]);
   const results = [evSettled, billingSettled];
   const allResults = [ratesResult, ...results.map(r => r.status === 'fulfilled' ? r.value : false)];
-  // If either promise rejected outright, capture the real reason — this is
-  // the one boundary with no logging at all until now. Every internal path
-  // inside loadBilling/loadEV calls logIssue() on its own failures, but an
-  // uncaught exception that somehow escapes all of those internal
-  // try/catches would land here instead, and previously vanished
-  // completely: we checked .status to get true/false but never touched
-  // .reason, discarding the actual error.
+  // Capture the reason if either promise rejected outright. Internal paths
+  // in loadBilling/loadEV log their own failures, but an uncaught exception
+  // escaping all of them lands here — where checking only .status would
+  // discard the actual error.
   if (evSettled.status === 'rejected') logIssue('EV (uncaught)', evSettled.reason);
   if (billingSettled.status === 'rejected') logIssue('Billing (uncaught)', billingSettled.reason);
   await checkRateLimitBlocked();
@@ -180,26 +154,17 @@ export async function loadAll(source = 'app-start') {
   renderDiagnostics();
 }
 
-// Automatic background refresh runs in two tiers rather than one flat
-// interval, since "how often does this need re-checking" varies wildly:
+// Background refresh runs in two tiers because re-check frequency varies:
 //
-// - Fast tier (this function): rates + EV, ~2 requests total. Both are
-//   genuinely time-sensitive — a tariff rate changes at a fixed boundary,
-//   and EV charging can start/stop — and both are cheap, so there's no
-//   real cost to checking them often.
-// - Slow tier (loadSlowTier below): billing, which alone fires ~25+
-//   requests every run (7-day elec/gas consumption bars, MTD, bill
-//   history, itemized breakdown). None of that changes meaningfully
-//   within minutes — smart meter consumption already lags 24-48h — so
-//   running that whole bundle as often as the fast tier was very likely
-//   tripping Octopus's rate limits intermittently, showing up as real,
-//   available data occasionally flaking to "Unavailable" for no visible
-//   reason.
+// - Fast tier (this function): rates + EV, ~2 requests, both time-sensitive
+//   (rate boundaries, charging start/stop) and cheap — fine to check often.
+// - Slow tier (loadSlowTier): billing, ~25+ requests per run, none of it
+//   changing within minutes (consumption lags 24-48h). Running that bundle
+//   as often as the fast tier was likely tripping Octopus's rate limit,
+//   showing as data flaking to "Unavailable" for no visible reason.
 //
-// Both tiers update sync status/diagnostics independently on completion;
-// the initial load and the manual refresh button still call the full
-// loadAll() above, so opening the app or tapping refresh always gets
-// everything at once regardless of tier timing.
+// Both tiers update sync status/diagnostics independently. The initial load
+// and the manual refresh button still call the full loadAll() above.
 
 // Tracks when the slow tier last actually ran (set both here and in
 // loadAll(), which runs the billing-equivalent work directly) — read by
@@ -256,26 +221,15 @@ async function loadSlowTier() {
 }
 /* --------------------------------- Init ----------------------------------- */
 
-// Two-tier automatic background refresh (see the comment above loadFastTier
-// for the full reasoning): rates + EV are cheap and time-sensitive, so they
-// keep checking every 5 minutes like before. Billing is expensive (~25+
-// requests) and not time-sensitive, so it drops to every 6 hours —
-// that bundle running as often as everything else was the likely cause
-// of intermittent "Unavailable" flashes on data that genuinely was there.
+// startAutoRefresh is called from both init() (returning user with saved
+// credentials) and the end of saveSettings() (first-time setup) — the only
+// two ways the app content becomes visible — so autoRefreshStarted guards
+// against double-starting if both fire in one session.
 //
-// Called both from init() (a returning user who already has saved
-// credentials) and from the end of saveSettings() (first-time setup) —
-// those are the only two ways the app content becomes visible, and this
-// needs to start regardless of which one just happened. autoRefreshStarted
-// guards against ever double-starting these on the rare path where both
-// could theoretically fire in the same session (e.g. saving settings again
-// after an initial successful load).
-// Interval IDs, tracked (previously discarded) so every recurring fetch —
-// both tiers, live usage, and the Last-30-min panel's own poll if it's
-// open — can be paused while the tab is hidden and cleanly restarted when
-// it isn't, rather than running unattended in the background indefinitely
-// and burning against Octopus's shared rate limit for a screen nobody is
-// looking at.
+// The interval IDs are tracked so every recurring fetch (both tiers, live
+// usage, the Last-30-min poll) can be paused while the tab is hidden and
+// restarted when it isn't, rather than burning against the rate limit for a
+// screen nobody's looking at. Two-tier rationale is at loadFastTier above.
 let fastTierIntervalId = null;
 let slowTierIntervalId = null;
 let liveUsageIntervalId = null;
@@ -396,10 +350,6 @@ function init() {
   });
 
   // Day / Week / Month / Year toggle — shared across both fuel panels.
-  // Month/Year data is fetched lazily on first use rather than on every
-  // sync; Day is electricity-only, but the fetch is harmless to attempt
-  // unconditionally since renderFuelPanel handles gas's "not available"
-  // state regardless of whether fuelData.elec.day ends up populated.
   document.querySelectorAll('.unit-toggle[data-role="period"] .unit-toggle-btn').forEach(btn => {
     btn.addEventListener('click', handlePeriodToggleClick);
   });

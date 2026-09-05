@@ -5,9 +5,9 @@ import { octRest, resetKrakenToken } from './api.js';
 import { loadAll, startAutoRefresh } from './main.js';
 
 // Populated by saveSettings()'s best-effort meter-point lookup, read by
-// app.js's loadAll()/loadFastTier() at the top of each sync so a genuine
-// lookup failure (or the account/meter details it found) shows up in the
-// diagnostics log rather than only being knowable by re-opening Settings.
+// loadAll()/loadFastTier() at the top of each sync so a lookup failure (or
+// the meter details it found) shows up in the diagnostics log rather than
+// only being knowable by re-opening Settings.
 export let meterDebugNote = null;
 
 export function openSettings() {
@@ -24,10 +24,9 @@ export function openSettings() {
   $('input-gas-serial').value = c.manualGasSerial || '';
   $('input-calorific-value').value = c.calorificValue || '';
   if (c.manualElecMpan || c.manualGasMprn) $('advanced-fields').classList.remove('hidden');
-  // v2.191: defaults to whatever Octopus's own device record returned
-  // (c.vehicleMake/vehicleModel) unless the user has already saved a
-  // genuine override (c.customVehicleMake/Model) — so the field always
-  // starts pre-filled with the current real value, editable in place.
+  // Pre-fill with Octopus's device-record value (vehicleMake/vehicleModel)
+  // unless the user has saved an override (customVehicleMake/Model), so the
+  // field always shows the current real value, editable in place.
   $('input-ev-make').value = c.customVehicleMake || c.vehicleMake || '';
   $('input-ev-model').value = c.customVehicleModel || c.vehicleModel || '';
   $('input-ev-wltp-miles').value = c.wltpMiles || '';
@@ -52,13 +51,10 @@ export async function saveSettings() {
   if (calorificValueRaw && (!Number.isFinite(calorificValue) || calorificValue <= 0)) {
     alert('Gas calorific value must be a positive number.'); return;
   }
-  // v2.191: custom vehicle name — only actually saved as an override if it
-  // genuinely differs from the current API-returned value; if the user
-  // left the field exactly as pre-filled, this intentionally leaves no
-  // override set, so the display keeps following Octopus's own device
-  // record automatically (e.g. if the vehicle is ever swapped) rather
-  // than permanently freezing to whatever happened to show the one time
-  // Settings was opened and saved.
+  // Save a custom vehicle name as an override only if it differs from the
+  // API-returned value. An untouched field leaves no override, so the
+  // display keeps following Octopus's device record (e.g. if the vehicle is
+  // swapped) rather than freezing to whatever showed when Settings was saved.
   const evMakeInput = $('input-ev-make').value.trim().slice(0, 15);
   const evModelInput = $('input-ev-model').value.trim().slice(0, 60);
   const priorCreds = store.creds || {};

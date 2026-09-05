@@ -6,12 +6,9 @@ import { logIssue, logDebug } from './diagnostics.js';
 // the same underlying rate/consumption data instead of each re-fetching it.
 
 const rateCache = {}; // key: `${tariffCode}_${fromISO}_${toISO}` -> [{from,to,rate}]
-// rateCache is never explicitly sized/evicted by key — instead the whole
-// thing gets wiped once a day (see clearRateCacheIfNewDay, called from
-// loadFastTier since that's the most frequent trigger). Without this, a
-// PWA left open for days would accumulate one new set of entries per day
-// forever — modest per-day (roughly 20-30 entries), but genuinely
-// unbounded over a long enough session.
+// Not evicted by key — the whole thing is wiped once a day
+// (clearRateCacheIfNewDay, called from loadFastTier). Without that, a PWA
+// left open for days accumulates ~20-30 new entries per day indefinitely.
 let rateCacheDay = new Date().toDateString();
 export function clearRateCacheIfNewDay() {
   const today = new Date().toDateString();
@@ -22,39 +19,27 @@ export function clearRateCacheIfNewDay() {
 }
 
 // Cached today's-rate figures, read and written from across the app
-// (loadRates, loadLiveUsage, loadBilling, the EV/insights renderers) —
-// bundled as one exported object rather than individual `let`s so any
-// importer can mutate a property directly (`rateState.offPeakRateP = x`)
-// without needing a setter function for each one. Only the object's own
-// properties are ever reassigned, never the `rateState` binding itself,
-// which is what makes this safe under ESM (a binding reassignment like
-// `rateState = {}` from another module would be a hard error).
+// (loadRates, loadLiveUsage, loadBilling, the EV/insights renderers). One
+// exported object rather than individual `let`s so any importer can mutate a
+// property directly without a setter per figure.
 export const rateState = {
-  offPeakRateP: null, // cheapest electricity rate seen today — fallback rate for Live Usage's £/hr estimate when the current rate hasn't loaded yet
-  currentRateP: null, // right-now electricity rate — used for the live-usage £/hr estimate
-  standardRateP: null, // most expensive electricity rate seen today — v2.154: used to estimate Boost-session charging cost, since Boost charges happen outside the smart dispatch schedule and so are assumed to land at standard rate, not off-peak
+  offPeakRateP: null, // cheapest electricity rate seen today — Live Usage's £/hr fallback when the current rate hasn't loaded
+  currentRateP: null, // right-now electricity rate — the live-usage £/hr estimate
+  standardRateP: null, // most expensive electricity rate seen today — Boost sessions charge outside the smart schedule, so assumed at standard rate
   elecStandingP: null,
   gasStandingP: null,
-  // v2.217: today's live gas unit rate, from the same rate-API fetch that
-  // already populates #gas-unit-rate — kept globally so computeBalanceForecast
-  // can use it instead of MTD-derived consumption (see fix there for why).
+  // Today's live gas unit rate, from the same fetch that fills #gas-unit-rate
+  // — kept here so computeBalanceForecast can use it instead of MTD-derived
+  // consumption (see the fix there for why).
   gasRateP: null,
 };
 
-// v2.192: shared cost-estimate helper — same type-based assumption as the
-// existing "This session" mini-box (v2.154), now reused for the Sessions
-// tab and Charge History too, rather than duplicating the logic three
-// times. Uses TODAY's off-peak/standard rate for every session regardless
-// of how old it is, a deliberate simplification confirmed reasonable with
-// the user: their electricity tariff is fixed for 12-month periods and
-// rarely changes, so a genuine per-session historical-rate fetch (which
-// this app doesn't otherwise do) would add real complexity for a
-// difference that would only actually matter right at a tariff renewal
-// boundary. Returns null (not a guess) if today's rates haven't loaded.
-// `rates` defaults to today's cached rates so every existing single-argument
-// call site (estimateSessionCostP(s)) behaves exactly as before; the
-// optional second argument exists so this is testable without touching the
-// module-level cache directly.
+// Prices a session at TODAY's off-peak/standard rate regardless of its age —
+// a deliberate simplification (the user's electricity tariff is fixed for
+// 12-month periods, so a real per-session historical-rate fetch would only
+// matter at a renewal boundary). Returns null, not a guess, if today's rates
+// haven't loaded. `rates` defaults to the cached figures; the argument
+// exists so this is testable without touching the module cache.
 export function estimateSessionCostP(session, rates = { offPeakP: rateState.offPeakRateP, standardP: rateState.standardRateP }) {
   const { offPeakP, standardP } = rates;
   if (offPeakP == null || standardP == null) return null;
@@ -63,15 +48,11 @@ export function estimateSessionCostP(session, rates = { offPeakP: rateState.offP
   return kwh * rateP;
 }
 
-// Rate queries use a wider lookback window than the actual date range being
-// priced. Narrow single-day queries (used for the 7-day bars) were missing
-// the currently-active rate period on recent days — gas in particular only
-// has a couple of rate changes a month, so a tight 24h window sometimes
-// doesn't span back far enough to catch the row whose valid_from covers it,
-// leaving every reading that day unmatched and silently priced at £0 usage.
-// The month-wide MTD query never hit this because its window is naturally
-// wide enough. Buffering period_from here gives every query that same safety
-// margin without changing what date range is actually being priced.
+// Rate queries look back further than the range being priced. A tight 24h
+// window (the 7-day bars) sometimes doesn't span back to the row whose
+// valid_from covers the day — gas has only a couple of rate changes a month
+// — leaving every reading that day unmatched and priced at £0. Buffering
+// period_from gives every query that margin without changing the priced range.
 const RATE_LOOKBACK_DAYS = 45;
 function bufferedRateFrom(fromISO) {
   const d = new Date(fromISO);
@@ -117,25 +98,21 @@ export async function fetchStandingCharge(fuel) {
       return data.results?.[0]?.value_inc_vat ?? null;
     }
   } catch (err) {
-    // Previously silent — any failure here (a 401, a network error, a
-    // malformed response) was indistinguishable from the legitimate
-    // "no gas tariff on file" case above, both just returning null with
-    // zero trace anywhere. Now the actual reason gets captured before
-    // falling back to null, so callers keep working exactly as before
-    // (a missing standing charge is still handled gracefully) but a real
-    // failure is no longer invisible.
+    // Log the real reason before falling back to null — otherwise a 401 or
+    // network error is indistinguishable from the legitimate "no gas tariff
+    // on file" case above, which also returns null. Callers still handle a
+    // missing standing charge gracefully either way.
     logIssue(`${fuel === 'elec' ? 'Electricity' : 'Gas'} standing charge`, err);
     return null;
   }
 }
 
 export function rateAt(rows, timestamp) {
-  // Find the most recent rate period that started at or before this timestamp,
-  // scanning rows sorted ascending by `from`. This is more robust than requiring
-  // an exact `to` boundary match: a strict range check silently fell back to
-  // rows[0] (often the cheapest rate) whenever a boundary didn't line up exactly,
-  // which quietly mispriced standard-rate electricity usage as off-peak. Only
-  // returns null if the timestamp is before every known rate period.
+  // Most recent rate period that started at or before this timestamp (rows
+  // sorted ascending by `from`). More robust than an exact `to` boundary
+  // match, which silently fell back to rows[0] — often the cheapest rate —
+  // whenever a boundary didn't line up, mispricing standard usage as
+  // off-peak. Returns null only if the timestamp precedes every rate period.
   let match = null;
   for (const r of rows) {
     if (r.from <= timestamp) match = r;
@@ -160,27 +137,17 @@ export function m3ToKwh(m3) {
   return m3 * 1.02264 * gasCalorificValue() / 3.6;
 }
 
-// Octopus's REST consumption endpoint carries no unit field at all
-// (confirmed: a result row is just {consumption, interval_start,
-// interval_end}, nothing else) — so deciding m3 vs kWh is a magnitude
-// heuristic. This used to be decided per-reading, keyed off only the
-// *first* reading in whatever batch happened to be in scope (the whole
-// range for costForRange, a single day's bucket for lastNDaysCost) — one
-// anomalous first value silently flipped the conversion for every other
-// reading in the same batch. Decided once per whole same-granularity batch
-// instead — but the two threshold VALUES themselves (50, 500) are kept
-// exactly as they were, not re-tuned: they were presumably already
-// validated against this app's own real account history, which is better
-// evidence than a fresh back-of-envelope estimate. What was genuinely
-// broken was the inconsistency (each site quietly used a different one)
-// and the per-first-reading fragility, not the numbers.
+// Octopus's REST consumption endpoint carries no unit field (a row is just
+// {consumption, interval_start, interval_end}), so m3 vs kWh is a magnitude
+// heuristic. Decided once per whole same-granularity batch — deciding it
+// per-reading off the first reading let one anomalous value flip the
+// conversion for the rest of the batch. The threshold values (50, 500) are
+// kept as-is, validated against this account's own history.
 //
-// Gas readings from this account's meter are daily totals, not
-// half-hourly (see the "Hourly view isn't available for gas" message in
-// index.html) — a whole day's gas use is a few m3 at most, while a MONTH's
-// aggregate (fetchYearMonthly's group_by=month) can reach into the
-// hundreds of m3 for a large house in winter, hence the very different
-// cutoff between the two.
+// Gas readings from this meter are daily totals, not half-hourly — a day's
+// gas use is a few m3 at most, while a month's aggregate (fetchYearMonthly's
+// group_by=month) reaches hundreds of m3 for a large house in winter, hence
+// the very different cutoffs.
 export const GAS_M3_THRESHOLD_DAILY = 50;
 export const GAS_M3_THRESHOLD_MONTHLY = 500;
 export function detectGasUnit(values, threshold) {
@@ -228,25 +195,20 @@ export async function costForRange(fuel, fromISO, toISO, debugLabel) {
     logIssue(`${fuel === 'elec' ? 'Electricity' : 'Gas'} rate lookup`,
       new Error(`${missed}/${(consData.results || []).length} reading(s) had no matching rate period and were excluded from the cost total`));
   }
-  // hasData distinguishes "genuinely used this much" from "no readings back
-  // yet" — smart meter consumption data usually lags 24-48h behind real
-  // time, so very recent windows (today, sometimes yesterday) often have no
-  // rows at all. But a reading-period placeholder can also land with rows
-  // present and kwh totalling exactly zero before the real consumption
-  // figure has settled — seen on gas specifically, worse than the usual
-  // lag. A genuine zero-usage day (away on holiday) is rare enough that
-  // treating 0 kWh as "not settled yet" is the safer default; it just means
-  // an actual holiday day briefly shows as pending rather than £0, which
-  // self-corrects once a later day's data supersedes it as "latest".
+  // hasData distinguishes "genuinely used this much" from "no readings yet".
+  // Consumption data lags 24-48h, so recent windows often have no rows; and
+  // a placeholder can land with rows present but kwh exactly zero before the
+  // real figure settles (seen on gas). A genuine zero-usage day (holiday) is
+  // rare enough that treating 0 kWh as "not settled" is the safer default —
+  // it just shows as pending briefly, self-correcting once a later day's
+  // data supersedes it as "latest".
   const hasData = (consData.results || []).length > 0 && kwh > 0.001;
   return { kwh, cost: costPence / 100, hasData };
 }
 
-// Splits an array of half-hourly readings into n local-calendar-day buckets,
-// oldest first — same day ordering the old per-day-fetch loop produced, so
-// every caller downstream needs no changes. A reading belongs to the day
-// its own interval_start falls in, in local time (not UTC), matching how
-// day boundaries are computed everywhere else in the app.
+// Splits half-hourly readings into n local-calendar-day buckets, oldest
+// first. A reading belongs to the day its interval_start falls in, in local
+// time (not UTC), matching how day boundaries are computed everywhere else.
 export function bucketReadingsByDay(results, n, now = new Date()) {
   const buckets = Array.from({ length: n }, () => []);
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());

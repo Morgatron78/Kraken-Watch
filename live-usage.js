@@ -110,18 +110,13 @@ export async function loadLiveUsage() {
   }
 }
 
-// Last-30-minutes panel — lazy-loaded only when opened (not part of the
-// regular 30s live poll), and kept genuinely live with its own 30s refresh
-// while open, matching the request that this stay "truly live" like the
-// headline draw figure. Goes through krakenGQL (Kraken's GraphQL endpoint),
-// not octRest, so it never touches the REST-call diagnostic counter — that
-// counter only tracks Octopus's separate REST API.
-//
-// Uses the same TEN_SECONDS grouping already proven to work for the 2-minute
-// query above, rather than guessing at an unconfirmed coarser grouping enum
-// value that could break the whole query if wrong (same caution already
-// applied elsewhere in this file, e.g. the EV dispatch type introspection).
-// Up to 180 raw points get bucketed client-side into 1-minute bars instead.
+// Last-30-minutes panel — lazy-loaded only when opened, then kept live with
+// its own 30s refresh while open. Goes through krakenGQL, not octRest, so it
+// never touches the REST-call diagnostic counter (that tracks the separate
+// REST API). Uses the same TEN_SECONDS grouping proven to work for the
+// 2-minute query above rather than guessing at an unconfirmed coarser enum
+// that could break the whole query; up to 180 raw points are bucketed
+// client-side into 1-minute bars instead.
 let live30Open = false;
 let live30Interval = null;
 
@@ -196,14 +191,11 @@ export function openLive30() {
   live30Interval = setInterval(loadLive30, 30 * 1000);
 }
 
-// The three exports below exist only for app.js's visibility-aware refresh
-// (startAutoRefreshTimers/stopAutoRefreshTimers/refreshOnResume, added in
-// Phase 1) — that code needs to pause/resume this panel's own poll without
-// touching its DOM visibility or its "the user has this open" flag, which
-// is exactly what openLive30/closeLive30 do and must NOT be reused for. A
-// bare `live30Interval = null` reassignment from app.js isn't possible once
-// this state is private to the module (ESM import bindings can't be
-// reassigned by the importer), hence these.
+// The three exports below exist only for the visibility-aware refresh
+// (startAutoRefreshTimers/stopAutoRefreshTimers/refreshOnResume): that code
+// needs to pause and resume this panel's poll without touching its DOM
+// visibility or its "the user has this open" flag, which is exactly what
+// openLive30/closeLive30 do and must NOT be reused for.
 export function isLive30Open() {
   return live30Open;
 }
