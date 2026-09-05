@@ -2,6 +2,18 @@
 // dependencies of their own, so every other module can import from here
 // safely.
 
+// __APP_VERSION__ / __BUILD_SHA__ are injected by Vite at build time (see
+// vite.config.js). The SHA half is what actually confirms a given deploy
+// landed — it changes automatically on every commit, unlike the semver
+// half (package.json's "version", bumped manually and purely cosmetic),
+// which could otherwise go stale if a release forgot to bump it. sw.js's
+// own cache name is versioned independently, from the precache manifest's
+// content — see the comment at the top of sw.js. Lives here (not app.js)
+// since diagnostics.js's "App version: ..." line needs the exact same
+// formatted string as the footer, and this is the shared leaf both import
+// from.
+export const APP_VERSION = `v${__APP_VERSION__} (${__BUILD_SHA__})`;
+
 // Dev-only warning on a missing id — surfaces HTML/JS drift (a renamed or
 // removed element an existing $() call still expects) as a console message
 // pointing at the exact id, rather than as a downstream "null is not an

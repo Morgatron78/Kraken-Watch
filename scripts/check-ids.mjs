@@ -1,25 +1,54 @@
 #!/usr/bin/env node
 // Cross-checks every statically-resolvable $('id')/getElementById('id')
-// reference in app.js against the ids actually available: those declared
-// in index.html, plus any app.js assigns to elements it builds at runtime
-// (insertAdjacentHTML/template-literal markup with id="...", or `el.id =
-// '...'` on a createElement'd node — ev-sessions-toggle-wrap, bh-pill-group,
-// and ev-month-partial-note all work this way). Exists specifically because
-// of the bill-history-toggle bug documented in the README: a DOM/JS drift
-// like this doesn't throw until runtime, and only on whichever code path
-// happens to touch the missing element — this catches it at build/PR time
-// instead, for free, on every push.
+// reference in the app's own source against the ids actually available:
+// those declared in index.html, plus any id a module assigns to an element
+// it builds at runtime (insertAdjacentHTML/template-literal markup with
+// id="...", or `el.id = '...'` on a createElement'd node —
+// ev-sessions-toggle-wrap, bh-pill-group, and ev-month-partial-note all
+// work this way). Exists specifically because of the bill-history-toggle
+// bug documented in the README: a DOM/JS drift like this doesn't throw
+// until runtime, and only on whichever code path happens to touch the
+// missing element — this catches it at build/PR time instead, for free,
+// on every push.
+//
+// Scans every .js file at the repo root except the two Vite/Vitest config
+// files — Phase 2 (docs/improvement-plan.md) is actively splitting app.js
+// into store.js/format.js/diagnostics.js/etc., and this needs to keep
+// covering all of them without a hardcoded file list needing an update
+// every time a new module is extracted. (Checked once, live: the first
+// version of this script only read app.js, and silently stopped seeing
+// roughly a dozen real $()/getElementById() calls the moment they moved
+// into store.js/format.js/diagnostics.js — not a missed id, just reduced
+// coverage that would have gone unnoticed without deliberately checking.)
 //
 // Deliberately narrow: only `$('literal')` / `getElementById('literal')`
 // with a single/double-quoted or plain (non-interpolated) backtick string
 // argument can be checked statically. A template literal with `${...}`
-// interpolation (e.g. `${fuel}-week`, common throughout this file) can't
-// be resolved without actually running the code, so those are counted and
-// skipped rather than guessed at — see dynamicCount in the result.
+// interpolation (e.g. `${fuel}-week`, common throughout this codebase)
+// can't be resolved without actually running the code, so those are
+// counted and skipped rather than guessed at — see dynamicCount below.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+
+// vite.config.js/vitest.config.js are build tooling, never bundled into the
+// app. ev-legacy-archive.js/octopoints-archive.js are dead code kept only
+// as reference material (see their own header comments) — never imported
+// by app.js, never bundled, and not guaranteed to still match index.html's
+// current ids (that's the whole point of them being retired). All four
+// were already outside the original, app.js-only version of this check;
+// excluded explicitly now so growing the scan to every module doesn't
+// silently pull them back in.
+const NON_APP_JS_FILES = new Set([
+  'vite.config.js', 'vitest.config.js',
+  'ev-legacy-archive.js', 'octopoints-archive.js',
+]);
+export function findAppModuleFiles(root) {
+  return readdirSync(root)
+    .filter(f => f.endsWith('.js') && !NON_APP_JS_FILES.has(f))
+    .sort();
+}
 
 export function extractHtmlIds(source) {
   const ids = new Set();
@@ -87,12 +116,14 @@ export function findIdIssues(html, js) {
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   const html = readFileSync(path.join(root, 'index.html'), 'utf8');
-  const js = readFileSync(path.join(root, 'app.js'), 'utf8');
+  const moduleFiles = findAppModuleFiles(root);
+  const js = moduleFiles.map(f => readFileSync(path.join(root, f), 'utf8')).join('\n');
   const { missing, unreferenced, htmlIds, jsDefinedIds, jsIds, dynamicCount } = findIdIssues(html, js);
 
   console.log(
-    `Checked ${jsIds.size} statically-referenced id(s) against ${htmlIds.size + jsDefinedIds.size} known id(s) ` +
-    `(${htmlIds.size} from index.html, ${jsDefinedIds.size} defined at runtime in app.js) ` +
+    `Checked ${jsIds.size} statically-referenced id(s) across ${moduleFiles.length} module file(s) ` +
+    `(${moduleFiles.join(', ')}) against ${htmlIds.size + jsDefinedIds.size} known id(s) ` +
+    `(${htmlIds.size} from index.html, ${jsDefinedIds.size} defined at runtime in JS) ` +
     `— ${dynamicCount} dynamic reference(s) skipped (can't be resolved without running the code).`
   );
 
@@ -105,7 +136,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   }
 
   if (missing.length) {
-    console.error(`\nERROR: ${missing.length} id(s) referenced in app.js but not found anywhere:`);
+    console.error(`\nERROR: ${missing.length} id(s) referenced in JS but not found anywhere:`);
     for (const id of missing) console.error(`  - ${id}`);
     process.exit(1);
   }

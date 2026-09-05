@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { extractHtmlIds, extractJsDefinedIds, extractJsReferencedIds, findIdIssues } from '../scripts/check-ids.mjs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { extractHtmlIds, extractJsDefinedIds, extractJsReferencedIds, findIdIssues, findAppModuleFiles } from '../scripts/check-ids.mjs';
+
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+describe('findAppModuleFiles', () => {
+  it('includes the known app modules and excludes the build configs', () => {
+    const files = findAppModuleFiles(repoRoot);
+    expect(files).toEqual(expect.arrayContaining(['app.js', 'store.js', 'format.js', 'diagnostics.js']));
+    expect(files).not.toContain('vite.config.js');
+    expect(files).not.toContain('vitest.config.js');
+  });
+
+  it('excludes the archived/dead-code files, which are never bundled and reference retired ids', () => {
+    const files = findAppModuleFiles(repoRoot);
+    expect(files).not.toContain('ev-legacy-archive.js');
+    expect(files).not.toContain('octopoints-archive.js');
+  });
+});
 
 describe('extractHtmlIds', () => {
   it('extracts every id attribute, double or single quoted', () => {

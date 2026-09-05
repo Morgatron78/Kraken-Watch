@@ -13,18 +13,11 @@
    ========================================================================== */
 
 import { store, logSyncAttempt, getSyncLog, recordRestCall, restCallsInLastHour } from './store.js';
-import { $, fmtGBP, fmtP, fmtKwh, fmtT, formatElapsed } from './format.js';
+import { $, fmtGBP, fmtP, fmtKwh, fmtT, formatElapsed, APP_VERSION } from './format.js';
+import { resetDiagnostics, logIssue, logDebug, logRawIssue, logRawDebug, getSyncIssues, renderDiagnostics } from './diagnostics.js';
 
 const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
-// __APP_VERSION__ / __BUILD_SHA__ are injected by Vite at build time (see
-// vite.config.js). The SHA half is what actually confirms a given deploy
-// landed — it changes automatically on every commit, unlike the semver
-// half (package.json's "version", bumped manually and purely cosmetic),
-// which could otherwise go stale if a release forgot to bump it. sw.js's
-// own cache name is versioned independently, from the precache manifest's
-// content — see the comment at the top of sw.js.
-const APP_VERSION = `v${__APP_VERSION__} (${__BUILD_SHA__})`;
 
 // v2.191: this was the app's single biggest "only works for one specific
 // account" hardcode — replaced with a Settings-configurable pair (WLTP
@@ -250,7 +243,7 @@ async function checkRateLimitBlocked() {
     const info = data?.rateLimitInfo?.pointsAllowanceRateLimit;
     if (info?.isBlocked) {
       const resetMins = info.ttl ? Math.max(0, Math.round((info.ttl * 1000 - Date.now()) / 60000)) : null;
-      syncIssues.push(`GraphQL account blocked for exceeding its points allowance${resetMins !== null ? ` — resets in ~${resetMins}m` : ''}`);
+      logRawIssue(`GraphQL account blocked for exceeding its points allowance${resetMins !== null ? ` — resets in ~${resetMins}m` : ''}`);
     }
   } catch (err) { /* best-effort — see comment above */ }
 }
@@ -597,12 +590,6 @@ function setSyncStatus(state, label) {
   $('sync-text').textContent = label;
 }
 
-let syncIssues = [];
-function logIssue(section, err) {
-  console.warn(`${section} fallback:`, err.message);
-  syncIssues.push(`${section}: ${err.message}`);
-}
-let debugNotes = [];
 let meterDebugNote = null;
 let fuelData = { elec: null, gas: null };
 
@@ -613,59 +600,7 @@ let fuelData = { elec: null, gas: null };
 // recurs monthly — same assumption the single-cycle trend already made).
 let billingState = { balancePounds: null, trend: null, hasNextPayment: false, nextPaymentAmount: null };
 let fuelUnit = { elec: 'cost', gas: 'cost' };
-function logDebug(label, msg) {
-  console.info(`${label} debug:`, msg);
-  debugNotes.push(`${label}: ${msg}`);
-}
 const demoFallbackEnabled = () => store.creds?.useDemoFallback === true;
-
-function renderDiagnostics() {
-  const card = $('diagnostics-card');
-  const showDiagnostics = store.creds?.showDiagnostics !== false; // default on
-  const syncLog = getSyncLog();
-  if (!showDiagnostics || (!syncIssues.length && !debugNotes.length && !syncLog.length)) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-  const hasIssues = syncIssues.length > 0;
-  const diagIconSvg = hasIssues
-    ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
-    : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
-  $('diagnostics-title').innerHTML = `${diagIconSvg} ${hasIssues ? 'Diagnostics' : 'Diagnostics (debug info)'}`;
-  $('diagnostics-title').style.color = syncIssues.length ? 'var(--coral)' : 'var(--text-dim)';
-  const infoIconSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
-  const warnIconSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-  const lines = [
-    `${infoIconSvg} App version: ${APP_VERSION}`,
-    `${infoIconSvg} ${restCallsInLastHour()} REST call(s) in the last hour (Octopus's documented shared limit is 100/hour)`,
-    ...syncIssues.map(m => `${warnIconSvg} ${m}`),
-    ...debugNotes.map(m => `${infoIconSvg} ${m}`)
-  ];
-  $('diagnostics-list').innerHTML = lines.join('<br>');
-
-  // Recent sync history — separate from the lines above, which only ever
-  // reflect the current moment. Shown newest-first, capped to the last 20
-  // even though more may be stored, since this is meant to be scanned at a
-  // glance rather than read in full. A component name only appears when it
-  // failed (✗ + the error) — a clean run just shows "OK" with nothing to
-  // scan past, so a real recurring problem stands out rather than getting
-  // lost in a wall of "Rates✓ EV✓" repeated forty times.
-  const historyBox = $('sync-history');
-  if (historyBox) {
-    if (!syncLog.length) {
-      historyBox.innerHTML = '';
-    } else {
-      const recent = syncLog.slice(-10).reverse();
-      historyBox.innerHTML = '<div class="sync-history-title">Recent syncs</div>' + recent.map(entry => {
-        const time = new Date(entry.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const failed = Object.entries(entry.r).filter(([, ok]) => ok !== true).map(([k]) => k);
-        const summary = failed.length ? `✗ ${failed.join(', ')}` : 'OK';
-        const cls = failed.length ? 'sync-history-row fail' : 'sync-history-row';
-        const detailLine = (failed.length && entry.d && entry.d.length)
-          ? `<div class="sync-history-detail">${entry.d.join(' · ')}</div>` : '';
-        return `<div class="${cls}"><span>${time} (${entry.tier}) · ${entry.k || '—'}</span><span>${summary}</span></div>${detailLine}`;
-      }).join('');
-    }
-  }
-}
 
 function renderChartScale(scaleId, max, formatter) {
   if (!scaleId) return;
@@ -4157,9 +4092,8 @@ function clearBillingUnavailable() {
 async function loadAll(source = 'app-start') {
   const apiKeySnapshot = store.creds?.apiKey;
   setSyncStatus('ok', 'Syncing…');
-  syncIssues = [];
-  debugNotes = [];
-  if (meterDebugNote) debugNotes.push(`Meter selection: ${meterDebugNote}`);
+  resetDiagnostics();
+  if (meterDebugNote) logRawDebug(`Meter selection: ${meterDebugNote}`);
   // Rates load first — EV cost estimates reuse today's off-peak rate from this call.
   const ratesResult = await loadRates().catch(() => false);
   // Live usage runs alongside the others but is excluded from the overall
@@ -4183,7 +4117,7 @@ async function loadAll(source = 'app-start') {
     Rates: ratesResult,
     EV: evSettled.status === 'fulfilled' ? evSettled.value : false,
     Billing: billingSettled.status === 'fulfilled' ? billingSettled.value : false
-  }, apiKeySnapshot, syncIssues);
+  }, apiKeySnapshot, getSyncIssues());
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
   if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
@@ -4227,14 +4161,13 @@ export function shouldRunSlowTier(lastAt, now) {
 async function loadFastTier() {
   const apiKeySnapshot = store.creds?.apiKey;
   clearRateCacheIfNewDay();
-  syncIssues = [];
-  debugNotes = [];
-  if (meterDebugNote) debugNotes.push(`Meter selection: ${meterDebugNote}`);
+  resetDiagnostics();
+  if (meterDebugNote) logRawDebug(`Meter selection: ${meterDebugNote}`);
   const ratesResult = await loadRates().catch(() => false);
   const [evSettled] = await Promise.allSettled([loadEV()]);
   const evResult = evSettled.status === 'fulfilled' ? evSettled.value : false;
   await checkRateLimitBlocked();
-  logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot, syncIssues);
+  logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot, getSyncIssues());
   const allResults = [ratesResult, evResult];
   const allReal = allResults.every(v => v === true);
   const anyReal = allResults.some(v => v === true);
@@ -4262,7 +4195,7 @@ async function loadSlowTier() {
     logIssue('Billing (uncaught)', err);
     billingSettled = false;
   }
-  logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot, syncIssues);
+  logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot, getSyncIssues());
   if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
   else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
   renderDiagnostics();
