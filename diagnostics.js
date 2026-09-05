@@ -11,10 +11,9 @@ let syncIssues = [];
 let debugNotes = [];
 
 // Called at the start of a full or fast-tier sync. loadSlowTier
-// deliberately does NOT call this (see its own comment in app.js) — it
-// runs far less often, so resetting here would wipe out billing issues
-// before anyone saw them, the next time the fast tier's own 5-minute
-// timer fires.
+// deliberately does NOT call this — it runs far less often, so resetting
+// here would wipe out billing issues before anyone saw them, the next time
+// the fast tier's own 5-minute timer fires.
 export function resetDiagnostics() {
   syncIssues = [];
   debugNotes = [];

@@ -3,15 +3,12 @@
 // safely.
 
 // __APP_VERSION__ / __BUILD_SHA__ are injected by Vite at build time (see
-// vite.config.js). The SHA half is what actually confirms a given deploy
-// landed — it changes automatically on every commit, unlike the semver
-// half (package.json's "version", bumped manually and purely cosmetic),
-// which could otherwise go stale if a release forgot to bump it. sw.js's
-// own cache name is versioned independently, from the precache manifest's
-// content — see the comment at the top of sw.js. Lives here (not app.js)
-// since diagnostics.js's "App version: ..." line needs the exact same
-// formatted string as the footer, and this is the shared leaf both import
-// from.
+// vite.config.js). The SHA half is what confirms a given deploy landed — it
+// changes on every commit, unlike the manually-bumped semver half. sw.js's
+// cache name is versioned independently, from the precache manifest content
+// (see the comment at the top of sw.js). Lives in this shared leaf because
+// both the footer and diagnostics.js's "App version: ..." line need the
+// same formatted string.
 export const APP_VERSION = `v${__APP_VERSION__} (${__BUILD_SHA__})`;
 
 // Dev-only warning on a missing id — surfaces HTML/JS drift (a renamed or
@@ -33,9 +30,8 @@ export const fmtP = (n) => `${n.toFixed(2)}p`;
 export const fmtKwh = (v) => `${v.toFixed(1)} kWh`;
 export const fmtT = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-// v2.191: elapsed-time formatter for the session row — Octopus's own app
-// shows this next to the time range; this app was leaving the user to
-// work it out from start/end manually.
+// Elapsed-time formatter for the EV session row — Octopus's own app shows
+// this next to the time range.
 export function formatElapsed(startISO, endISO) {
   const ms = new Date(endISO) - new Date(startISO);
   if (!(ms > 0)) return '';

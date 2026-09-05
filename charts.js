@@ -1,14 +1,10 @@
 import { $ } from './format.js';
 
-// v2.251: compact power meter, replacing the old This Session/Power/
-// Sessions today/Cost mini boxes (see styles.css comment for the reasoning).
-// No Settings field for max charger output yet — unlike the WLTP range/
-// battery kWh pair (still in app.js), this hasn't been asked for, so it's a
-// plain fallback constant for now, same pattern as those before Settings
-// support was added. Set to 7.1kW (7.1kW home wallbox), not the current
-// ~2.3kW granny-charger figure — the meter is meant to read "how full is
-// the pipe", which should stay meaningful once the faster charger arrives
-// rather than needing a code change at that point too.
+// No Settings field for max charger output yet, so this is a plain fallback
+// constant. Set to 7.1kW (a home wallbox), not the current ~2.3kW
+// granny-charger figure — the meter reads "how full is the pipe", which
+// should stay meaningful once the faster charger arrives rather than
+// needing a code change then.
 const EV_CHARGER_MAX_KW_FALLBACK = 7.1;
 const EV_PMETER_SEGMENTS = 7;
 export function renderPowerMeter(kw) {
@@ -29,10 +25,9 @@ export function renderChartScale(scaleId, max, formatter) {
   el.innerHTML = `<span>${fmtVal(max)}</span><span>${fmtVal(max / 2)}</span><span>${fmtVal(0)}</span>`;
 }
 
-// Shared by every bar chart in the app (renderWeekBars, renderStackedBars,
-// renderEVHistoryBars) — each computed this identically (a magnitude with a
-// floor so an all-zero dataset doesn't divide by zero) but as its own
-// inline expression.
+// Magnitude with a floor so an all-zero dataset doesn't divide by zero.
+// Shared by every bar chart (renderWeekBars, renderStackedBars,
+// renderEVHistoryBars).
 export function chartMax(values) {
   return Math.max(...values, 0.01);
 }
@@ -97,20 +92,13 @@ export function renderStackedBars(containerId, dayStacks, formatter, maxBarHeigh
       const h = Math.max(seg.value > 0 ? 1 : 0, Math.round((seg.value / max) * maxBarHeight));
       return `<div class="col-seg ${seg.cssClass}${isToday ? ' today' : ''}" style="height:${h}px"></div>`;
     }).join('');
-    // Month view: real day-of-month number (index+1, matching
-    // dateForPeriodIndex's own month-mode logic) — the day-of-week formula
-    // below only correctly handles up to a 7-bar span (a single +7
-    // wraparound correction), so a longer month array pushed it negative
-    // and printed literal "undefined".
-    // v2.151 fix: a picked week (weekdayAnchor set) is always fetched as an
-    // exact snapped Sun–Sat span (see loadPickedPeriodData) — index i IS
-    // the weekday directly, no rotation needed. The rotation formula below
-    // is only correct for the default *rolling* 7-day window (last bar =
-    // today, wrapping backward from whatever weekday today happens to be);
-    // applying it to a picked week used the raw tapped day as if it were
-    // the array's last entry, mislabeling every bar whenever the tapped
-    // day wasn't a Saturday — same root cause as the v2.143/v2.144 fetch
-    // and breakdown-date bugs, just in the axis labels this time.
+    // Three label modes, because the day-of-week rotation formula below only
+    // handles a 7-bar span:
+    //  - Month view: real day-of-month number (index+1). A longer array run
+    //    through the rotation formula goes negative and prints "undefined".
+    //  - Picked week (weekdayAnchor set): fetched as an exact snapped Sun–Sat
+    //    span, so index i IS the weekday directly — no rotation.
+    //  - Default rolling 7-day window: rotate so the last bar is today.
     const labelText = isMonthMode ? String(i + 1)
       : weekdayAnchor ? labels[i]
       : labels[(today - (dayStacks.length - 1 - i) + 7) % 7];

@@ -4,15 +4,12 @@ import { logRawIssue } from './diagnostics.js';
 const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
 
-// Every fetch in this app previously had no timeout at all — a hung
-// request in a mobile dead zone left the app on "Syncing…" indefinitely,
-// since nothing would ever settle the promise either way. AbortSignal.timeout
-// is available on iOS 16+ (2022), safely within range for an installed PWA
-// at this point. One shared value for every call (REST, the Kraken auth
-// call, and every krakenGQL query, including the heavier billing ones) —
-// 15s is generous for a single request/response round trip even on a slow
-// connection; if a specific query ever needs longer, revisit per-call
-// rather than raising this blanket default.
+// Without a timeout, a hung request in a mobile dead zone leaves the app on
+// "Syncing…" indefinitely — nothing ever settles the promise. One shared
+// value for every call (REST, Kraken auth, every krakenGQL query including
+// the heavier billing ones); 15s is generous for a single round trip even
+// on a slow connection. If a specific query ever needs longer, revisit
+// per-call rather than raising this blanket default.
 const FETCH_TIMEOUT_MS = 15000;
 export function isTimeoutError(err) {
   return err?.name === 'TimeoutError' || err?.name === 'AbortError';
@@ -61,12 +58,8 @@ export async function octRest(path) {
 let krakenToken = null;
 let krakenAccountUserId = null;
 
-// Called from saveSettings() when credentials change, so a stale token
-// from a previous account is never reused. A bare `krakenToken = null`
-// reassignment from app.js isn't possible once this state is private to
-// the module — ESM import bindings can't be reassigned by the importer,
-// only mutated in place — hence this small exported reset function
-// (same pattern as diagnostics.js's resetDiagnostics).
+// Called from saveSettings() when credentials change, so a stale token from
+// a previous account is never reused.
 export function resetKrakenToken() {
   krakenToken = null;
   krakenAccountUserId = null;
@@ -126,24 +119,18 @@ export async function krakenGQL(query, variables, _isRetry) {
   if (json.errors) {
     // GraphQL errors often carry a specific machine code in `extensions`
     // (e.g. KT-CT-1111 vs KT-CT-9216 — both surface as the same bare
-    // "Unauthorized" message, but mean different things) — previously
-    // discarded, keeping only the generic message. Appending the code
-    // when present means the next failure is actually diagnosable from
-    // the diagnostics panel alone, not just "something's unauthorized."
+    // "Unauthorized" message but mean different things). Appending the code
+    // when present keeps the next failure diagnosable from the diagnostics
+    // panel alone.
     const err = json.errors[0];
     const code = err?.extensions?.errorCode || err?.extensions?.code;
     const message = err?.message || 'GraphQL error';
-    // v2.213: KT-CT-1124 ("Signature of the JWT has expired") — the token
-    // from getKrakenToken() is cached in memory for the life of the page,
-    // with no expiry check of its own (see krakenToken above). Previously
-    // this meant every Kraken call kept failing with this exact error
-    // until the app was fully closed and reopened — the only thing that
-    // actually cleared the stale token, confirmed via a user's diagnostics
-    // screenshot showing the same code repeating across several syncs.
-    // Now self-healing: on this specific code, clear the cached token and
-    // retry once with a freshly obtained one, no user action needed.
-    // Guarded to a single retry so a genuinely bad credential still fails
-    // cleanly rather than looping.
+    // KT-CT-1124 = "Signature of the JWT has expired". getKrakenToken()
+    // caches the token in memory for the life of the page with no expiry
+    // check, so once it expires every call keeps failing until the app is
+    // fully restarted. Self-heal: on this code, clear the cached token and
+    // retry once with a fresh one. Single-retry guard so a genuinely bad
+    // credential still fails cleanly rather than looping.
     if (code === 'KT-CT-1124' && !_isRetry) {
       krakenToken = null;
       return krakenGQL(query, variables, true);
@@ -153,17 +140,13 @@ export async function krakenGQL(query, variables, _isRetry) {
   return json.data;
 }
 
-// Kraken's GraphQL equivalent of the REST-call diagnostic, but deliberately
+// Kraken's GraphQL equivalent of the REST-call diagnostic, deliberately
 // narrow: the account-wide 50,000 points/hour ceiling is far beyond what
-// this app's real usage could plausibly reach (rateLimitInfo itself costs
-// only 1 point), so a routine "X/50,000 used" line would just be noise.
-// The one thing actually worth surfacing is isBlocked — if GraphQL calls
-// ever started failing en masse for no obvious reason, this rules a block
-// in or out immediately rather than guessing, the same way capturing real
-// response bodies (not just status codes) cracked the toggle-destruction
-// bug rather than an assumption about rate limiting. Silent no-op on
-// failure or when not blocked — this is a best-effort diagnostic, not
-// something that should itself count as a sync failure.
+// this app could plausibly reach, so a routine "X/50,000 used" line would
+// just be noise. The one thing worth surfacing is isBlocked — if GraphQL
+// calls ever start failing en masse, this rules a block in or out
+// immediately. Silent no-op on failure or when not blocked; a best-effort
+// diagnostic, not something that should count as a sync failure itself.
 export async function checkRateLimitBlocked() {
   try {
     const data = await krakenGQL(`
