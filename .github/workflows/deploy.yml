@@ -25,8 +25,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      # `npm test` joins this step in Phase 1 PR 2 (Vitest scaffold) —
-      # see docs/improvement-plan.md.
+      - run: npm test
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

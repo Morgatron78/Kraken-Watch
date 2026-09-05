@@ -105,30 +105,25 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
 
 **Effort:** ~zero, discipline only.
 
-## 1C. Tests (Vitest)
+## 1C. Tests (Vitest) — done
 
-Shares the "make functions importable" prerequisite with 1A.
+Shared the "make functions importable" prerequisite with 1A.
 
-- `npm i -D vitest`, `test/` dir, `"test": "vitest run"`, `vitest.config.js` → `environment: 'jsdom'` (so `document`/`localStorage` exist for `import`; `init()` still won't run — `DOMContentLoaded` doesn't fire during import).
-- `export` the functions below from `app.js`.
+- `vitest` + `jsdom` as dev deps, `test/` dir, `"test": "vitest run"`.
+- `vitest.config.js` is deliberately separate from `vite.config.js` (that config runs a git subprocess + PWA manifest injection at load time, unwanted on every test run); it needs its own `define` stand-ins for `__APP_VERSION__`/`__BUILD_SHA__` since Vitest doesn't read the app's Vite config.
+- `environment: 'jsdom'` — required even before `init()` is a concern, since module-load-time code (`loadRestCallLog()`) touches `localStorage` directly, which doesn't exist in plain Node.
+- The bottom-of-file bootstrap now guards on `document.getElementById('connect-btn')` existing before wiring `init()` at all — not just the `readyState` check — since jsdom's `document.readyState` can't be relied on to still read `'loading'` by the time a bare test-file import runs. This also reads as a legitimate production safeguard on its own merits ("only bootstrap against a document that actually has this app's markup"), not a test-only hack.
+- `estimateSessionCostP` refactored to take rates as an optional second argument (defaulting to the module cache), so it's testable without reaching into module state.
+- `trendVsAverage` extracted from the duplicated inline logic in `renderInsightsElec`/`renderInsightsGas` — this is the "colour follows good/bad *news*, not arithmetic sign" logic the README documents as having shipped inverted twice.
 
-### First batch (~10 functions, ~50 assertions)
-| Function | Pin down |
-|---|---|
-| `rateAt(rows, ts)` | most-recent `from <= ts`; `null` before first period; exact-boundary hit |
-| `bucketReadingsByDay(results, n, now)` | correct day index; out-of-range drop; DST ±1h tolerance |
-| `bucketTelemetryByMinute(points, now)` | minute bucketing; window edges; missing `consumptionDelta` |
-| `estimateSessionCostP(session, rates?)` | BOOST → standard, else off-peak; `null` when rates absent; `abs` on negative kWh — **refactor to take rates as arg, module-cache defaults** |
-| `formatElapsed(startISO, endISO)` | `h m` vs `m`; zero/negative → `''` |
-| `formatVehicleName(make, model)` | title/caption shape; empty make |
-| `m3ToKwh` + `detectGasUnit` | **new, 3A** — all-small → m³, all-large → kWh, empty, threshold edge |
-| `sanityCheck(value, band)` | **new, 3B** — in-band passthrough vs out-of-band log |
-| `shouldRunSlowTier(lastAt, now)` | **new, 3D** — under/over interval |
-| `trendPill(value, avg)` | **new extraction** — the "colour follows good/bad *news*, not arithmetic sign" logic (README: shipped inverted twice). Extract from `renderInsightsElec`/`renderInsightsGas`, test both directions. |
+### First batch — 7 functions, 28 assertions, all passing
+`test/rates.test.js`: `rateAt`, `bucketReadingsByDay`. `test/ev.test.js`: `bucketTelemetryByMinute`, `estimateSessionCostP`, `formatElapsed`, `formatVehicleName`. `test/insights.test.js`: `trendVsAverage`.
 
-CI: `npm test` gates the deploy (`deploy needs: build`) and runs on PRs.
+The three functions originally slated for this batch that don't exist yet (`m3ToKwh`/`detectGasUnit`, `sanityCheck`, `shouldRunSlowTier`) get their tests alongside their own PRs (3A, 3B, 3D respectively) instead — see each section below.
 
-**Effort:** ~2–3 hrs.
+CI: `npm test` runs before `npm run build` in the `build` job, on both `push` and `pull_request`.
+
+**Effort:** ~2 hrs actual.
 
 ## Robustness fixes
 
@@ -200,16 +195,16 @@ Highest-value piece here — catches HTML/JS drift before deploy.
 
 ## Phase 1 sequencing
 
-| # | PR | Depends on | Effort |
-|---|---|---|---|
-| 1 | Vite build + Actions deploy + `.gitignore` + `package.json` (1A) | — | ~½ day |
-| 2 | Vitest + first ~10 tests + CI (1C) | 1 | ~2–3 hr |
-| 3 | Gas unit unification + tests (3A) | 2 | ~1–2 hr |
-| 4 | Fetch timeout (3C) | 1 | ~30 min |
-| 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr |
-| 6 | Unit sanity checks (3B) | 1 | ~1 hr |
-| 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr |
-| 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr |
+| # | PR | Depends on | Effort | Status |
+|---|---|---|---|---|
+| 1 | Vite build + Actions deploy + `.gitignore` + `package.json` (1A) | — | ~½ day | **Done** — merged, deployed, verified live |
+| 2 | Vitest + first 7 tests + CI (1C) | 1 | ~2 hr | **Done** — 28 assertions passing, wired into CI |
+| 3 | Gas unit unification + tests (3A) | 2 | ~1–2 hr | Next |
+| 4 | Fetch timeout (3C) | 1 | ~30 min | |
+| 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | |
+| 6 | Unit sanity checks (3B) | 1 | ~1 hr | |
+| 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | |
+| 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | |
 
 1B runs throughout.
 

@@ -319,10 +319,15 @@ let cachedGasRateP = null;
 // this app doesn't otherwise do) would add real complexity for a
 // difference that would only actually matter right at a tariff renewal
 // boundary. Returns null (not a guess) if today's rates haven't loaded.
-function estimateSessionCostP(session) {
-  if (cachedOffPeakRateP == null || cachedStandardRateP == null) return null;
+// `rates` defaults to today's cached rates so every existing single-argument
+// call site (estimateSessionCostP(s)) behaves exactly as before; the
+// optional second argument exists so this is testable without touching the
+// module-level cache directly.
+export function estimateSessionCostP(session, rates = { offPeakP: cachedOffPeakRateP, standardP: cachedStandardRateP }) {
+  const { offPeakP, standardP } = rates;
+  if (offPeakP == null || standardP == null) return null;
   const kwh = Math.abs(session.energyAdded?.value || 0);
-  const rateP = session.type === 'BOOST' ? cachedStandardRateP : cachedOffPeakRateP;
+  const rateP = session.type === 'BOOST' ? standardP : offPeakP;
   return kwh * rateP;
 }
 
@@ -392,7 +397,7 @@ async function fetchStandingCharge(fuel) {
   }
 }
 
-function rateAt(rows, timestamp) {
+export function rateAt(rows, timestamp) {
   // Find the most recent rate period that started at or before this timestamp,
   // scanning rows sorted ascending by `from`. This is more robust than requiring
   // an exact `to` boundary match: a strict range check silently fell back to
@@ -484,7 +489,7 @@ function isoDate(d) { return d.toISOString().slice(0, 10); }
 // every caller downstream needs no changes. A reading belongs to the day
 // its own interval_start falls in, in local time (not UTC), matching how
 // day boundaries are computed everywhere else in the app.
-function bucketReadingsByDay(results, n, now = new Date()) {
+export function bucketReadingsByDay(results, n, now = new Date()) {
   const buckets = Array.from({ length: n }, () => []);
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   for (const r of results) {
@@ -1282,6 +1287,25 @@ function insightsMonthDate(index) {
   return new Date(now.getFullYear(), now.getMonth(), index + 1);
 }
 
+// Extracted from the (previously duplicated, elec+gas) "today vs 7-day
+// average" trend pill. Arrow/text follow the raw numeric direction, but the
+// colour needs to be inverted from it: spending MORE than average is bad
+// news (coral), spending LESS is good news (mint) — the opposite of the
+// balance-trend pill elsewhere, where "up" (a bigger incoming payment than
+// predicted cost) is the good outcome. Getting this backwards is the exact
+// bug the README documents as having shipped twice, caught by the user
+// rather than review both times — pulled into one tested function so a
+// third slip shows up as a failing test instead.
+export function trendVsAverage(value, avg) {
+  const diffPct = avg > 0 ? ((value - avg) / avg) * 100 : 0;
+  const goodNews = diffPct <= 0;
+  return {
+    diffPct,
+    cssClass: goodNews ? 'up' : 'down',
+    text: `${goodNews ? '↓' : '↑'} ${Math.abs(diffPct).toFixed(0)}% ${goodNews ? 'below' : 'above'} your 7-day average`,
+  };
+}
+
 function renderInsightsElec() {
   const week = fuelData.elec?.week;
   const month = fuelData.elec?.month;
@@ -1304,15 +1328,10 @@ function renderInsightsElec() {
       const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `Latest available day (${dateStr})`;
       $('insights-elec-trend-label').textContent = label;
       $('insights-elec-trend-value').textContent = fmtGBP(val);
-      const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
       const pill = $('insights-elec-trend-pill');
-      // Arrow/text follow the raw numeric direction, but the color needs to
-      // be inverted from it: spending MORE than average is bad news (coral),
-      // spending LESS is good news (mint) — opposite of what the shared
-      // trend-pill up/down classes assume (where "up" always means mint,
-      // correct for the balance trend elsewhere, but wrong here).
-      pill.className = 'trend-pill ' + (diff <= 0 ? 'up' : 'down');
-      pill.textContent = `${diff <= 0 ? '↓' : '↑'} ${Math.abs(diff).toFixed(0)}% ${diff <= 0 ? 'below' : 'above'} your 7-day average`;
+      const trend = trendVsAverage(val, avg);
+      pill.className = 'trend-pill ' + trend.cssClass;
+      pill.textContent = trend.text;
       $('insights-elec-trend-caption').textContent = `Your average: ${fmtGBP(avg)}/day`;
     }
   }
@@ -1429,10 +1448,10 @@ function renderInsightsGas() {
       const label = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `Latest available day (${dateStr})`;
       $('insights-gas-trend-label').textContent = label;
       $('insights-gas-trend-value').textContent = fmtGBP(val);
-      const diff = avg > 0 ? ((val - avg) / avg) * 100 : 0;
       const pill = $('insights-gas-trend-pill');
-      pill.className = 'trend-pill ' + (diff <= 0 ? 'up' : 'down');
-      pill.textContent = `${diff <= 0 ? '↓' : '↑'} ${Math.abs(diff).toFixed(0)}% ${diff <= 0 ? 'below' : 'above'} your 7-day average`;
+      const trend = trendVsAverage(val, avg);
+      pill.className = 'trend-pill ' + trend.cssClass;
+      pill.textContent = trend.text;
       $('insights-gas-trend-caption').textContent = `Your average: ${fmtGBP(avg)}/day`;
     }
   }
@@ -2168,7 +2187,7 @@ async function loadLiveUsage() {
 let live30Open = false;
 let live30Interval = null;
 
-function bucketTelemetryByMinute(points, now) {
+export function bucketTelemetryByMinute(points, now) {
   const buckets = Array.from({ length: 30 }, () => 0);
   const windowStart = new Date(now.getTime() - 30 * 60 * 1000);
   for (const p of points) {
@@ -2276,7 +2295,7 @@ function applyEvCollapse(worthSeeing) {
 // all. Keeping them visually and textually separate avoids ever showing
 // two different kWh numbers stitched into one string with no indication
 // they're from different sources.
-function formatVehicleName(make, model) {
+export function formatVehicleName(make, model) {
   if (!make) return { title: '', caption: '' };
   const batteryNote = `${getEvBatteryKwh()} kWh usable`;
   const caption = model ? `${model} · ${batteryNote}` : batteryNote;
@@ -2499,7 +2518,7 @@ const warnTriangleSvgSm = '<svg width="10" height="10" viewBox="0 0 24 24" fill=
 // v2.191: elapsed-time formatter for the session row — Octopus's own app
 // shows this next to the time range; this app was leaving the user to
 // work it out from start/end manually.
-function formatElapsed(startISO, endISO) {
+export function formatElapsed(startISO, endISO) {
   const ms = new Date(endISO) - new Date(startISO);
   if (!(ms > 0)) return '';
   const totalMin = Math.round(ms / 60000);
@@ -4657,9 +4676,18 @@ function init() {
   }
 }
 
-// As a module script, this file is deferred — DOMContentLoaded may already
-// have fired by the time it runs, so the event can't be relied on alone.
-// (This guard also means importing app.js, e.g. from a test, never runs
-// init() on its own — there's no 'loading' document to trigger it from.)
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-else init();
+// Only bootstrap against a document that actually has this app's markup —
+// #connect-btn is present unconditionally in index.html's initial HTML, so
+// its absence means this module was imported into some other document (a
+// test's bare jsdom document, most likely) rather than loaded as the real
+// page's own script. That's also what keeps `npm test` side-effect-free:
+// every test file imports from this module, and none of them should
+// trigger a real init() wiring up listeners against elements that don't
+// exist.
+if (document.getElementById('connect-btn')) {
+  // As a module script, this file is deferred — DOMContentLoaded may
+  // already have fired by the time it runs, so the event alone isn't
+  // reliable.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+}
