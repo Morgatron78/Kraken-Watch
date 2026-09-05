@@ -5,7 +5,7 @@ import { krakenGQL } from './api.js';
 import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelOrBlank, renderWeekBars } from './charts.js';
 import { estimateSessionCostP, rateState } from './rates.js';
 import { daysElapsedInMonth } from './usage.js';
-import { ensureHistIntensity, intensityForRange, intensityMeanInHourBand } from './carbon.js';
+import { ensureHistIntensity, intensityForRange, intensityMeanInHourBand, carbonBandForRange, ensureCarbonForecast, carbonForecastForRange } from './carbon.js';
 
 // Settings takes an optional WLTP spec pair (range in miles, usable battery
 // kWh); the mi/kWh ratio is derived from it per-account. This fallback
@@ -144,6 +144,14 @@ export async function loadEV() {
 // charger shows only its most recent ~24 windows — which is why "This
 // session"'s kWh total is NOT summed from this data.
 const badgeHtml = type => `<span class="slot-badge ${type === 'BOOST' ? 'badge-boost' : 'badge-smart'}">${type}</span>`;
+
+// Small grid-intensity chip for a dispatch-window row — mint/amber/coral to
+// match the Carbon card's low/moderate/high ramp. Empty when there's no
+// matched intensity for the window (history not warmed that far back, or the
+// window is beyond the 48h forecast).
+const carbonChip = (band, g) => (band && g != null)
+  ? `<span class="win-carbon win-carbon-${band}" title="Grid carbon intensity over this window">${g} g</span>`
+  : '';
 
 // SmartFlexChargingProblem — a union of SmartFlexChargingError (a `cause`
 // enum) and SmartFlexChargingTruncation (a `truncationCause` enum, charge
@@ -370,14 +378,16 @@ async function loadEVSmartFlex() {
   const planned = data.plannedDispatches || [];
   const now = new Date();
 
-  // Warm the grid-intensity history cache back to the oldest session on
-  // screen so the per-session CO₂ lines and the weekly carbon insight have
-  // data to match against. Best-effort — a failure just omits those figures.
+  // Warm both grid-intensity feeds before rendering: history (back to the
+  // oldest session on screen) for the per-session CO₂ lines, the weekly
+  // carbon insight and completed-window tags; the 48h forecast for the
+  // planned/active dispatch-window tags. Both best-effort — a failure just
+  // omits those figures.
   const oldestSessionMs = sessions.reduce(
     (min, s) => Math.min(min, new Date(s.start).getTime()),
     now.getTime() - 8 * 24 * 60 * 60 * 1000
   );
-  await ensureHistIntensity(oldestSessionMs);
+  await Promise.allSettled([ensureHistIntensity(oldestSessionMs), ensureCarbonForecast()]);
   const isActiveWindow = (d, n) => n >= new Date(d.start) && n < new Date(d.end);
   const activeDispatch = planned.find(d => isActiveWindow(d, now));
   // completedDispatches comes back in reverse time order; sorted ascending
@@ -583,10 +593,13 @@ async function loadEVSmartFlex() {
   // One summary line per run (time span + total kWh); a run of 1 window and
   // a run of 9 render identically. No per-window expand — once the total's
   // shown, per-window granularity (0.4 kWh at 09:00…) isn't worth a tap.
-  dispatchSlots.innerHTML = runs.map((r, i) => {
+  dispatchSlots.innerHTML = runs.map((r) => {
     const totalKwh = r.windows.reduce((sum, d) => sum + Math.abs(d.delta || 0), 0);
+    const rs = new Date(r.start).getTime(), re = new Date(r.end).getTime();
+    const g = intensityForRange(rs, re);
+    const chip = g != null ? carbonChip(carbonBandForRange(rs, re), Math.round(g)) : '';
     const summaryLabel = `${fmtT(r.start)} – ${fmtT(r.end)} · ${totalKwh.toFixed(1)} kWh`;
-    return `<div class="slot done"><span>${summaryLabel}</span><b><span class="live-dot-label">${runIcon}Completed</span></b></div>`;
+    return `<div class="slot done"><span>${summaryLabel}${chip}</span><b><span class="live-dot-label">${runIcon}Completed</span></b></div>`;
   }).join('');
   // The "only recent windows shown" note appears only when Completed AND
   // visible Planned are both empty — i.e. the tab would otherwise show
@@ -610,7 +623,11 @@ async function loadEVSmartFlex() {
       : '<svg class="planned-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>';
     const label = `<span class="live-dot-label">${iconHtml}${isActive ? 'Dispatching now' : 'Planned'}</span>`;
     const cls = isActive ? ' active' : ' scheduled';
-    dispatchSlots.insertAdjacentHTML('beforeend', `<div class="slot${cls}"><span>${fmtT(d.start)} – ${fmtT(d.end)}</span><b>${label}</b></div>`);
+    // Forecast intensity for the window — the "is my upcoming charge landing
+    // in the green?" signal, right where the schedule is listed.
+    const fc = carbonForecastForRange(new Date(d.start).getTime(), new Date(d.end).getTime());
+    const chip = fc ? carbonChip(fc.band, fc.g) : '';
+    dispatchSlots.insertAdjacentHTML('beforeend', `<div class="slot${cls}"><span>${fmtT(d.start)} – ${fmtT(d.end)}${chip}</span><b>${label}</b></div>`);
   });
   if (!dispatchSlots.children.length) dispatchSlots.innerHTML = '<div class="slot">No dispatch windows scheduled</div>';
 

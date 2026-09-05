@@ -100,13 +100,21 @@ answer *"how clean is **my** usage?"* (retrospective, personalised) —
 arguably the more interesting question, and each slots into a panel that
 already exists.
 
-> **Status:** Live usage + Current rate lines shipped with the card. The
-> historical matcher (`ensureHistIntensity` / `intensityForRange` /
-> `intensityMeanInHourBand` in `carbon.js`) and the two EV retrospective
-> touches — per-session `≈ kg CO₂ · grid avg N g/kWh` sub-line, and the
-> weekly *"Smart charging this week averaged N gCO₂/kWh · ~X% cleaner than a
-> 4–7pm charge"* Insights line — shipped next. Still open: the dispatch-
-> window intensity tag, and the Usage/Insights weekly-electricity CO₂ figure.
+> **Status: done.** Shipped in order:
+> - Live usage `kg CO₂/hr` line + Current rate "Grid" line (with the card).
+> - Historical matcher in `carbon.js`: `ensureHistIntensity` /
+>   `intensityForRange` / `intensityMeanInHourBand` / `carbonBandForRange`
+>   (half-hour-keyed cache, ≤13-day chunk fetches) plus `ensureCarbonForecast`
+>   / `carbonForecastForRange` (48h forecast slots, shared in-flight with the
+>   card so a parallel load is one fetch).
+> - EV per-session `≈ kg CO₂ · grid avg N g/kWh` sub-line.
+> - EV Insights *"Smart charging this week averaged N gCO₂/kWh · ~X% cleaner
+>   than a 4–7pm charge"* line.
+> - EV Windows-tab intensity chip (mint/amber/coral) on every dispatch row —
+>   forecast-banded for planned/active, history-banded for completed.
+> - Insights **This week's carbon** block: intensity-weighted weekly kg CO₂
+>   from the retained half-hourly slots, avg g/kWh, greenest vs dirtiest day
+>   (compared by intensity, not total).
 
 | Panel | Addition | Effort |
 |---|---|---|

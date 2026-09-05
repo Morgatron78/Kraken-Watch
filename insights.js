@@ -3,6 +3,7 @@ import { logIssue, logDebug } from './diagnostics.js';
 import { rateState } from './rates.js';
 import { fuelData, dayTotal, daysInMonth, loadMonthData, fetchYearMonthly } from './usage.js';
 import { billingState, billMonthsData } from './billing.js';
+import { ensureHistIntensity, intensityForRange } from './carbon.js';
 
 // --- Insights (collapsed by default; data lazy-loaded on first expand) ---
 
@@ -18,6 +19,10 @@ export async function loadInsights() {
     if (!fuelData.elec.month) tasks.push(loadMonthData('elec'));
     if (!fuelData.gas.month) tasks.push(loadMonthData('gas'));
     if (!fuelData.gas.year) tasks.push(fetchYearMonthly('gas').then(y => { fuelData.gas.year = y; }));
+    // Grid-intensity history for the weekly-carbon block — 8 days back covers
+    // "the last 7 completed days". Best-effort inside; a failure just hides
+    // that one block.
+    tasks.push(ensureHistIntensity(Date.now() - 8 * 24 * 60 * 60 * 1000));
     await Promise.all(tasks);
     if (fuelData.elec.month) {
       logDebug('Insights elec month', fuelData.elec.month.map((d, i) => `[${i}] £${dayTotal('elec', d, 'cost').toFixed(2)} (hasData:${d.hasData})`).join(' '));
@@ -171,6 +176,43 @@ function renderInsightsElec() {
       $('insights-elec-extremes-block').classList.remove('hidden');
     } else {
       $('insights-elec-extremes-block').classList.add('hidden');
+    }
+
+    // Weekly electricity carbon — the retained half-hourly slots weighted by
+    // the grid intensity at the time each was used (carbon.js history cache,
+    // warmed in loadInsights). "This week" = the last up-to-7 elapsed days
+    // with data. Greenest/dirtiest compare *intensity* (gCO₂/kWh), not total
+    // kg, so a low-usage day isn't automatically "greenest".
+    const carbonDays = month
+      .map((d, i) => ({ d, date: insightsMonthDate(i) }))
+      .filter(x => x.d.hasData !== false && x.date < todayMidnight && Array.isArray(x.d.slots) && x.d.slots.length)
+      .slice(-7);
+    let weekKwh = 0, weekCo2g = 0;
+    const dayG = [];
+    for (const { d, date } of carbonDays) {
+      let dk = 0, dc = 0;
+      for (const sl of d.slots) {
+        const t = new Date(sl.start).getTime();
+        const g = intensityForRange(t, t + 30 * 60 * 1000);
+        if (g == null) continue;
+        dk += sl.kwh; dc += sl.kwh * g;
+      }
+      if (dk > 0) { weekKwh += dk; weekCo2g += dc; dayG.push({ date, g: dc / dk }); }
+    }
+    if (weekKwh > 0 && dayG.length >= 2) {
+      const avgG = weekCo2g / weekKwh;
+      const fmtDay = dt => dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      const greenest = dayG.reduce((a, b) => (b.g < a.g ? b : a));
+      const dirtiest = dayG.reduce((a, b) => (b.g > a.g ? b : a));
+      $('insights-elec-carbon-value').textContent = `${(weekCo2g / 1000).toFixed(1)} kg CO₂`;
+      $('insights-elec-carbon-caption').textContent = `${weekKwh.toFixed(0)} kWh over ${dayG.length} days · avg ${Math.round(avgG)} g/kWh`;
+      $('insights-elec-carbon-greenest').textContent = `${Math.round(greenest.g)} g/kWh`;
+      $('insights-elec-carbon-greenest-date').textContent = fmtDay(greenest.date);
+      $('insights-elec-carbon-dirtiest').textContent = `${Math.round(dirtiest.g)} g/kWh`;
+      $('insights-elec-carbon-dirtiest-date').textContent = fmtDay(dirtiest.date);
+      $('insights-elec-carbon-block').classList.remove('hidden');
+    } else {
+      $('insights-elec-carbon-block').classList.add('hidden');
     }
 
     // Trajectory: first half of the elapsed month-to-date vs second half.

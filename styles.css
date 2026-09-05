@@ -962,6 +962,18 @@ button{font-family:inherit;cursor:pointer;}
 .slot-co2{color:var(--text-dim);font-size:10px;}
 .slot-co2 b{color:var(--text);font-weight:600;font-size:10px;}
 
+/* Grid-intensity chip on a dispatch-window row. Scoped under the container
+   id so the accent colour wins over .slot.scheduled/.slot.done's span-colour
+   overrides without needing !important. */
+#ev-slots-dispatch .win-carbon{
+  margin-left:6px;padding:1px 6px;border-radius:100px;
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:9.5px;font-weight:600;
+  white-space:nowrap;
+}
+#ev-slots-dispatch .win-carbon-low{color:var(--mint);background:var(--mint-soft);}
+#ev-slots-dispatch .win-carbon-moderate{color:var(--amber);background:var(--amber-soft);}
+#ev-slots-dispatch .win-carbon-high{color:var(--coral);background:var(--coral-soft);}
+
 /* v2.206: .slot-soc (the mint SoC start→finish %) removed along with the
    feature — see app.js for why it was never a reliable figure. */
 

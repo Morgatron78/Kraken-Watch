@@ -42,24 +42,74 @@ async function fetchJson(path) {
   return res.json();
 }
 
-export async function loadCarbon() {
+// The 48h forecast slots from the most recent fetch, kept so the EV card's
+// dispatch-window tags can be banded without a second request. loadCarbon()
+// and ensureCarbonForecast() (the EV panel's opportunistic warm-up) share one
+// in-flight promise, so a parallel load is never two fetches.
+let forecastSlots = [];
+let forecastRegion = null;
+let forecastAt = 0;
+let forecastInFlight = null;
+const FORECAST_TTL_MS = 20 * 60 * 1000;
+
+async function fetchForecastSlots() {
   const outcode = (store.creds?.outcode || '').trim();
+  // Start one half-hour back so the slot covering "now" is always included.
+  const from = isoMinute(new Date(Date.now() - 30 * 60 * 1000));
+  let slots, region;
+  if (outcode) {
+    // The regional-with-time-range response wraps its slots in an object
+    // ({ data: { shortname, data: [...] } }), not an array like the docs' example.
+    const j = await fetchJson(`/regional/intensity/${from}/fw48h/postcode/${encodeURIComponent(outcode)}`);
+    const block = Array.isArray(j?.data) ? j.data[0] : j?.data;
+    region = block?.shortname || 'Your region';
+    slots = block?.data || [];
+  } else {
+    const j = await fetchJson(`/intensity/${from}/fw48h`);
+    region = 'Great Britain';
+    slots = j?.data || [];
+  }
+  forecastSlots = slots;
+  forecastRegion = region;
+  forecastAt = Date.now();
+  return { slots, region };
+}
+
+function getForecast({ force = false } = {}) {
+  if (!force && forecastSlots.length && Date.now() - forecastAt < FORECAST_TTL_MS) {
+    return Promise.resolve({ slots: forecastSlots, region: forecastRegion });
+  }
+  if (!forecastInFlight) {
+    forecastInFlight = fetchForecastSlots().finally(() => { forecastInFlight = null; });
+  }
+  return forecastInFlight;
+}
+
+// Opportunistic warm-up for the EV dispatch-window tags — safe to call
+// alongside loadCarbon (they dedupe on forecastInFlight), best-effort.
+export async function ensureCarbonForecast() {
+  try { await getForecast(); } catch (err) { logIssue('Carbon forecast', err); }
+}
+
+// Mean forecast gCO₂/kWh + dominant band across the forecast slots
+// overlapping [fromMs, toMs) — for future/active dispatch windows. null when
+// no forecast slot covers the range (e.g. a window more than ~48h out).
+export function carbonForecastForRange(fromMs, toMs) {
+  if (!forecastSlots.length || !(toMs > fromMs)) return null;
+  const hits = forecastSlots.filter(s =>
+    new Date(s.to).getTime() > fromMs && new Date(s.from).getTime() < toMs);
+  if (!hits.length) return null;
+  const nums = hits.map(s => s.intensity?.forecast).filter(v => v != null);
+  const g = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null;
+  const counts = {};
+  for (const s of hits) { const i = s.intensity?.index; if (i) counts[i] = (counts[i] || 0) + 1; }
+  const top = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || null;
+  return { g, index: top, band: bandOf(top) };
+}
+
+export async function loadCarbon() {
   try {
-    // Start one half-hour back so the slot covering "now" is always included.
-    const from = isoMinute(new Date(Date.now() - 30 * 60 * 1000));
-    let slots, region;
-    if (outcode) {
-      // The regional-with-time-range response wraps its slots in an object
-      // ({ data: { shortname, data: [...] } }), not an array like the docs' example.
-      const j = await fetchJson(`/regional/intensity/${from}/fw48h/postcode/${encodeURIComponent(outcode)}`);
-      const block = Array.isArray(j?.data) ? j.data[0] : j?.data;
-      region = block?.shortname || 'Your region';
-      slots = block?.data || [];
-    } else {
-      const j = await fetchJson(`/intensity/${from}/fw48h`);
-      region = 'Great Britain';
-      slots = j?.data || [];
-    }
+    const { slots, region } = await getForecast({ force: true });
     if (!slots.length) throw new Error('no carbon-intensity slots returned');
 
     const now = Date.now();
@@ -137,7 +187,8 @@ const HALF_HOUR = 30 * 60 * 1000;
 // NESO caps a regional range request at 14 days; 13 keeps clear of the edge.
 const MAX_SPAN_MS = 13 * 24 * 60 * 60 * 1000;
 
-// key = slot start as 'YYYY-MM-DDTHH:mm' (UTC, half-hour-aligned); value = gCO₂/kWh
+// key = slot start as 'YYYY-MM-DDTHH:mm' (UTC, half-hour-aligned)
+// value = { g: gCO₂/kWh, index: NESO 5-level band string | null }
 const histCache = new Map();
 let histOutcode = null;      // outcode the cache was built for
 let histCoveredFromMs = null; // oldest instant the cache covers (its `to` end is always ~now)
@@ -158,7 +209,7 @@ async function fetchHistWindow(fromMs, toMs, outcode) {
   const slots = (outcode ? block?.data : j?.data) || [];
   for (const s of slots) {
     const v = s?.intensity?.forecast ?? s?.intensity?.actual;
-    if (v != null) histCache.set(slotKey(new Date(s.from).getTime()), Math.round(v));
+    if (v != null) histCache.set(slotKey(new Date(s.from).getTime()), { g: Math.round(v), index: s?.intensity?.index || null });
   }
 }
 
@@ -188,8 +239,8 @@ export function intensityForRange(fromMs, toMs) {
   if (!(toMs > fromMs)) return null;
   let sum = 0, n = 0;
   for (let t = Math.floor(fromMs / HALF_HOUR) * HALF_HOUR; t < toMs; t += HALF_HOUR) {
-    const v = histCache.get(slotKey(t));
-    if (v != null) { sum += v; n++; }
+    const rec = histCache.get(slotKey(t));
+    if (rec != null) { sum += rec.g; n++; }
   }
   return n ? sum / n : null;
 }
@@ -201,8 +252,22 @@ export function intensityMeanInHourBand(fromMs, toMs, hourFrom, hourTo) {
   for (let t = Math.floor(fromMs / HALF_HOUR) * HALF_HOUR; t < toMs; t += HALF_HOUR) {
     const h = new Date(t).getHours() + new Date(t).getMinutes() / 60;
     if (h < hourFrom || h >= hourTo) continue;
-    const v = histCache.get(slotKey(t));
-    if (v != null) { sum += v; n++; }
+    const rec = histCache.get(slotKey(t));
+    if (rec != null) { sum += rec.g; n++; }
   }
   return n ? sum / n : null;
+}
+
+// Dominant NESO index band ('low' | 'moderate' | 'high') across cached slots
+// overlapping [fromMs, toMs) — the 5-level index collapsed the same way the
+// card's colour ramp does. null when nothing in range is cached.
+export function carbonBandForRange(fromMs, toMs) {
+  if (!(toMs > fromMs)) return null;
+  const counts = {};
+  for (let t = Math.floor(fromMs / HALF_HOUR) * HALF_HOUR; t < toMs; t += HALF_HOUR) {
+    const rec = histCache.get(slotKey(t));
+    if (rec?.index) counts[rec.index] = (counts[rec.index] || 0) + 1;
+  }
+  const top = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+  return top ? bandOf(top) : null;
 }
