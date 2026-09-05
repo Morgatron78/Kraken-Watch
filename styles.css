@@ -47,36 +47,34 @@
    Accent hues are deepened so pink/mint/gas-blue text stays legible on white,
    and the neutral tints flip to black-on-light. */
 :root[data-theme="light"]{
-  --bg: #f4f3fb;
+  /* Neutrals only — true greys, no colour cast. The accent hues below are
+     unchanged from the dark theme; only their translucent tint/border
+     helpers are re-alphaed for a light backdrop. */
+  --bg: #f4f4f5;
   --bg-panel: #ffffff;
-  --bg-panel-2: #f0eef8;
-  --line: #e2e0ee;
-  --line-strong: #cfccdf;
-  --text: #211f36;
-  --text-dim: #6d6b88;
-  --mint: #10a86f;
-  --mint-soft: rgba(16,168,111,0.12);
-  --mint-line: rgba(16,168,111,0.32);
-  --coral: #e0402c;
-  --coral-soft: rgba(224,64,44,0.11);
-  --coral-line: rgba(224,64,44,0.32);
-  --amber: #c67b00;
-  --amber-soft: rgba(198,123,0,0.12);
-  --amber-line: rgba(198,123,0,0.3);
-  --pink: #d6357f;
-  --pink-soft: rgba(214,53,127,0.1);
-  --pink-line: rgba(214,53,127,0.32);
-  --gas-blue: #1c86c4;
-  --tint: rgba(20,18,40,0.03);
-  --tint-line: rgba(20,18,40,0.07);
-  --tint-strong: rgba(20,18,40,0.06);
-  --tint-track: rgba(20,18,40,0.1);
-  --dim-fill: rgba(109,107,136,0.1);
-  --dim-line: rgba(109,107,136,0.28);
-  --stripe-a: rgba(109,107,136,0.28);
-  --stripe-b: rgba(109,107,136,0.1);
-  --scrim: rgba(20,18,40,0.4);
-  --btn-hover: #35334d;
+  --bg-panel-2: #efeff1;
+  --line: #e3e3e6;
+  --line-strong: #cccccf;
+  --text: #1e1e21;
+  --text-dim: #6a6a70;
+  --mint-soft: rgba(61,220,151,0.16);
+  --mint-line: rgba(61,220,151,0.4);
+  --coral-soft: rgba(255,107,91,0.14);
+  --coral-line: rgba(255,107,91,0.4);
+  --amber-soft: rgba(255,184,77,0.18);
+  --amber-line: rgba(255,184,77,0.45);
+  --pink-soft: rgba(255,79,163,0.13);
+  --pink-line: rgba(255,79,163,0.42);
+  --tint: rgba(0,0,0,0.03);
+  --tint-line: rgba(0,0,0,0.07);
+  --tint-strong: rgba(0,0,0,0.06);
+  --tint-track: rgba(0,0,0,0.09);
+  --dim-fill: rgba(106,106,112,0.1);
+  --dim-line: rgba(106,106,112,0.28);
+  --stripe-a: rgba(106,106,112,0.3);
+  --stripe-b: rgba(106,106,112,0.1);
+  --scrim: rgba(0,0,0,0.4);
+  --btn-hover: #33333a;
   --body-bg: var(--bg);
 }
 

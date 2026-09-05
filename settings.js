@@ -27,7 +27,7 @@ function applyResolvedTheme(pref) {
   if (light) document.documentElement.setAttribute('data-theme', 'light');
   else document.documentElement.removeAttribute('data-theme'); // absent === dark, the :root default
   const meta = $('meta-theme-color');
-  if (meta) meta.setAttribute('content', light ? '#f4f3fb' : '#131226');
+  if (meta) meta.setAttribute('content', light ? '#f4f4f5' : '#131226');
 }
 
 export function setThemePref(pref) {
