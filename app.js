@@ -757,6 +757,33 @@ function renderChartScale(scaleId, max, formatter) {
   el.innerHTML = `<span>${fmtVal(max)}</span><span>${fmtVal(max / 2)}</span><span>${fmtVal(0)}</span>`;
 }
 
+// Shared by every bar chart in the app (renderWeekBars, renderStackedBars,
+// renderEVHistoryBars) — each computed this identically (a magnitude with a
+// floor so an all-zero dataset doesn't divide by zero) but as its own
+// inline expression.
+export function chartMax(values) {
+  return Math.max(...values, 0.01);
+}
+
+// A label per bar works fine up to about 10 bars; a month view (~28-31
+// bars) crams that many onto a mobile-width chart and overflows (confirmed
+// live) — past the threshold, only every 5th bar gets a label.
+const CHART_DENSE_THRESHOLD = 10;
+const CHART_DENSE_LABEL_EVERY = 5;
+export function isChartDense(length, threshold = CHART_DENSE_THRESHOLD) {
+  return length > threshold;
+}
+// A skipped label renders '&nbsp;', never an empty string or no <span> at
+// all — a genuinely empty string can still collapse an inline element's
+// line-height in some browsers despite font-size being set, and omitting
+// the <span> entirely shifts bars that DO have a label down relative to
+// ones that don't, since columns bottom-align via flex (confirmed live —
+// a few px lower). Every bar needs the same DOM shape regardless of
+// whether its label is shown.
+export function chartLabelOrBlank(text, index, isDense, everyNth = CHART_DENSE_LABEL_EVERY) {
+  return (!isDense || index % everyNth === 0) ? text : '&nbsp;';
+}
+
 function renderWeekBars(containerId, values, colorClass, formatter, maxBarHeight = 44, scaleId = null) {
   const el = $(containerId);
   // Bar height is driven by magnitude, not the raw signed value — EV
@@ -764,16 +791,17 @@ function renderWeekBars(containerId, values, colorClass, formatter, maxBarHeight
   // measurement quirk, kept visible as-is in the signed text/tooltip below),
   // and a negative value divided against a near-zero max would otherwise
   // clamp every bar to the height floor regardless of actual size.
-  const max = Math.max(...values.map(Math.abs), 0.01);
+  const max = chartMax(values.map(Math.abs));
   renderChartScale(scaleId, max, formatter);
   const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = new Date().getDay();
-  const showLabels = values.length <= 10; // month view (~28-31 bars) would overlap if labelled per-bar
-  el.classList.toggle('dense', !showLabels);
+  const isDense = isChartDense(values.length);
+  el.classList.toggle('dense', isDense);
   el.innerHTML = values.map((v, i) => {
     const isToday = i === values.length - 1;
     const h = Math.max(2, Math.round((Math.abs(v) / max) * maxBarHeight));
-    const label = showLabels ? `<span>${labels[(today - (values.length - 1 - i) + 7) % 7]}</span>` : '';
+    const labelText = labels[(today - (values.length - 1 - i) + 7) % 7];
+    const label = `<span>${chartLabelOrBlank(labelText, i, isDense)}</span>`;
     return `<div class="week-bar"><div class="col ${colorClass}${isToday ? ' today' : ''}" style="height:${h}px" title="${formatter ? formatter(v) : v}"></div>${label}</div>`;
   }).join('');
 }
@@ -786,11 +814,11 @@ const fmtKwh = (v) => `${v.toFixed(1)} kWh`;
 function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44, scaleId = null, selectedIndex = null, isMonthMode = false, suppressToday = false, weekdayAnchor = null) {
   const el = $(containerId);
   const totals = dayStacks.map(day => day.reduce((s, seg) => s + seg.value, 0));
-  const max = Math.max(...totals, 0.01);
+  const max = chartMax(totals);
   renderChartScale(scaleId, max, formatter);
   const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = (weekdayAnchor || new Date()).getDay();
-  const isDense = dayStacks.length > 10;
+  const isDense = isChartDense(dayStacks.length);
   el.classList.toggle('dense', isDense);
   el.innerHTML = dayStacks.map((segs, i) => {
     const isToday = !suppressToday && i === dayStacks.length - 1;
@@ -816,20 +844,7 @@ function renderStackedBars(containerId, dayStacks, formatter, maxBarHeight = 44,
     const labelText = isMonthMode ? String(i + 1)
       : weekdayAnchor ? labels[i]
       : labels[(today - (dayStacks.length - 1 - i) + 7) % 7];
-    // Showing every one of ~28-31 month labels overflows a mobile-width
-    // chart (confirmed live) — every label stays legible alone, but that
-    // many crammed together doesn't fit. Every 5th only once dense.
-    // The <span> itself must always render even when empty — omitting the
-    // element entirely (rather than just its text) made unlabeled columns
-    // one child shorter than labeled ones, and since columns bottom-align
-    // via flex, that shifted their bars down relative to labeled columns
-    // by roughly the label's own height (confirmed live — a few px lower).
-    const showThisLabel = !isDense || i % 5 === 0;
-    // A genuinely empty string (not even whitespace) can still collapse an
-    // inline element's line-height in some browsers despite font-size
-    // being set — a non-breaking space guarantees real content, so height
-    // stays consistent regardless of any browser-specific quirk there.
-    const label = `<span class="${isSelected ? 'active-day' : ''}">${showThisLabel ? labelText : '&nbsp;'}</span>`;
+    const label = `<span class="${isSelected ? 'active-day' : ''}">${chartLabelOrBlank(labelText, i, isDense)}</span>`;
     return `<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${i}">${segHtml}</div>${label}</div>`;
   }).join('');
 }
@@ -3284,9 +3299,9 @@ async function loadEVSmartFlex() {
 // Shared bar+scale+legend renderer — identical drawing logic across all
 // three periods (Week/Month/Day), only the bucket-building differs.
 function renderEVHistoryBars(buckets, labels) {
-  const max = Math.max(...buckets.map(b => b.smart + b.boost), 0.01);
+  const max = chartMax(buckets.map(b => b.smart + b.boost));
   const maxBarHeight = 44;
-  const isDense = buckets.length > 10; // affects bar spacing AND label frequency once dense — Month's ~28-31 bars overflow a mobile-width chart if every label shows (confirmed live), so only every 5th is shown once dense
+  const isDense = isChartDense(buckets.length);
   $('ev-week').classList.toggle('dense', isDense);
   $('ev-week').innerHTML = buckets.map((b, i) => {
     const total = b.smart + b.boost;
@@ -3294,19 +3309,13 @@ function renderEVHistoryBars(buckets, labels) {
     const smartH = total > 0 ? Math.round((b.smart / total) * h) : 0;
     const boostH = total > 0 ? h - smartH : 0;
     const neutralH = total > 0 ? 0 : h; // no sessions at all in this bucket — a plain neutral floor, not a false Boost claim
-    // Same fix as Usage's own Month view (same root cause, same day)
-    // — the <span> must always render even when empty. Omitting the
-    // element entirely for unlabeled bars made those columns one child
-    // shorter, and since columns bottom-align via flex, that pushed their
-    // bars down relative to labeled columns by roughly the label's height.
-    const showThisLabel = !isDense || i % 5 === 0;
     return `<div class="ev-week-col">
       <div class="ev-week-stack" data-i="${i}" style="height:${h}px">
         ${boostH ? `<div class="ev-week-seg boost" style="height:${boostH}px"></div>` : ''}
         ${smartH ? `<div class="ev-week-seg smart" style="height:${smartH}px"></div>` : ''}
         ${neutralH ? `<div class="ev-week-seg neutral" style="height:${neutralH}px"></div>` : ''}
       </div>
-      <span data-i="${i}">${showThisLabel ? labels[i] : '&nbsp;'}</span>
+      <span data-i="${i}">${chartLabelOrBlank(labels[i], i, isDense)}</span>
     </div>`;
   }).join('');
   renderChartScale('ev-week-scale', max, v => v.toFixed(1));

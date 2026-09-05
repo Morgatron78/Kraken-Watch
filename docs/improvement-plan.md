@@ -202,10 +202,26 @@ Highest-value piece in this batch — catches HTML/JS drift before deploy, which
 
 **Effort:** ~1.5 hrs, including the runtime-defined-id correction.
 
-### 3F. De-dup dense-chart logic (decision 4 — optional)
-`renderStackedBars` (~L685), `renderEVHistoryBars` (~L3144), partly `renderWeekBars` (~L659) re-implement `max` calc, `isDense = length > 10`, `.dense` toggle, "every 5th label when dense", "always emit `<span>` even when empty (`&nbsp;`)". Extract `chartMax(values)` and `denseLabels(labels, opts)`; refactor all three. Purely visual — verify with demo-mode screenshots. Lowest priority, no bug attached.
+### 3F. De-dup dense-chart logic (decision 4 — optional) — done
+`renderWeekBars`, `renderStackedBars`, `renderEVHistoryBars` each re-implemented the same `max` calc, `isDense = length > 10`, `.dense` class toggle, "every 5th label when dense," and "always emit `<span>` even when empty (`&nbsp;`)" — three near-identical inline copies.
 
-**Tests:** `chartMax`, `denseLabels`. **Effort:** ~1–2 hrs + visual check.
+Extracted three small pure functions instead of the plan's single `denseLabels(labels, opts)` closure — that shape didn't fit cleanly, since `renderWeekBars`/`renderStackedBars` compute each bar's label text via a rotation formula (`labels[(today - ...) % 7]`) rather than a plain `labels[i]` lookup, so the "which text" and "show it or `&nbsp;`" decisions needed to stay separable:
+```js
+function chartMax(values) { return Math.max(...values, 0.01); }
+function isChartDense(length, threshold = 10) { return length > threshold; }
+function chartLabelOrBlank(text, index, isDense, everyNth = 5) {
+  return (!isDense || index % everyNth === 0) ? text : '&nbsp;';
+}
+```
+All three renderers now call these instead of their own inline versions.
+
+**One real, deliberate behaviour change, verified safe first:** `renderWeekBars`'s original dense branch didn't match the other two — past the threshold it rendered *no* label at all (an empty string, not even a `<span>`) rather than "every 5th, `&nbsp;` otherwise." Before unifying it, checked every call site of `renderWeekBars` in the codebase: all of them pass exactly 7 hardcoded demo-fallback values, so that branch is genuinely unreachable today — unifying it changes nothing any real user can see, and gives it the same (already-fixed-elsewhere) `&nbsp;`-placeholder behaviour if it's ever called with more than 10 items in the future.
+
+**Verified live**, not just unit-tested: the screenshot tool was unreliable this session (returned blank frames regardless of actual scroll position), so verification used direct DOM inspection instead — arguably more precise for this specific check anyway. Seeded fake credentials with demo-fallback enabled: `#ev-week` (via `renderWeekBars`, demo EV data) rendered 7 bars with correct pixel heights and day labels, no `dense` class. `#elec-week` (via `renderStackedBars`, the real zero-data fallback from a failed fetch, not demo mode) rendered 7 correctly-labelled zero-height stacked bars, also without the `dense` class. `renderEVHistoryBars`'s own code path needs a successful GraphQL response to exercise, unreachable with fake credentials — its underlying primitives are covered by the same unit tests, and it received the identical mechanical substitution as the other two.
+
+**Tests:** 10 assertions in `test/charts.test.js` covering all three functions, including the exact boundary (`isChartDense(10)` false, `(11)` true) and a custom-`everyNth` case. 75/75 tests passing overall.
+
+**Effort:** ~1.5 hrs, including the call-site audit and live DOM verification.
 
 ## Phase 1 sequencing
 
@@ -218,7 +234,7 @@ Highest-value piece in this batch — catches HTML/JS drift before deploy, which
 | 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | **Done** — verified live via simulated visibility events |
 | 6 | Unit sanity checks (3B) | 1 | ~1 hr | **Done** |
 | 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | **Done** — verified live in both dev and prod builds; zero existing drift found |
-| 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | Next (last Phase 1 item; optional) |
+| 8 | Chart de-dup (3F) — optional | 2 | ~1–2 hr | **Done** — Phase 1 complete |
 
 1B runs throughout.
 
