@@ -7,7 +7,7 @@
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#131226">
+<meta name="theme-color" content="#131226" id="meta-theme-color">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Kraken Watch">
@@ -17,6 +17,21 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
+
+<!-- Resolve the saved appearance preference before first paint to avoid a
+     flash. "auto" (the default) follows the OS; explicit light/dark win. -->
+<script>
+(function(){
+  try{
+    var pref = localStorage.getItem('kw_theme') || 'auto';
+    var light = pref === 'light' ||
+      (pref === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+    if (light) document.documentElement.setAttribute('data-theme', 'light');
+    var m = document.getElementById('meta-theme-color');
+    if (m) m.setAttribute('content', light ? '#f4f3fb' : '#131226');
+  }catch(e){}
+})();
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -47,7 +62,7 @@
   </div>
 
   <!-- Diagnostics: shown when something failed to load live, or when debug info is available -->
-  <div class="card" id="diagnostics-card" style="display:none;padding:14px 18px;margin-bottom:14px;border-color:rgba(255,107,91,0.4);">
+  <div class="card" id="diagnostics-card" style="display:none;padding:14px 18px;margin-bottom:14px;border-color:var(--coral-line);">
     <div id="diagnostics-title" style="font-size:12px;font-weight:600;color:var(--coral);margin-bottom:8px;display:flex;align-items:center;gap:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Diagnostics</div>
     <div id="diagnostics-list" class="mono" style="font-size:11px;color:var(--text-dim);line-height:1.7;"></div>
     <div id="sync-history"></div>
@@ -265,7 +280,7 @@
               <div class="week-bars" id="elec-week" style="height:76px;"></div>
             </div>
             <div class="chart-legend" id="elec-wmy-legend">
-              <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
+              <span><i style="background:repeating-linear-gradient(135deg,var(--stripe-a) 0 2px,var(--stripe-b) 2px 4px)"></i>Standing charge</span>
               <span><i style="background:var(--mint)"></i>Off-peak</span>
               <span><i style="background:var(--pink)"></i>Peak</span>
             </div>
@@ -319,7 +334,7 @@
               <div class="week-bars" id="gas-week" style="height:76px;"></div>
             </div>
             <div class="chart-legend" id="gas-wmy-legend">
-              <span><i style="background:repeating-linear-gradient(135deg,rgba(234,232,255,0.55) 0 2px,rgba(234,232,255,0.2) 2px 4px)"></i>Standing charge</span>
+              <span><i style="background:repeating-linear-gradient(135deg,var(--stripe-a) 0 2px,var(--stripe-b) 2px 4px)"></i>Standing charge</span>
               <span><i style="background:var(--gas-blue)"></i>Usage</span>
             </div>
             <div class="warning-line amber hidden" id="gas-period-nodata" style="margin-top:10px;">
@@ -729,6 +744,15 @@
       <label for="input-ev-wltp-kwh">Usable battery capacity (kWh)</label>
       <input id="input-ev-wltp-kwh" type="number" step="0.1" placeholder="e.g. 67">
       <div class="hint">Both used only for the "range added" estimate on charging sessions — check your vehicle's own spec sheet for the real figures. Leave blank to use a generic estimate.</div>
+    </div>
+
+    <div class="field">
+      <label for="input-appearance">Appearance</label>
+      <select id="input-appearance">
+        <option value="auto">Auto (match device)</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
     </div>
 
     <div class="field" style="display:flex;align-items:center;gap:10px;">

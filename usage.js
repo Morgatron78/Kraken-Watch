@@ -540,7 +540,7 @@ function renderYearView(fuel, unit, fmt) {
     const isCurrent = m === currentMonthIdx;
     const v = entry ? entry.kwh : 0;
     const h = isFuture ? 4 : Math.max(v > 0 ? 2 : 4, Math.round((v / max) * 58));
-    const fill = isFuture ? 'rgba(255,255,255,0.08)' : (isCurrent ? barColor : barColor);
+    const fill = isFuture ? 'var(--tint-track)' : (isCurrent ? barColor : barColor);
     const isSelected = m === selIdx;
     bars.push(`<div class="week-bar"><div class="col-stack${isSelected ? ' selected' : ''}" data-index="${m}"><div class="col-seg" style="height:${h}px;background:${fill};opacity:${isCurrent ? '1' : (isFuture ? '1' : '0.75')}"></div></div><span class="${isSelected ? 'active-day' : ''}">${monthLabels[m]}</span></div>`);
   }

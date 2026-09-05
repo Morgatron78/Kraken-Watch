@@ -10,6 +10,44 @@ import { loadAll, startAutoRefresh } from './main.js';
 // only being knowable by re-opening Settings.
 export let meterDebugNote = null;
 
+/* ---------------------------- Appearance / theme ---------------------------- */
+// Stored in its own localStorage key (not store.creds) so the connect screen
+// themes correctly before any credentials exist. The pre-paint apply lives in
+// index.html's <head> to avoid a flash; this just handles live toggling and
+// keeping "auto" in sync when the OS theme changes.
+const THEME_KEY = 'kw_theme';
+const prefersLight = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+
+function getThemePref() {
+  try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch { return 'auto'; }
+}
+
+function applyResolvedTheme(pref) {
+  const light = pref === 'light' || (pref === 'auto' && prefersLight());
+  if (light) document.documentElement.setAttribute('data-theme', 'light');
+  else document.documentElement.removeAttribute('data-theme'); // absent === dark, the :root default
+  const meta = $('meta-theme-color');
+  if (meta) meta.setAttribute('content', light ? '#f4f3fb' : '#131226');
+}
+
+export function setThemePref(pref) {
+  try { localStorage.setItem(THEME_KEY, pref); } catch { /* private mode — apply for this session only */ }
+  applyResolvedTheme(pref);
+}
+
+export function initTheme() {
+  applyResolvedTheme(getThemePref());
+  // Follow the OS while the pref is "auto".
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: light)')
+      .addEventListener('change', () => { if (getThemePref() === 'auto') applyResolvedTheme('auto'); });
+  }
+}
+
+export function handleAppearanceChange(e) {
+  setThemePref(e.target.value);
+}
+
 export function openSettings() {
   const c = store.creds || {};
   $('input-api-key').value = c.apiKey || '';
@@ -33,6 +71,7 @@ export function openSettings() {
   $('input-ev-wltp-kwh').value = c.wltpBatteryKwh || '';
   $('input-show-diagnostics').checked = c.showDiagnostics !== false;
   $('input-use-demo-fallback').checked = c.useDemoFallback === true;
+  $('input-appearance').value = getThemePref();
   $('settings-modal').classList.remove('hidden');
 }
 export function closeSettings() { $('settings-modal').classList.add('hidden'); }

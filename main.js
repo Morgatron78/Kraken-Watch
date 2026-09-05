@@ -30,7 +30,7 @@ import {
 } from './usage.js';
 import { loadBilling, handleBillYearBarClick } from './billing.js';
 import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insights.js';
-import { meterDebugNote, openSettings, closeSettings, saveSettings } from './settings.js';
+import { meterDebugNote, openSettings, closeSettings, saveSettings, initTheme, handleAppearanceChange } from './settings.js';
 
 /* ------------------------------ Rendering -------------------------------- */
 
@@ -311,6 +311,8 @@ export function startAutoRefresh() {
 
 function init() {
   $('app-version').textContent = APP_VERSION;
+  initTheme();
+  $('input-appearance').addEventListener('change', handleAppearanceChange);
   $('settings-btn').addEventListener('click', openSettings);
   $('connect-btn').addEventListener('click', openSettings);
   $('settings-cancel').addEventListener('click', closeSettings);
