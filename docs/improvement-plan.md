@@ -129,22 +129,27 @@ CI: `npm test` runs before `npm run build` in the `build` job, on both `push` an
 
 Each its own branch/PR. 3A first (real bug value); rest independent.
 
-### 3A. Unify gas m³→kWh
-Three sites decide "is this m³?" three ways, all off `results[0]` only, thresholds 50 / 50 / 500:
-- `costForRange` (~L435), `lastNDaysCost` (~L3997), `fetchYearMonthly` (~L1945). Bill items (`itemToKwh` ~L3896) already key off `unit` correctly.
+### 3A. Unify gas m³→kWh — done
+Three sites decided "is this m³?" three ways, all off `results[0]` only, thresholds 50 / 50 / 500:
+`costForRange`, `lastNDaysCost` (both daily-granularity, threshold 50), `fetchYearMonthly` (monthly-granularity, threshold 500). Bill items (`itemToKwh`) already keyed off the real `unit` field correctly and just needed routing through the shared conversion.
 
-Change:
+**Correction made during implementation, not as originally planned:** the plan above proposed a single new threshold (15) shared across every site. That was wrong on two counts, both caught before landing:
+1. **One threshold can't work across granularities.** `fetchYearMonthly` deals in monthly totals (a genuine winter month can be 100+ m³ for a large house), while `costForRange`/`lastNDaysCost` deal in **daily** totals — confirmed from the app's own "your smart meter only reports gas readings once a day" message, i.e. these were never half-hourly readings to begin with. A month-scale value and a day-scale value need different cutoffs; there was never going to be one safe number for both.
+2. **The daily threshold shouldn't have been re-tuned at all.** The original value (50) was presumably already validated against this app's real account history; a fresh back-of-envelope estimate isn't stronger evidence than that. The actual bug was the *inconsistency* between sites and the *per-first-reading* fragility — not the threshold numbers. Both original values (50 for daily, 500 for monthly) were kept exactly; a first test run with an invented 15 caught this before it shipped.
+
 ```js
 function m3ToKwh(m3) { return m3 * 1.02264 * gasCalorificValue() / 3.6; }
-function detectGasUnit(values) {
-  const nums = values.filter(Number.isFinite);
+const GAS_M3_THRESHOLD_DAILY = 50;   // costForRange, lastNDaysCost — matches the original per-site value
+const GAS_M3_THRESHOLD_MONTHLY = 500; // fetchYearMonthly — matches the original value
+function detectGasUnit(values, threshold) {
+  const nums = values.filter(v => Number.isFinite(v));
   if (!nums.length) return 'KILOWATT_HOUR';
-  return Math.max(...nums) < 15 ? 'CUBIC_METERS' : 'KILOWATT_HOUR'; // one documented threshold, whole dataset
+  return Math.max(...nums) < threshold ? 'CUBIC_METERS' : 'KILOWATT_HOUR';
 }
 ```
-Replace all three REST sites; route `itemToKwh` through `m3ToKwh`. Add diagnostics line: `Gas: 48 readings, detected m³ (max 0.41) → kWh ×CV 39.5`. No new Settings UI (decision 2). REST consumption endpoint has no unit field, so magnitude heuristic is the only signal — but deciding once per dataset removes the fragility.
+All three REST sites now decide the unit once per whole fetched batch (not per first reading, not per day-bucket) and share one conversion function; `itemToKwh` routes through the same `m3ToKwh`. A diagnostics line on `costForRange`'s debug path now reports the detected unit. No new Settings UI (decision 2 stands) — the REST consumption endpoint genuinely has no unit field, so the magnitude heuristic is the only signal available, but deciding once per dataset removes the fragility.
 
-**Tests:** `m3ToKwh`, `detectGasUnit`. **Effort:** ~1–2 hrs.
+**Tests:** 10 assertions in `test/gas.test.js` — `m3ToKwh`'s formula and Settings-override behaviour, and `detectGasUnit` at both granularities, including a fixture specifically constructed so the old per-first-reading bug and the new whole-batch fix would disagree (proving the fix actually changes behaviour, not just refactors it). 38/38 tests passing overall. **Effort:** ~1.5 hrs actual, including the threshold correction.
 
 ### 3B. Sanity-check unit assumptions
 `latest.demand` assumed W (~L2124); `consumptionDelta` summed as Wh (~L2173); `chargePointPowerOutput` assumed kW (~L59 / ~L3123). Don't auto-detect — make a wrong assumption *visible*:
@@ -199,8 +204,8 @@ Highest-value piece here — catches HTML/JS drift before deploy.
 |---|---|---|---|---|
 | 1 | Vite build + Actions deploy + `.gitignore` + `package.json` (1A) | — | ~½ day | **Done** — merged, deployed, verified live |
 | 2 | Vitest + first 7 tests + CI (1C) | 1 | ~2 hr | **Done** — 28 assertions passing, wired into CI |
-| 3 | Gas unit unification + tests (3A) | 2 | ~1–2 hr | Next |
-| 4 | Fetch timeout (3C) | 1 | ~30 min | |
+| 3 | Gas unit unification + tests (3A) | 2 | ~1–2 hr | **Done** — threshold values corrected during implementation, see 3A |
+| 4 | Fetch timeout (3C) | 1 | ~30 min | Next |
 | 5 | Visibility/timers + test (3D) | 2 | ~1–2 hr | |
 | 6 | Unit sanity checks (3B) | 1 | ~1 hr | |
 | 7 | `$` dev warning + id cross-check + CI (3E) | 1 | ~1 hr | |

@@ -412,16 +412,51 @@ export function rateAt(rows, timestamp) {
   return match ? match.rate : null;
 }
 
-// Sums consumption × matching half-hourly rate over a date range. Gas readings
-// from smart meters are usually in m3, not kWh — this applies the standard
-// industry conversion (volume correction 1.02264 × calorific value ÷ 3.6) when
-// the units look like m3. If your meter already reports kWh, remove that step.
 // Calorific value drifts slightly over time and Octopus states the exact
 // figure used on each bill — configurable in Settings → Advanced, defaulting
 // to 40.0 (a typical current UK value) rather than an older hardcoded figure.
 function gasCalorificValue() {
   return store.creds?.calorificValue || 40.0;
 }
+
+// Gas smart meters usually report m3, not kWh — this applies the standard
+// industry conversion (volume correction 1.02264 × calorific value ÷ 3.6).
+// See detectGasUnit below for how callers decide whether a given batch of
+// readings actually needs this at all.
+
+export function m3ToKwh(m3) {
+  return m3 * 1.02264 * gasCalorificValue() / 3.6;
+}
+
+// Octopus's REST consumption endpoint carries no unit field at all
+// (confirmed: a result row is just {consumption, interval_start,
+// interval_end}, nothing else) — so deciding m3 vs kWh is a magnitude
+// heuristic. This used to be decided per-reading, keyed off only the
+// *first* reading in whatever batch happened to be in scope (the whole
+// range for costForRange, a single day's bucket for lastNDaysCost) — one
+// anomalous first value silently flipped the conversion for every other
+// reading in the same batch. Decided once per whole same-granularity batch
+// instead — but the two threshold VALUES themselves (50, 500) are kept
+// exactly as they were, not re-tuned: they were presumably already
+// validated against this app's own real account history, which is better
+// evidence than a fresh back-of-envelope estimate. What was genuinely
+// broken was the inconsistency (each site quietly used a different one)
+// and the per-first-reading fragility, not the numbers.
+//
+// Gas readings from this account's meter are daily totals, not
+// half-hourly (see the "Hourly view isn't available for gas" message in
+// index.html) — a whole day's gas use is a few m3 at most, while a MONTH's
+// aggregate (fetchYearMonthly's group_by=month) can reach into the
+// hundreds of m3 for a large house in winter, hence the very different
+// cutoff between the two.
+const GAS_M3_THRESHOLD_DAILY = 50;
+const GAS_M3_THRESHOLD_MONTHLY = 500;
+export function detectGasUnit(values, threshold) {
+  const nums = values.filter(v => Number.isFinite(v));
+  if (!nums.length) return 'KILOWATT_HOUR';
+  return Math.max(...nums) < threshold ? 'CUBIC_METERS' : 'KILOWATT_HOUR';
+}
+
 async function costForRange(fuel, fromISO, toISO, debugLabel) {
   const creds = store.creds;
   const isElec = fuel === 'elec';
@@ -439,13 +474,11 @@ async function costForRange(fuel, fromISO, toISO, debugLabel) {
   ]);
   if (!rates.length) throw new Error(`No ${fuel} rate data`);
 
+  const gasUnit = !isElec ? detectGasUnit((consData.results || []).map(r => r.consumption), GAS_M3_THRESHOLD_DAILY) : null;
   let kwh = 0, costPence = 0, missed = 0;
   for (const r of (consData.results || [])) {
     let consumption = r.consumption;
-    if (!isElec && consData.results[0]?.consumption < 50) {
-      // heuristic: small numbers with m3 units — convert to kWh
-      consumption = consumption * 1.02264 * gasCalorificValue() / 3.6;
-    }
+    if (gasUnit === 'CUBIC_METERS') consumption = m3ToKwh(consumption);
     const rate = rateAt(rates, +new Date(r.interval_start));
     if (rate === null) { missed++; continue; }
     kwh += consumption;
@@ -456,7 +489,8 @@ async function costForRange(fuel, fromISO, toISO, debugLabel) {
     const rateVals = rates.map(r => r.rate);
     const minR = rateVals.length ? Math.min(...rateVals).toFixed(2) : 'n/a';
     const maxR = rateVals.length ? Math.max(...rateVals).toFixed(2) : 'n/a';
-    logDebug(debugLabel, `${readingCount} reading(s), ${rates.length} rate period(s) (${minR}p–${maxR}p), ${kwh.toFixed(2)} kWh total, ${missed} unmatched`);
+    const unitNote = gasUnit ? `, detected ${gasUnit === 'CUBIC_METERS' ? 'm³' : 'kWh'}` : '';
+    logDebug(debugLabel, `${readingCount} reading(s)${unitNote}, ${rates.length} rate period(s) (${minR}p–${maxR}p), ${kwh.toFixed(2)} kWh total, ${missed} unmatched`);
   }
   if (missed > 0) {
     logIssue(`${fuel === 'elec' ? 'Electricity' : 'Gas'} rate lookup`,
@@ -1964,9 +1998,12 @@ async function fetchYearMonthly(fuel, yearsAgo = 0) {
     : `/gas-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${yearEnd}&group_by=month&page_size=100`;
   const data = await octRest(path);
   const results = (data.results || []).sort((a, b) => +new Date(a.interval_start) - +new Date(b.interval_start));
+  // Monthly aggregates, not half-hourly/daily readings — GAS_M3_THRESHOLD_MONTHLY,
+  // not _SUBDAILY, since a whole month's m3 total is a different scale entirely.
+  const gasUnit = !isElec ? detectGasUnit(results.map(r => r.consumption), GAS_M3_THRESHOLD_MONTHLY) : null;
   return results.map(r => {
     let kwh = r.consumption;
-    if (!isElec && results[0]?.consumption < 500) kwh = kwh * 1.02264 * gasCalorificValue() / 3.6; // m3 → kWh, same heuristic as costForRange
+    if (gasUnit === 'CUBIC_METERS') kwh = m3ToKwh(kwh);
     return { month: new Date(r.interval_start).getMonth(), kwh, hasData: true };
   });
 }
@@ -3921,7 +3958,7 @@ async function loadBilling() {
           const q = parseFloat(t.consumption?.quantity);
           if (!Number.isFinite(q)) return 0;
           const unit = t.consumption?.unit;
-          if (unit === 'CUBIC_METERS' || unit === 'CUBIC_METRE') return q * 1.02264 * gasCalorificValue() / 3.6;
+          if (unit === 'CUBIC_METERS' || unit === 'CUBIC_METRE') return m3ToKwh(q);
           return q; // already kWh (or close enough — KILOWATT_HOUR, or an unrecognized unit passed through rather than silently dropped)
         }
         const grouped = new Map(); // key 'YYYY-M' -> { year, month, gas, elec, gasKwh, elecKwh, total, bills: [{issuedDate, temporaryUrl}] }
@@ -4013,14 +4050,18 @@ async function lastNDaysCost(fuel, n, anchor = new Date()) {
       isElec ? fetchElecRates(rangeStart.toISOString(), rangeEnd.toISOString()) : fetchGasRates(rangeStart.toISOString(), rangeEnd.toISOString())
     ]);
     if (!rates.length) throw new Error(`No ${fuel} rate data`);
+    // Decided once across every reading in the whole fetched range, not
+    // per day-bucket — the meter's reporting unit doesn't change day to
+    // day within one fetch, so there's no reason to re-guess it per bucket
+    // (and every reason not to: a bucket that happens to start with an
+    // atypical reading previously risked flipping just that one day).
+    const gasUnit = !isElec ? detectGasUnit((consData.results || []).map(r => r.consumption), GAS_M3_THRESHOLD_DAILY) : null;
     const buckets = bucketReadingsByDay(consData.results || [], n, now);
     return buckets.map((readings, i) => {
       let kwh = 0, costPence = 0;
       for (const r of readings) {
         let consumption = r.consumption;
-        if (!isElec && readings[0]?.consumption < 50) {
-          consumption = consumption * 1.02264 * gasCalorificValue() / 3.6;
-        }
+        if (gasUnit === 'CUBIC_METERS') consumption = m3ToKwh(consumption);
         const rate = rateAt(rates, +new Date(r.interval_start));
         if (rate === null) continue;
         kwh += consumption;
