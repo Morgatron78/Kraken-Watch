@@ -1,0 +1,190 @@
+# Kraken Watch — feature review & roadmap
+
+Written after Phases 1 & 2 (build tooling + de-monolith) landed. This is a
+full inventory of what the app does today, a gap analysis against the
+Octopus API surface, and a considered plan for what to build next.
+
+---
+
+## 1. Current feature inventory
+
+Six cards, all live against real APIs, degrading to "Unavailable" (or opt-in
+demo data) on failure.
+
+| Card | What it does today |
+|---|---|
+| **Current rate** | Now / standard / off-peak unit rate, next scheduled change. REST `standard-unit-rates`. |
+| **Live usage** | Instantaneous draw in W, £/hr-if-sustained estimate, colour-banded. "Last 30 min" toggle: lazy Wh bar chart, 30s refresh while open. Kraken `smartMeterTelemetry` at 10s grouping, bucketed to 1-min bars client-side. Needs a registered smart device (Home Mini). |
+| **EV charging** | Kraken `devices → SmartFlexVehicle`. Battery gauge + target-SoC countdown + restricted-zone marker; estimated range; weekly schedule strip; live power meter (while charging); consolidated warnings (suspension, dispatch failure, lost connection, SoC-limit, alerts, "Boost this week"). Sub-panels: **Charging Activity** (Windows/Sessions toggle, per-session kWh + estimated cost + estimated miles, problem badges, "Show more" 8→64d) and **Charge History** (Week/Month, tap-to-breakdown, Smart/Boost split). All **read-only**. |
+| **Usage (elec + gas)** | Day (elec-only, half-hourly) / Week / Month / Year, tap-any-bar breakdown, calendar date-picker snapping both fuels to the same period. REST `consumption` (one wide call per fuel per period, bucketed locally). |
+| **Billing** | Account balance + projected balance, Direct Debit (estimated), spend MTD + predicted, last-15-bills history (itemised per-fuel, links to real bill PDFs), bill-total-over-time chart (12 distinct months). Octopoints archived (returns Unauthorized). |
+| **Insights** (lazy) | Per-fuel trend vs 7-day avg, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, annual standing-charge total, EV streak + busiest day, and a 12-month **balance runway forecast** (last year's real kWh priced at today's rate). |
+
+**Known loose ends in the current code:**
+- `Money` field on the EV session object — an unresolved probe for whether
+  real (not estimated) charge cost is reachable. (README, project memory.)
+- `usage.js` has a `TEMPORARY diagnostic` block probing whether electricity's
+  `group_by=month` retains data past the ~2-month floor — "remove once
+  answered."
+- `ev.js` assumes `cost.amount` is pounds-decimal — never confirmed against
+  a real value.
+
+---
+
+## 2. Octopus API — used vs available
+
+### REST (`api.octopus.energy/v1`, API-key auth, ~100 calls/hr shared limit)
+
+| Endpoint | Used? |
+|---|---|
+| `/accounts/{n}/` | ✅ (meter points, tariff codes, at Settings save) |
+| `/products/` + `/products/{code}/` | ⚠️ product code derived from tariff code, `/products/` list itself unused |
+| `electricity-tariffs/.../standard-unit-rates`, `standing-charges` | ✅ |
+| `gas-tariffs/.../standard-unit-rates`, `standing-charges` | ✅ |
+| `electricity-tariffs/.../day-unit-rates`, `night-unit-rates` | ❌ (Economy-7 style; N/A for IOG) |
+| `electricity/gas-meter-points/.../consumption/` | ✅ |
+
+REST is essentially fully exploited for this account's tariff shape.
+
+### GraphQL (`api.octopus.energy/v1/graphql/`, login-token auth)
+
+| Capability | Query/Mutation | Used? | Note |
+|---|---|---|---|
+| Account, bills, transactions, payments, balance | query | ✅ | Billing card |
+| `smartMeterTelemetry` | query | ✅ | Live usage |
+| `devices → SmartFlexVehicle`, `chargingSessions`, `preferences.schedules`, `status` | query | ✅ | EV card (read) |
+| `plannedDispatches`, `completedDispatches` | query | ✅ | EV Windows |
+| **`triggerBoostCharge` / `updateBoostCharge` / `deleteBoostCharge`** | **mutation** | ❌ | bump-charge now |
+| **`vehicleChargingPreferences`** + set target SoC | query + mutation | ❌ | "charge to X%" |
+| **set target ready-by time** | mutation | ❌ | "ready by 07:00" |
+| **smart-charge on/off (smart pause)** | mutation | ❌ | pause smart control |
+| **`octoplusOffers` / `octoplusRewards` / `claimOctoplusReward` / `joinOctoplusCampaign`** | query + mutation | ❌ | Free Electricity / Saving Sessions, points |
+| `wheelOfFortuneSpins` | query | ❌ | unused-spin nudge |
+| `electricityMeterReadings` / `createElectricityMeterReading` (+ gas) | query + mutation | ❌ | manual reading submit — low value with a smart meter |
+| Referrals | query + mutation | ❌ | out of scope |
+
+The four EV-control mutations and the Octoplus surface are the two
+meaningful unused areas. Both are confirmed real and in active use by the
+mature [Home Assistant Octopus Energy integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy).
+
+### External (not Octopus)
+
+- **Carbon intensity** — [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/):
+  free, no auth, 48h+ forecast across 14 GB regions. Not currently used;
+  the natural data source for a "greenest window tonight" feature.
+
+---
+
+## 3. Candidate features
+
+Scored against the app's established discipline: every panel pairs a number
+with a visual; read-only unless there's a deliberate reason; new work slots
+in as its own ES module.
+
+### A. Carbon intensity / "greener periods" — **recommended first**
+- **What:** a card (or an overlay band on the Current-rate curve) showing
+  regional carbon intensity now + the forecast, highlighting the window
+  that's both cheap *and* clean tonight. IOG already shifts load to
+  off-peak; this tells you whether off-peak also happens to be green.
+- **Data:** NESO Carbon Intensity API — free, no auth, `GET
+  /regional/intensity/{from}/fw48h/postcode/{outcode}`.
+- **Fit:** strong — it's a forecast chart, same shape as the rate curve.
+- **Effort:** ~1 day. New `carbon.js` module, one card, its own refresh
+  (data updates every 30 min). No credential handling.
+- **Risk:** low. External read-only API; degrades to hidden on failure.
+
+### B. Usage heat map
+- **What:** an hour-of-day × day grid (GitHub-contributions style), colour
+  = kWh. Surfaces *habitual* patterns ("6pm spike every weekday") that the
+  existing Day/Week/Month bars don't make obvious.
+- **Data:** none new — the half-hourly `consumption` data is already
+  fetched for the Usage card.
+- **Fit:** strong — genuinely visual, no number-only block.
+- **Effort:** ~half a day, pure client-side render, likely a sub-panel of
+  the existing Usage card rather than a new card.
+- **Risk:** low.
+
+### C. Octoplus surface (Free Electricity / Saving Sessions + points)
+- **What:** upcoming free-electricity / saving-session events with
+  start/end and reward; current Octopoints balance; unused Wheel of
+  Fortune spins.
+- **Data:** `octoplusOffers`, `octoplusRewards`, `octoplusAccountInfo`,
+  `wheelOfFortuneSpins` (all GraphQL queries — read-only). Replaces the
+  archived Octopoints attempt, which used the now-superseded
+  `loyaltyPointLedgers` path.
+- **Fit:** medium — an event list is less visual than the rest of the app;
+  worth a compact treatment, not a full card, unless the account
+  participates heavily.
+- **Effort:** ~1 day. Gated on the account actually being on Octoplus —
+  verify with a live query first (the old attempt returned Unauthorized).
+- **Risk:** low (read-only), but may just come back empty/unauthorized
+  like Octopoints did.
+
+### D. EV control — **needs a decision, not just a task**
+- **What:** bump/boost charge now; set charge target %; set ready-by time;
+  pause/resume smart charging. Turns Kraken Watch from a dashboard into a
+  remote.
+- **Data:** `triggerBoostCharge` / `updateBoostCharge` / `deleteBoostCharge`,
+  `vehicleChargingPreferences` + its setter mutation, smart-charge toggle
+  mutation. All confirmed in the schema and used by the HA integration.
+- **Prerequisites:**
+  1. Confirm the login token has write scope for device control (the app
+     authenticates by email/password, same as the Octopus app, so it
+     *should* — but verify before building UI).
+  2. A deliberate "yes, I want the app to act" — every button here is a
+     real side effect on physical hardware.
+  3. Confirmation step on each action, and an explicit state re-fetch
+     after, since the optimistic UI could drift from what actually happened.
+- **Fit:** it's controls, not a chart — a different kind of addition, but a
+  legitimate one for an EV-focused dashboard.
+- **Effort:** ~2–3 days once the scope check passes. Start with bump charge
+  (one mutation, clearest value), then target SoC + ready-by, then the
+  smart-charge toggle.
+- **Risk:** medium — write operations, hardware side effects, and the app's
+  first mutations. Rate-limit budget also matters (each action is a
+  GraphQL call, and a poll to confirm it took).
+
+### E. Offline data (not just shell)
+- **What:** the service worker precaches the app shell but not data, so a
+  cold open with no signal shows empty cards. Cache the last successful
+  sync per card and render it (stamped "as of HH:MM") until fresh data
+  arrives.
+- **Effort:** ~1–1.5 days, touches `sw.js` and each loader.
+- **Risk:** low-medium (stale-data-labelling needs to be unambiguous).
+
+### Explicitly not recommended
+- Manual meter-reading submission — the account has smart meters.
+- Push notifications redo — still blocked on needing a real scheduler, not
+  GitHub Actions cron.
+- Native widgets — needs a Swift/WidgetKit codebase + paid Apple account.
+
+---
+
+## 4. Recommended plan
+
+**Phase 3a — finish & tidy (½ day).**
+Close the three loose ends: resolve or drop the `Money`-field EV-cost
+probe, answer the `group_by=month` diagnostic and delete the temp block,
+confirm the `cost.amount` unit. Leaves the current codebase genuinely
+done.
+
+**Phase 3b — carbon intensity card (~1 day).**
+`carbon.js` + one card + its own 30-min refresh. Highest value-to-risk of
+any new feature; no credential surface; slots cleanly into the module
+structure. Optionally fast-follow with the **heat map** sub-panel
+(~½ day, no new API) if the appetite's there.
+
+**Phase 3c — Octoplus, only if the account participates (~1 day).**
+One live `octoplusAccountInfo` query first to check it's not
+Unauthorized like Octopoints was. If it works: a compact
+free-electricity-sessions + points block, probably folded into the
+Billing or Insights card rather than its own.
+
+**Phase 3d — EV control, gated on a decision (~2–3 days + a scope check).**
+Only if you want the app to act. Order: verify write scope → bump charge →
+target SoC + ready-by → smart-charge toggle. Confirmation dialog + post-
+action re-fetch on every one.
+
+**Or:** do 3a and stop. The app is feature-complete by the README's own
+"considered and decided against" standard, and everything above is
+genuinely optional.
