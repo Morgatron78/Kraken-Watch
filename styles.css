@@ -893,10 +893,20 @@ button{font-family:inherit;cursor:pointer;}
 .octoplus-session-pts{flex-shrink:0;white-space:nowrap;text-align:right;}
 .octoplus-joined{color:var(--mint);font-weight:600;}
 .octoplus-earned{color:var(--mint);font-weight:600;}
-/* An event that has started but not yet ended — reuses the app's pulsing
-   mint live-dot, the same "happening now" cue as the Live usage card; the
-   row's text goes full-strength so it stands out from the dim list. */
-.octoplus-now{display:inline-flex;align-items:center;color:var(--mint);font-weight:600;}
+/* Timing markers on an upcoming row: "Now" (live — mint, pulsing dot, same
+   cue as the Live usage card) and "Soon" (today but not started yet —
+   electricity pink, static dot). The dot is a ::before that inherits the
+   label colour; kept plain-inline so it shares the row's text baseline
+   rather than being knocked out of line by a flex wrapper. A live row's
+   text also goes full-strength so it stands clear of the dim list. */
+.octoplus-when{font-weight:600;}
+.octoplus-when::before{
+  content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+  margin-right:5px;vertical-align:1px;background:currentColor;
+}
+.octoplus-when.now{color:var(--mint);}
+.octoplus-when.now::before{animation:live-pulse 1.6s ease-in-out infinite;}
+.octoplus-when.soon{color:var(--pink);}
 .octoplus-session-live .octoplus-session-main{color:var(--text);}
 /* Collapsible past-results section. */
 .octoplus-results-section{margin-top:10px;padding-top:12px;border-top:1px solid var(--line);}
