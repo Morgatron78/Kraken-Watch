@@ -20,7 +20,13 @@ function hashManifest(manifest) {
 const CACHE = 'kraken-watch-' + hashManifest(SHELL);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL.map(e => e.url))));
+  // Individual adds via allSettled, NOT addAll: addAll is atomic, so one
+  // asset 404ing during a deploy-propagation race would reject the whole
+  // precache and leave this SW stuck installing. Any entry that missed here
+  // self-heals on its first successful fetch (see the fetch handler).
+  event.waitUntil(
+    caches.open(CACHE).then(cache => Promise.allSettled(SHELL.map(e => cache.add(e.url))))
+  );
   self.skipWaiting();
 });
 
@@ -42,5 +48,20 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      return fetch(event.request).then(res => {
+        // Cache a good same-origin response so an incomplete precache (an
+        // asset that 404'd mid-deploy) heals on the first real load rather
+        // than staying network-dependent until the next SW update. Hashed
+        // asset URLs are immutable, so this can't serve stale content.
+        if (res && res.ok && url.origin === self.location.origin) {
+          const copy = res.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        }
+        return res;
+      });
+    })
+  );
 });
