@@ -115,7 +115,7 @@ body{
 
 button{font-family:inherit;cursor:pointer;}
 
-.wrap{max-width:920px;margin:0 auto;padding:20px 18px 60px;}
+.wrap{max-width:920px;margin:0 auto;padding:20px 18px 28px;}
 
 /* Top bar */
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:10px;}
@@ -1023,6 +1023,14 @@ button{font-family:inherit;cursor:pointer;}
    pill and badge just sit next to each other in normal flex flow, no
    grid/fixed-width column needed for either. */
 .slot-row-right{display:flex;align-items:center;gap:6px;}
+/* Carbon-band leaf before the SMART/BOOST pill — leaf inherits the band
+   colour via currentColor (mint / amber / coral, the card's low/mod/high
+   ramp). */
+.slot-leaf{display:inline-flex;align-items:center;flex-shrink:0;}
+.slot-leaf svg{width:14px;height:14px;}
+.slot-leaf-low{color:var(--mint);}
+.slot-leaf-moderate{color:var(--amber);}
+.slot-leaf-high{color:var(--coral);}
 /* v2.200: date portion only (not the time range next to it) sized to
    match the kWh figure below it, per the user's request — matches
    .slot b's 13px explicitly rather than relying on that broad rule to

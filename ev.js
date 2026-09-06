@@ -228,8 +228,15 @@ function renderEVSessionSlots(sessions, now) {
     const row2 = (co2Text || costLine)
       ? `<div class="slot-row-inline slot-row-inline-2"><span class="slot-co2">${co2Text}</span><span class="soc-col">${costLine}</span></div>`
       : '';
+    // Carbon-band leaf, left of the SMART/BOOST pill (and right of the
+    // problem-warning pill) — a quick visual read of how clean the grid was
+    // while this session charged (mint/amber/coral), mirroring the
+    // dispatch-window chips. Absent when the intensity history doesn't reach
+    // this session.
+    const co2Band = kwh != null ? carbonBandForRange(startD.getTime(), new Date(s.end).getTime()) : null;
+    const bandLeaf = co2Band ? `<span class="slot-leaf slot-leaf-${co2Band}" title="Grid carbon while charging: ${co2Band}">${leafSvgSm}</span>` : '';
     return `<div class="slot">
-      <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> · ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${badgeHtml(s.type)}</span></div>
+      <div class="slot-row"><span><span class="slot-date">${dayLabel}</span> · ${fmtT(s.start)} – ${fmtT(s.end)}${elapsed ? ` (${elapsed})` : ''}</span><span class="slot-row-right">${miniPillHtml}${bandLeaf}${badgeHtml(s.type)}</span></div>
       <div class="slot-row-inline"><span class="left-group"><b>${kwh != null ? Math.abs(kwh).toFixed(1) + ' kWh' : '—'}</b></span><span class="soc-col">${milesText}</span></div>
       ${row2}
       ${detailRowHtml}

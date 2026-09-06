@@ -384,14 +384,13 @@ The build is Vite (see `vite.config.js`), deployed via GitHub Actions on
 every push to `main` — see `.github/workflows/deploy.yml`. There is no
 manual release ritual: push, and CI builds and deploys.
 
-The footer shows the app version as `v<semver> (<short commit SHA>)` — e.g.
-`v2.265 (a1b2c3d)`. The SHA half is what actually confirms a given deploy
-landed: it's baked in automatically by `vite.config.js` from `git rev-parse
---short HEAD` at build time, so it changes on every commit with nothing to
-remember. `package.json`'s semver is a separate, purely cosmetic label —
-bump it with `npm version patch`/`minor`/`major` whenever a change feels
-worth naming, but forgetting to has no functional effect (unlike the old
-scheme, where it did — see below).
+The footer shows the short commit SHA (e.g. `a1b2c3d`) — baked in
+automatically by `vite.config.js` from `git rev-parse --short HEAD` at build
+time, so it changes on every commit with nothing to remember, and it's what
+confirms which deploy actually landed. There's no semver: `package.json` has
+no `version` field, because a hand-bumped number that never got bumped was
+just noise next to the SHA (the pre-v2.265 `v2.xxx` history lives in
+`docs/CHANGELOG.md`).
 
 Cache-busting is automatic too: Vite content-hashes the built `main.js`/
 `styles.css` filenames, so a changed file is a guaranteed cache miss

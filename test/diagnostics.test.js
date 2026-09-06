@@ -87,14 +87,14 @@ describe('renderDiagnostics', () => {
     expect(document.getElementById('diagnostics-card').style.display).toBe('none');
   });
 
-  it('shows the card and includes the app version and REST-call count once there is something to show', () => {
+  it('shows the card and includes the build id and REST-call count once there is something to show', () => {
     setDom();
     store.creds = { showDiagnostics: true };
     logIssue('Rates', new Error('boom'));
     renderDiagnostics();
     expect(document.getElementById('diagnostics-card').style.display).toBe('block');
     const text = document.getElementById('diagnostics-list').textContent;
-    expect(text).toContain('App version:');
+    expect(text).toContain('Build:');
     expect(text).toContain('REST call(s) in the last hour');
     expect(text).toContain('Rates: boom');
   });

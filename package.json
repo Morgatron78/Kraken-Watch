@@ -1,6 +1,5 @@
 {
   "name": "kraken-watch",
-  "version": "2.265",
   "private": true,
   "type": "module",
   "description": "A personal installable PWA dashboard for Octopus Energy — current rate, live usage, Intelligent Octopus Go EV charging, consumption, and billing.",

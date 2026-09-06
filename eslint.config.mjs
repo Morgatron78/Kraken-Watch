@@ -60,7 +60,7 @@ export default [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      globals: { ...browserGlobals, __APP_VERSION__: 'readonly', __BUILD_SHA__: 'readonly' },
+      globals: { ...browserGlobals, __BUILD_SHA__: 'readonly' },
     },
     rules: correctnessRules,
   },
@@ -94,7 +94,7 @@ export default [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      globals: { ...browserGlobals, ...testGlobals, __APP_VERSION__: 'readonly', __BUILD_SHA__: 'readonly' },
+      globals: { ...browserGlobals, ...testGlobals, __BUILD_SHA__: 'readonly' },
     },
     rules: correctnessRules,
   },
