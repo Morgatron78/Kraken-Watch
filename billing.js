@@ -80,6 +80,81 @@ function restoreToggleToSafety() {
   }
 }
 
+// --- Pure helpers, lifted out of loadBilling so the billing math can be
+// tested without a DOM or a live API (see test/billing.test.js). None of
+// these touch the page or module state. ---
+
+function isCharge(t) { return (t.__typename || '').includes('Charge'); }
+
+// Consumption quantity → kWh for the bill-year chart's per-fuel split.
+// consumption.unit is KILOWATT_HOUR for electricity and either that or
+// CUBIC_METERS for gas depending on the meter; m³ gets the same
+// volume-correction × calorific-value ÷ 3.6 conversion used in
+// costForRange / fetchYearMonthly.
+function itemToKwh(t) {
+  const q = parseFloat(t.consumption?.quantity);
+  if (!Number.isFinite(q)) return 0;
+  const unit = t.consumption?.unit;
+  if (unit === 'CUBIC_METERS' || unit === 'CUBIC_METRE') return m3ToKwh(q);
+  return q; // already kWh (KILOWATT_HOUR, or an unrecognised unit passed through rather than dropped)
+}
+
+// The bill's own "Total charges for bill": sums only charge-type
+// transactions (electricity, gas), excluding Direct Debit payments and
+// points-redeemed credits — those move the account balance, they aren't
+// part of what the bill charged. Returns pounds, or null for no items.
+export function billChargeTotal(items) {
+  if (!items || !items.length) return null;
+  return items.filter(isCharge).reduce((sum, t) => sum + t.amounts.gross, 0) / 100;
+}
+
+// Nearest usable payment for the "balance after next Direct Debit" line:
+// the soonest future-dated payment whatever its status, else the most
+// recent non-cancelled/failed past payment as an estimate (UK energy DDs
+// stay fixed for months, and Octopus doesn't materialise the next record
+// until close to collection). `todayISO` is a yyyy-mm-dd string. Returns
+// { payment, futureCount } — futureCount is for the diagnostics line.
+export function pickNextPayment(payments, todayISO) {
+  const future = (payments || [])
+    .filter(p => p.paymentDate >= todayISO)
+    .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
+  if (future[0]) return { payment: future[0], futureCount: future.length };
+  const past = (payments || [])
+    .filter(p => p.paymentDate < todayISO && p.status !== 'CANCELLED' && p.status !== 'FAILED')
+    .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
+  return { payment: past[0] ? { ...past[0], isEstimate: true } : null, futureCount: 0 };
+}
+
+// Bills grouped into calendar months (a mid-month tariff switch produces
+// two bills for one month; two same-labelled bars read as a bug, so they
+// merge). Most-recent 12 distinct months, oldest-first. `txnsByBill` is
+// [{ bill, items }]; each result row carries per-fuel £ and kWh plus the
+// contributing bills.
+export function groupBillsByMonth(txnsByBill) {
+  const grouped = new Map(); // 'YYYY-M' -> row
+  (txnsByBill || []).forEach(({ bill, items }) => {
+    const issued = new Date(bill.issuedDate);
+    const key = `${issued.getFullYear()}-${issued.getMonth()}`;
+    const gasItems = (items || []).filter(t => isCharge(t) && /gas/i.test(t.title));
+    const elecItems = (items || []).filter(t => isCharge(t) && /electric/i.test(t.title));
+    const gas = gasItems.reduce((s, t) => s + t.amounts.gross, 0) / 100;
+    const elec = elecItems.reduce((s, t) => s + t.amounts.gross, 0) / 100;
+    const gasKwh = gasItems.reduce((s, t) => s + itemToKwh(t), 0);
+    const elecKwh = elecItems.reduce((s, t) => s + itemToKwh(t), 0);
+    const entry = grouped.get(key);
+    if (entry) {
+      entry.gas += gas; entry.elec += elec; entry.total += gas + elec;
+      entry.gasKwh += gasKwh; entry.elecKwh += elecKwh;
+      entry.bills.push({ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl });
+    } else {
+      grouped.set(key, { year: issued.getFullYear(), month: issued.getMonth(), gas, elec, gasKwh, elecKwh, total: gas + elec, bills: [{ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl }] });
+    }
+  });
+  return Array.from(grouped.values())
+    .sort((a, b) => a.year - b.year || a.month - b.month)
+    .slice(-12);
+}
+
 export async function loadBilling() {
   restoreToggleToSafety();
   if (demoFallbackEnabled()) populateDemoBilling();
@@ -147,27 +222,10 @@ export async function loadBilling() {
   let nextPayment = null;
   try {
     const data = await nextPaymentQ;
-    const today = isoDate(new Date());
     const allPayments = (data?.account?.payments?.edges || []).map(e => e.node);
-    const upcoming = allPayments
-      .filter(p => p.paymentDate >= today)
-      .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
-    if (upcoming[0]) nextPayment = upcoming[0];
-
-    // No future-dated payment yet — fall back to the most recent PAST
-    // payment as an estimate. UK energy Direct Debits are periodically
-    // reviewed but typically stay fixed for months at a time, so the last
-    // actual payment is a reasonable stand-in until Octopus creates the
-    // real next-payment record. Flagged as an estimate so the UI can be
-    // honest about it rather than presenting a guess as a confirmed fact.
-    if (!nextPayment) {
-      const past = allPayments
-        .filter(p => p.paymentDate < today && p.status !== 'CANCELLED' && p.status !== 'FAILED')
-        .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
-      if (past[0]) nextPayment = { ...past[0], isEstimate: true };
-    }
-
-    logDebug('Next payment', `${allPayments.length} payment(s) fetched, ${upcoming.length} future-dated${nextPayment ? `, using: ${nextPayment.paymentDate} (${nextPayment.status}${nextPayment.isEstimate ? ', estimated from last payment' : ''})` : ', none usable'}`);
+    const picked = pickNextPayment(allPayments, isoDate(new Date()));
+    nextPayment = picked.payment;
+    logDebug('Next payment', `${allPayments.length} payment(s) fetched, ${picked.futureCount} future-dated${nextPayment ? `, using: ${nextPayment.paymentDate} (${nextPayment.status}${nextPayment.isEstimate ? ', estimated from last payment' : ''})` : ', none usable'}`);
   } catch (err) { logIssue('Next payment', err); }
 
   // --- Cost so far this cycle (assumes calendar month as the cycle — Octopus's
@@ -365,7 +423,6 @@ export async function loadBilling() {
         }));
       } catch (err) { logIssue('Bill transactions', err); }
 
-      function isCharge(t) { return (t.__typename || '').includes('Charge'); }
       function itemDateRange(t) {
         if (!t.consumption?.startDate || !t.consumption?.endDate) return '';
         const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -389,15 +446,6 @@ export async function loadBilling() {
         }).join('');
         return rows;
       }
-      // Total matches the bill's own "Total charges for bill" — sums only the
-      // charge-type transactions (electricity, gas), excluding Direct Debit
-      // payments and points-redeemed credits, which are account balance
-      // movements rather than part of what the bill actually charged.
-      function billTotal(items) {
-        if (!items || !items.length) return null;
-        const chargePence = items.filter(isCharge).reduce((sum, t) => sum + t.amounts.gross, 0);
-        return (chargePence / 100).toFixed(2);
-      }
       function billPeriod(b) {
         const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
         return `${fmt(b.fromDate)} – ${fmt(b.toDate)}`;
@@ -406,7 +454,7 @@ export async function loadBilling() {
         const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
         const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill">View Bill</a>` : '<span class="bh-link" style="opacity:0.4">View Bill</span>';
-        const total = billTotal(items);
+        const total = billChargeTotal(items);
         const itemsHtml = billItemsHtml(items);
         const toggleHtml = (itemsHtml && collapsible)
           ? `<div class="bh-pill-group" id="bh-pill-group"><button type="button" class="bh-breakdown-toggle" data-bill-id="${b.id}" aria-expanded="false"><span>Show breakdown</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`
@@ -417,7 +465,7 @@ export async function loadBilling() {
             <div><div class="bh-date">${date}</div><div class="bh-period"><b>Billing period:</b> ${billPeriod(b)}</div></div>
             ${linkHtml}
           </div>
-          <div class="bh-total-row">${toggleHtml}<div class="bh-total">${total !== null ? '£' + total : '—'}</div></div>
+          <div class="bh-total-row">${toggleHtml}<div class="bh-total">${total != null ? fmtGBP(total) : '—'}</div></div>
           ${itemsHtml ? `<div class="${itemsClass}" data-bill-id="${b.id}">${itemsHtml}</div>` : ''}
         </div>`;
       }
@@ -471,40 +519,7 @@ export async function loadBilling() {
       // tariff switch. The chart is capped to the most recent 12 distinct
       // months after grouping (.slice(-12)), staying a consistent width.
       try {
-        // consumption.unit is usually KILOWATT_HOUR for electricity and
-        // either KILOWATT_HOUR or CUBIC_METERS for gas depending on the
-        // meter — same m3→kWh conversion already used in costForRange/
-        // fetchYearMonthly (volume correction × calorific value ÷ 3.6),
-        // applied per-item here rather than assuming a fixed unit.
-        function itemToKwh(t) {
-          const q = parseFloat(t.consumption?.quantity);
-          if (!Number.isFinite(q)) return 0;
-          const unit = t.consumption?.unit;
-          if (unit === 'CUBIC_METERS' || unit === 'CUBIC_METRE') return m3ToKwh(q);
-          return q; // already kWh (or close enough — KILOWATT_HOUR, or an unrecognized unit passed through rather than silently dropped)
-        }
-        const grouped = new Map(); // key 'YYYY-M' -> { year, month, gas, elec, gasKwh, elecKwh, total, bills: [{issuedDate, temporaryUrl}] }
-        (txnsByBill || []).forEach(({ bill, items }) => {
-          const issued = new Date(bill.issuedDate);
-          const key = `${issued.getFullYear()}-${issued.getMonth()}`;
-          const gasItems = (items || []).filter(t => isCharge(t) && /gas/i.test(t.title));
-          const elecItems = (items || []).filter(t => isCharge(t) && /electric/i.test(t.title));
-          const gas = gasItems.reduce((s, t) => s + t.amounts.gross, 0) / 100;
-          const elec = elecItems.reduce((s, t) => s + t.amounts.gross, 0) / 100;
-          const gasKwh = gasItems.reduce((s, t) => s + itemToKwh(t), 0);
-          const elecKwh = elecItems.reduce((s, t) => s + itemToKwh(t), 0);
-          if (grouped.has(key)) {
-            const g = grouped.get(key);
-            g.gas += gas; g.elec += elec; g.total += gas + elec;
-            g.gasKwh += gasKwh; g.elecKwh += elecKwh;
-            g.bills.push({ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl });
-          } else {
-            grouped.set(key, { year: issued.getFullYear(), month: issued.getMonth(), gas, elec, gasKwh, elecKwh, total: gas + elec, bills: [{ issuedDate: bill.issuedDate, temporaryUrl: bill.temporaryUrl }] });
-          }
-        });
-        const monthsData = Array.from(grouped.values())
-          .sort((a, b) => a.year - b.year || a.month - b.month)
-          .slice(-12); // most recent 12 distinct months, regardless of how many bills that took
+        const monthsData = groupBillsByMonth(txnsByBill);
         const spansMultipleYears = monthsData.length > 0 && monthsData[0].year !== monthsData[monthsData.length - 1].year;
 
         if (monthsData.length >= 2) {
