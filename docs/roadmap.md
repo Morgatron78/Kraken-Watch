@@ -84,8 +84,14 @@ Scored against the app's established discipline: every panel pairs a number
 with a visual; read-only unless there's a deliberate reason; new work slots
 in as its own ES module.
 
-### A. Carbon intensity / "greener periods" — **recommended first**
-- **What:** a card showing regional carbon intensity now + a ~16h forecast,
+### A. Carbon intensity / "greener periods" — **SHIPPED**
+The standalone card + all of A2 (retrospective touches) shipped earlier. A
+later pass added the generation-mix bar ("51% wind · 24% solar · 20%
+nuclear" from the slot's `generationmix`, already in the response),
+taller forecast bars with a gCO₂ scale, band-tinted headline figure, and
+dropped the redundant Low/Moderate/High legend.
+
+- **What (original):** a card showing regional carbon intensity now + a ~16h forecast,
   banded low/moderate/high, with the cleanest upcoming window called out
   and cross-referenced against the IOG off-peak window (the "cheap and
   clean align" story). IOG already shifts load to off-peak; this says

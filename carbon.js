@@ -1,6 +1,7 @@
 import { $ } from './format.js';
 import { store } from './store.js';
 import { logIssue, logDebug } from './diagnostics.js';
+import { renderChartScale } from './charts.js';
 
 // Grid carbon intensity from the National Grid ESO API
 // (api.carbonintensity.org.uk — free, no auth, 48h regional forecast). This
@@ -142,16 +143,19 @@ function renderCarbonCard(slots, current, region) {
   pill.textContent = LABEL[idx] || '—';
   pill.className = 'card-tag carbon-tag-' + band;
   $('carbon-region').textContent = region;
+  renderGenMix(current.generationmix || []);
 
   // Forecast strip — the next few hours at the API's native half-hour
   // resolution, capped so it stays legible on a phone-width card.
   const upcoming = slots.filter(s => new Date(s.to) > Date.now()).slice(0, 32);
   const max = Math.max(...upcoming.map(s => s.intensity.forecast || 0), 1);
+  const H = 80;
   $('carbon-bars').innerHTML = upcoming.map(s => {
     const v = s.intensity.forecast ?? 0;
-    const h = Math.max(2, Math.round((v / max) * 46));
+    const h = Math.max(2, Math.round((v / max) * H));
     return `<div class="carbon-bar ${bandOf(s.intensity.index)}" style="height:${h}px" title="${hhmm(s.from)} · ${Math.round(v)} g"></div>`;
   }).join('');
+  renderChartScale('carbon-scale', max, v => `${Math.round(v)}`);
   $('carbon-axis').innerHTML = upcoming.length
     ? `<span>${hhmm(upcoming[0].from)}</span><span>${hhmm(upcoming[Math.floor(upcoming.length / 2)].from)}</span><span>${hhmm(upcoming[upcoming.length - 1].from)}</span>`
     : '';
@@ -174,6 +178,32 @@ function renderCarbonCard(slots, current, region) {
   } else {
     $('carbon-insight').textContent = '';
   }
+}
+
+// What's actually generating the electricity right now — from the slot's
+// generationmix (already in the NESO response). A thin stacked bar
+// (renewables / nuclear / fossil / other) plus a line naming the biggest
+// real fuels. Answers "why is it this clean/dirty".
+function renderGenMix(mix) {
+  const bar = $('carbon-mix');
+  const label = $('carbon-mix-label');
+  if (!mix.length) { bar.innerHTML = ''; label.textContent = ''; return; }
+  const g = f => mix.find(m => m.fuel === f)?.perc || 0;
+  const renew = g('wind') + g('solar') + g('hydro');
+  const nuclear = g('nuclear');
+  const fossil = g('gas') + g('coal');
+  const rest = Math.max(0, 100 - renew - nuclear - fossil);
+  bar.innerHTML =
+    `<i style="width:${renew}%;background:var(--mint)"></i>` +
+    `<i style="width:${nuclear}%;background:var(--gas-blue)"></i>` +
+    `<i style="width:${fossil}%;background:var(--text-dim)"></i>` +
+    `<i style="width:${rest}%;background:var(--line-strong)"></i>`;
+  const named = [['wind', g('wind')], ['solar', g('solar')], ['nuclear', nuclear], ['gas', g('gas')], ['biomass', g('biomass')]]
+    .filter(([, p]) => p >= 3)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([f, p]) => `${Math.round(p)}% ${f}`);
+  label.textContent = named.join('  ·  ');
 }
 
 const leafSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>';

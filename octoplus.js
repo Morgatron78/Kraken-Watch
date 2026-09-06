@@ -61,8 +61,11 @@ async function fetchPoints() {
   try {
     const j = await krakenGQL(
       `query OctoplusPoints { loyaltyPointLedgers { balanceCarriedForward } }`, {});
-    const bal = (j?.loyaltyPointLedgers || [])[0]?.balanceCarriedForward;
-    return typeof bal === 'number' ? bal : null;
+    const ledgers = j?.loyaltyPointLedgers || [];
+    // Take the first numeric balance rather than assuming [0] carries it.
+    const bal = ledgers.map(l => l?.balanceCarriedForward).find(v => typeof v === 'number');
+    logDebug('Octoplus points', `${ledgers.length} ledger(s), balance ${bal ?? 'none'}`);
+    return bal ?? null;
   } catch (err) {
     logIssue('Octoplus points', err);
     return null;
@@ -74,18 +77,28 @@ async function fetchSavingSessions(acct) {
     const j = await krakenBackendGQL(
       `query OctoplusSavingSessions($accountNumber: String!) {
         savingSessions {
-          events(includeDev: false) { id code rewardPerKwhInOctoPoints startAt endAt eventType }
+          events(includeDev: false) {
+            id code rewardPerKwhInOctoPoints startAt endAt eventType devEvent
+            targetRegion { regionId }
+          }
           account(accountNumber: $accountNumber) {
             hasJoinedCampaign
+            signedUpMeterPoint { regionId }
             joinedEvents { eventId }
           }
         }
       }`, { accountNumber: acct });
     const ss = j?.savingSessions;
     if (!ss) return null;
-    logDebug('Octoplus saving sessions', `${(ss.events || []).length} event(s), joined campaign: ${!!ss.account?.hasJoinedCampaign}`);
+    const myRegion = ss.account?.signedUpMeterPoint?.regionId ?? null;
+    // Filter the (often long, all-region, history-inclusive) event list down
+    // to real events that could apply to this account: not a dev event, and
+    // either national or targeted at this account's grid region.
+    const events = (ss.events || []).filter(e =>
+      !e.devEvent && (!e.targetRegion || e.targetRegion.regionId == null || e.targetRegion.regionId === myRegion));
+    logDebug('Octoplus saving sessions', `${(ss.events || []).length} raw, ${events.length} after dev/region filter, joined campaign: ${!!ss.account?.hasJoinedCampaign}`);
     return {
-      events: ss.events || [],
+      events,
       hasJoinedCampaign: !!ss.account?.hasJoinedCampaign,
       joinedIds: new Set((ss.account?.joinedEvents || []).map(e => String(e.eventId))),
     };
@@ -101,13 +114,19 @@ function renderPoints(balance) {
     : `${balance.toLocaleString('en-GB')}<span>pts</span>`;
 }
 
+const MAX_SESSIONS = 4;
+
 function renderSessions(data) {
   const el = $('octoplus-sessions');
   if (!data) { el.innerHTML = ''; return; }
   const now = Date.now();
-  const upcoming = (data.events || [])
+  // Only sessions still to end, soonest first — then cap, since the raw
+  // list can carry a whole season of events.
+  const future = (data.events || [])
     .filter(e => new Date(e.endAt).getTime() > now)
     .sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
+  const upcoming = future.slice(0, MAX_SESSIONS);
+  const more = future.length - upcoming.length;
 
   let html = '<div class="octoplus-label">Saving Sessions</div>';
   if (!upcoming.length) {
@@ -122,6 +141,7 @@ function renderSessions(data) {
         <div class="octoplus-session-meta">${kind}${reward ? ` · ${reward}` : ''}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</div>
       </div>`;
     }).join('');
+    if (more > 0) html += `<div class="octoplus-empty">+${more} more scheduled</div>`;
   }
   el.innerHTML = html;
 }

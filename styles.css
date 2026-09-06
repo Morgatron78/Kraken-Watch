@@ -819,7 +819,14 @@ button{font-family:inherit;cursor:pointer;}
 .hidden{display:none !important;}
 
 /* Carbon intensity card */
-.carbon-bars{display:flex;align-items:flex-end;gap:2px;height:46px;margin-top:10px;}
+/* Generation-mix bar — what's powering the grid right now (renewables /
+   nuclear / fossil / other), from the slot's generationmix. */
+.carbon-mix{display:flex;height:7px;border-radius:100px;overflow:hidden;margin-top:14px;background:var(--tint);}
+.carbon-mix i{display:block;height:100%;}
+.carbon-mix-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);margin-top:6px;}
+.carbon-chart-row{margin-top:14px;}
+.carbon-chart-row .chart-scale{height:80px;padding-bottom:0;}
+.carbon-bars{display:flex;align-items:flex-end;gap:2px;height:80px;flex:1;min-width:0;}
 .carbon-bar{flex:1;border-radius:2px 2px 0 0;min-width:2px;opacity:0.9;}
 .carbon-bar.low{background:var(--mint);}
 .carbon-bar.moderate{background:var(--amber);}
@@ -828,11 +835,8 @@ button{font-family:inherit;cursor:pointer;}
 .carbon-tag-low{color:var(--mint);background:var(--mint-soft);border:1px solid var(--mint-line);}
 .carbon-tag-moderate{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);}
 .carbon-tag-high{color:var(--coral);background:var(--coral-soft);border:1px solid var(--coral-line);}
-.carbon-legend{display:flex;gap:14px;margin-top:10px;font-family:'Inter', sans-serif;font-size:10px;color:var(--text-dim);}
-.carbon-legend span{display:inline-flex;align-items:center;gap:5px;}
-.carbon-legend i{width:9px;height:9px;border-radius:2px;display:inline-block;}
 .carbon-insight{
-  display:flex;align-items:flex-start;gap:7px;margin-top:14px;padding:10px 12px;
+  display:flex;align-items:flex-start;gap:7px;margin-top:12px;padding:10px 12px;
   background:var(--tint);border-radius:10px;
   font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim);line-height:1.5;
 }
