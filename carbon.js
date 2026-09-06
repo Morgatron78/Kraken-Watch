@@ -186,9 +186,15 @@ function renderCarbonCard(slots, current, region) {
   $('carbon-region').textContent = region;
   renderGenMix(current.generationmix || []);
 
-  // Forecast strip — the next few hours at the API's native half-hour
+  // Every future slot we have (up to 48h). The trend cluster and the
+  // cleanest/dirtiest search read the whole horizon; only the strip below
+  // is capped, for phone-width legibility.
+  const lookahead = slots.filter(s => new Date(s.to) > Date.now());
+  renderCarbonNext(current, lookahead);
+
+  // Forecast strip — the next ~16h at the API's native half-hour
   // resolution, capped so it stays legible on a phone-width card.
-  const upcoming = slots.filter(s => new Date(s.to) > Date.now()).slice(0, 32);
+  const upcoming = lookahead.slice(0, 32);
   const max = Math.max(...upcoming.map(s => s.intensity.forecast || 0), 1);
   const H = 80;
   $('carbon-bars').innerHTML = upcoming.map(s => {
@@ -201,12 +207,14 @@ function renderCarbonCard(slots, current, region) {
     ? `<span>${hhmm(upcoming[0].from)}</span><span>${hhmm(upcoming[Math.floor(upcoming.length / 2)].from)}</span><span>${hhmm(upcoming[upcoming.length - 1].from)}</span>`
     : '';
 
-  // Cleanest 2-hour stretch ahead (4 consecutive half-hour slots).
-  let best = null;
-  for (let i = 0; i + 4 <= upcoming.length; i++) {
-    const win = upcoming.slice(i, i + 4);
+  // Cleanest and dirtiest 2-hour stretches ahead (4 consecutive half-hour
+  // slots), searched across the whole forecast rather than just the strip.
+  let best = null, worst = null;
+  for (let i = 0; i + 4 <= lookahead.length; i++) {
+    const win = lookahead.slice(i, i + 4);
     const avg = win.reduce((s, x) => s + (x.intensity.forecast || 0), 0) / 4;
     if (!best || avg < best.avg) best = { avg, start: win[0].from, end: win[3].to };
+    if (!worst || avg > worst.avg) worst = { avg, start: win[0].from, end: win[3].to };
   }
   if (best) {
     const s = new Date(best.start);
@@ -214,12 +222,73 @@ function renderCarbonCard(slots, current, region) {
     // the greenest stretch falls inside it — the "cheap and clean align" line.
     const startHour = s.getHours() + s.getMinutes() / 60;
     const inOffPeak = startHour >= 23.5 || startHour < 5.5;
-    $('carbon-insight').innerHTML = `${leafSvg}Cleanest window <b>${hhmm(best.start)}–${hhmm(best.end)}</b> &middot; avg ${Math.round(best.avg)} g`
+    $('carbon-insight').innerHTML = `${leafSvg}Cleanest ${dayWord(dayDelta(best.start))}<b>${hhmm(best.start)}–${hhmm(best.end)}</b> &middot; avg ${Math.round(best.avg)} g`
       + (inOffPeak ? ' &middot; overlaps your Intelligent Go off-peak' : '');
   } else {
     $('carbon-insight').textContent = '';
   }
+  // Only flag the dirtiest stretch when it's materially worse than the
+  // cleanest — on a flat day an "avoid" line is just noise.
+  if (best && worst && worst.avg - best.avg > 30) {
+    $('carbon-dirtiest').innerHTML = `${boltSvg}Dirtiest ${dayWord(dayDelta(worst.start))}<b>${hhmm(worst.start)}–${hhmm(worst.end)}</b> &middot; avg ${Math.round(worst.avg)} g`;
+  } else {
+    $('carbon-dirtiest').textContent = '';
+  }
 }
+
+// The "what's coming" cluster in the card's top-right: which way the grid
+// is heading over the next ~3h, where it turns next, and how much of the
+// current mix is renewable. All from slots already fetched.
+function renderCarbonNext(current, lookahead) {
+  const nowG = Math.round(current.intensity.forecast);
+  const ahead = lookahead[5]; // ~2.5–3h out (6 half-hour slots)
+  const delta = (ahead ? Math.round(ahead.intensity.forecast) : nowG) - nowG;
+  const trendEl = $('carbon-trend');
+  const nextEl = $('carbon-next-turn');
+
+  if (delta <= -8) {
+    trendEl.textContent = '↓ Falling';
+    trendEl.className = 'carbon-trend falling';
+    const lo = carbonExtremum(lookahead.slice(0, 24), 'min');
+    nextEl.textContent = lo ? `~${Math.round(lo.g)} g by ${hhmm(lo.at)}` : '';
+  } else if (delta >= 8) {
+    trendEl.textContent = '↑ Rising';
+    trendEl.className = 'carbon-trend rising';
+    const hi = carbonExtremum(lookahead.slice(0, 12), 'max');
+    nextEl.textContent = hi ? `~${Math.round(hi.g)} g by ${hhmm(hi.at)}` : '';
+  } else {
+    trendEl.textContent = '→ Steady';
+    trendEl.className = 'carbon-trend steady';
+    nextEl.textContent = `holding near ${nowG} g`;
+  }
+
+  const mix = current.generationmix || [];
+  const perc = f => mix.find(m => m.fuel === f)?.perc || 0;
+  $('carbon-renewable').textContent = mix.length
+    ? `${Math.round(perc('wind') + perc('solar') + perc('hydro'))}% renewable now`
+    : '';
+}
+
+// Lowest / highest forecast slot in a list — { g, at } or null.
+function carbonExtremum(slotArr, kind) {
+  let out = null;
+  for (const s of slotArr) {
+    const v = s.intensity?.forecast;
+    if (v == null) continue;
+    if (!out || (kind === 'min' ? v < out.g : v > out.g)) out = { g: v, at: s.from };
+  }
+  return out;
+}
+
+// 0 = today, 1 = tomorrow, … — calendar-day delta from now, local time.
+function dayDelta(d) {
+  const a = new Date(d); a.setHours(0, 0, 0, 0);
+  const b = new Date(); b.setHours(0, 0, 0, 0);
+  return Math.round((a - b) / 86400000);
+}
+// Prefix for the cleanest/dirtiest line: keeps the original "… window …"
+// wording for today, names the day otherwise.
+const dayWord = n => (n <= 0 ? 'window ' : n === 1 ? 'tomorrow ' : `in ${n}d `);
 
 // What's actually generating the electricity right now — from the slot's
 // generationmix (already in the NESO response). A thin stacked bar
@@ -248,6 +317,7 @@ function renderGenMix(mix) {
 }
 
 const leafSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>';
+const boltSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
 
 /* ---------------------- Historical intensity (retrospective) ----------------------
    The card above is forward-looking ("when is the grid clean?"). This block

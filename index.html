@@ -217,9 +217,18 @@
         <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--mint)"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg> Carbon intensity</div>
         <div class="card-tag" id="carbon-tag">—</div>
       </div>
-      <div class="big-label">Grid now</div>
-      <div class="big-value" id="carbon-value">—<span>g CO₂/kWh</span></div>
-      <div class="predict-day" id="carbon-region">—</div>
+      <div class="carbon-headline">
+        <div class="carbon-now">
+          <div class="big-label">Grid now</div>
+          <div class="big-value" id="carbon-value">—<span>g CO₂/kWh</span></div>
+          <div class="predict-day" id="carbon-region">—</div>
+        </div>
+        <div class="carbon-next">
+          <div class="carbon-trend" id="carbon-trend"></div>
+          <div id="carbon-next-turn"></div>
+          <div id="carbon-renewable"></div>
+        </div>
+      </div>
       <div class="carbon-mix" id="carbon-mix"></div>
       <div class="carbon-mix-label" id="carbon-mix-label"></div>
       <div class="chart-row carbon-chart-row">
@@ -228,6 +237,7 @@
       </div>
       <div class="carbon-axis" id="carbon-axis"></div>
       <div class="carbon-insight" id="carbon-insight"></div>
+      <div class="carbon-insight carbon-insight-dirty" id="carbon-dirtiest"></div>
     </div>
 
     <!-- CONSUMPTION -->

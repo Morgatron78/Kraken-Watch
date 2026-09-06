@@ -851,6 +851,23 @@ button{font-family:inherit;cursor:pointer;}
 .hidden{display:none !important;}
 
 /* Carbon intensity card */
+/* Headline row: "Grid now" figure on the left, a right-aligned "what's
+   coming" cluster (trend / next turning point / renewables now) filling
+   the space beside it. Stacks on a narrow phone. */
+.carbon-headline{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;}
+.carbon-next{
+  display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right;padding-top:3px;
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim);
+}
+.carbon-next > div:empty{display:none;}
+.carbon-trend{font-size:10px;font-weight:600;letter-spacing:0.3px;}
+.carbon-trend.falling{color:var(--mint);}
+.carbon-trend.rising{color:var(--coral);}
+.carbon-trend.steady{color:var(--text-dim);}
+@media (max-width:380px){
+  .carbon-headline{flex-wrap:wrap;}
+  .carbon-next{align-items:flex-start;text-align:left;}
+}
 /* Generation-mix bar — what's powering the grid right now (renewables /
    nuclear / fossil / other), from the slot's generationmix. */
 .carbon-mix{display:flex;height:7px;border-radius:100px;overflow:hidden;margin-top:14px;background:var(--tint);}
@@ -875,6 +892,8 @@ button{font-family:inherit;cursor:pointer;}
 .carbon-insight:empty{display:none;}
 .carbon-insight b{color:var(--text);font-weight:600;}
 .carbon-insight svg{flex-shrink:0;margin-top:1px;color:var(--mint);}
+.carbon-insight-dirty{margin-top:8px;}
+.carbon-insight-dirty svg{color:var(--coral);}
 
 /* Octoplus card — points balance sits in the card-head pill (.card-tag);
    the body is a compact upcoming-events list plus a collapsible past-results
