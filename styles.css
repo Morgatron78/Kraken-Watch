@@ -63,6 +63,12 @@
   --line-strong: #bcbcc4;
   --text: #1e1e21;
   --text-dim: #6a6a70;
+  /* The warm accents are the one exception to "accent hues unchanged": at
+     their dark-theme lightness (#ffb84d / #f0d43a) they all but vanish as
+     text/marks on white. Deepened here to a readable gold; the translucent
+     soft/line helpers still key off the original bright hue. */
+  --amber: #b3760c;
+  --yellow: #b0870a;
   --mint-soft: rgba(61,220,151,0.16);
   --mint-line: rgba(61,220,151,0.4);
   --coral-soft: rgba(255,107,91,0.14);

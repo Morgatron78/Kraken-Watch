@@ -58,13 +58,30 @@ export async function loadOctoplus() {
 }
 
 async function fetchPoints() {
+  // Preferred: the direct balance query. It Unauthorized'd on the pre-
+  // Octoplus attempt, but the account is clearly enrolled now and the rest
+  // of Octoplus resolves, so it's worth trying before the ledger fallback.
   try {
     const j = await krakenGQL(
-      `query OctoplusPoints { loyaltyPointLedgers { balanceCarriedForward } }`, {});
-    const ledgers = j?.loyaltyPointLedgers || [];
-    // Take the first numeric balance rather than assuming [0] carries it.
+      `query OctoplusBalance($input: LoyaltyPointsBalanceInput!) {
+        loyaltyPointsBalance(input: $input) { loyaltyPoints }
+      }`, { input: { accountNumber: store.creds.accountNumber } });
+    const p = j?.loyaltyPointsBalance?.loyaltyPoints;
+    if (typeof p === 'number') {
+      logDebug('Octoplus points', `loyaltyPointsBalance = ${p}`);
+      return p;
+    }
+  } catch (err) {
+    logDebug('Octoplus points', `loyaltyPointsBalance failed — ${err.message}`);
+  }
+  // Fallback: newest ledger entry that carries a running balance.
+  try {
+    const j = await krakenGQL(
+      `query OctoplusLedgers { loyaltyPointLedgers { balanceCarriedForward postedAt } }`, {});
+    const ledgers = (j?.loyaltyPointLedgers || []).slice()
+      .sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt));
     const bal = ledgers.map(l => l?.balanceCarriedForward).find(v => typeof v === 'number');
-    logDebug('Octoplus points', `${ledgers.length} ledger(s), balance ${bal ?? 'none'}`);
+    logDebug('Octoplus points', `${ledgers.length} ledger(s), newest balanceCarriedForward ${bal ?? 'none'}, sample ${JSON.stringify(ledgers[0] || null)}`);
     return bal ?? null;
   } catch (err) {
     logIssue('Octoplus points', err);
@@ -96,7 +113,11 @@ async function fetchSavingSessions(acct) {
     // either national or targeted at this account's grid region.
     const events = (ss.events || []).filter(e =>
       !e.devEvent && (!e.targetRegion || e.targetRegion.regionId == null || e.targetRegion.regionId === myRegion));
-    logDebug('Octoplus saving sessions', `${(ss.events || []).length} raw, ${events.length} after dev/region filter, joined campaign: ${!!ss.account?.hasJoinedCampaign}`);
+    const now = Date.now();
+    const future = events.filter(e => new Date(e.endAt).getTime() > now);
+    logDebug('Octoplus saving sessions',
+      `${(ss.events || []).length} raw / ${events.length} filtered / ${future.length} upcoming; ` +
+      `next: ${future.slice(0, 3).map(e => `[${e.eventType || '?'}] ${new Date(e.startAt).toLocaleString('en-GB')}`).join('  ·  ') || '—'}`);
     return {
       events,
       hasJoinedCampaign: !!ss.account?.hasJoinedCampaign,
