@@ -57,11 +57,14 @@ export function staleInfo() {
   return { keys: [...stale.keys()], earliest: times.length ? Math.min(...times) : null };
 }
 
-// "14:32" today, "yesterday 14:32", "3 Sep 14:32" older.
+// "14:32" today, "yesterday 14:32", "3 Sep 14:32" older. `en-GB` is pinned
+// (not the device locale) so it's always 24-hour and matches the date
+// part's format — and so the output doesn't depend on the CI runner's
+// locale in tests.
 export function fmtStamp(ts) {
   const d = new Date(ts);
   const now = new Date();
-  const hhmm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const hhmm = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   if (d.toDateString() === now.toDateString()) return hhmm;
   if (d.toDateString() === new Date(now.getTime() - 86400000).toDateString()) return `yesterday ${hhmm}`;
   return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${hhmm}`;
