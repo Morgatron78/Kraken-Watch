@@ -205,9 +205,15 @@ export async function loadBilling() {
 /* ------------------------------ Fetch ---------------------------------- */
 // Every network call + derivation, no DOM. Each sub-fetch owns its
 // try/catch and returns data-or-null, so one section failing doesn't sink
-// the others (the isolation the old try-per-section had). The three
-// account queries fire concurrently and the REST-heavy MTD / 7-day-bar
-// fetches run alongside them.
+// the others (the isolation the old try-per-section had).
+//
+// The three small account queries fire concurrently (they have no
+// dependency on each other). The REST-heavy phases — MTD (~8 calls) and
+// the 7-day bars (~4) — then run one at a time: firing everything at once
+// floods the browser's 6-connections-per-origin limit and every other
+// card's fetch queues behind billing's burst (loadAll already runs
+// billing alongside rates / EV / carbon / live). Sequential phases keep
+// the peak concurrent request count roughly where it was pre-split.
 
 async function fetchBillingData() {
   const acct = store.creds?.accountNumber;
@@ -229,13 +235,11 @@ async function fetchBillingData() {
     }`, { accountNumber: acct });
   balanceQ.catch(() => {}); nextPaymentQ.catch(() => {}); billsQ.catch(() => {});
 
-  const [balance, nextPayment, mtd, weekBars, bills] = await Promise.all([
-    fetchBalance(balanceQ),
-    fetchNextPayment(nextPaymentQ),
-    fetchMtd(),
-    fetchWeekBars(),
-    fetchBills(billsQ),
-  ]);
+  const balance = await fetchBalance(balanceQ);
+  const nextPayment = await fetchNextPayment(nextPaymentQ);
+  const mtd = await fetchMtd();
+  const weekBars = await fetchWeekBars();
+  const bills = await fetchBills(billsQ);
   return { balance, nextPayment, mtd, weekBars, bills };
 }
 

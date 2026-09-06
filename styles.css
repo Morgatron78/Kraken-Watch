@@ -162,6 +162,12 @@ button{font-family:inherit;cursor:pointer;}
   font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;
   color:var(--amber);white-space:nowrap;
 }
+/* The EV / Billing / Usage stamps sit on their own line just under the
+   card head (the head is a tight space-between row — an inline stamp there
+   shoved the title into an ugly wrap). Pull the head's bottom margin in
+   when a visible stamp follows so it reads as attached to the header. */
+.card-head + .card-stamp{display:block;margin-bottom:10px;}
+.card-head:has(+ .card-stamp:not(.hidden)){margin-bottom:4px;}
 .brand-name{font-weight:600;display:flex;align-items:center;gap:6px;}
 /* v2.262: replaces the flat "Kraken Watch" text with a two-word wordmark —
    K and W enlarged (kilowatt wordplay, same pink accent as before), the
@@ -231,6 +237,12 @@ button{font-family:inherit;cursor:pointer;}
    flex container itself, so it needs the same icon-to-text gap repeated
    here, or it falls back to a single literal space instead of 8px. */
 .card-title > span:first-child{display:inline-flex;align-items:center;gap:8px;}
+/* EV title: "EV charging" and the "— <vehicle>" name are two flex chunks.
+   Let them wrap as whole units to a second line on a narrow screen rather
+   than each breaking mid-word ("EV \n charging \n — \n Polestar"). */
+#ev-header .card-title{flex-wrap:wrap;}
+#ev-header .card-title > span:first-child,
+#ev-name{white-space:nowrap;}
 /* Icon SVGs default to baseline alignment with surrounding text, which
    sits them low and grows the line height oddly — most visible wherever a
    title has more than one inline run (e.g. EV charging's icon+title span
