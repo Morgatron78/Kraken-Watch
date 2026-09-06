@@ -193,7 +193,11 @@ function renderSessions(data) {
     html += upcoming.map(g => {
       const joined = g.ids.some(id => data.joinedIds.has(id));
       const reward = g.reward ? `${g.reward} pts/kWh` : '';
-      return `<div class="octoplus-session"><span class="octoplus-session-main"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)} · ${kindLabel(g.eventType)}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</span><span class="octoplus-session-pts">${reward}</span></div>`;
+      const live = new Date(g.startAt).getTime() <= now && now < new Date(g.endAt).getTime();
+      const when = live
+        ? '<span class="octoplus-now"><span class="live-dot"></span>Now</span>'
+        : `<b>${dayLabel(g.startAt)}</b>`;
+      return `<div class="octoplus-session${live ? ' octoplus-session-live' : ''}"><span class="octoplus-session-main">${when} ${hhmm(g.startAt)}–${hhmm(g.endAt)} · ${kindLabel(g.eventType)}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</span><span class="octoplus-session-pts">${reward}</span></div>`;
     }).join('');
     if (more > 0) html += `<div class="octoplus-empty">+${more} more</div>`;
   }

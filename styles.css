@@ -882,14 +882,24 @@ button{font-family:inherit;cursor:pointer;}
   padding:7px 0;border-top:1px solid var(--line);
   font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--text-dim);
 }
-.octoplus-session:first-of-type{border-top:none;padding-top:0;}
+/* First row in each list drops the divider — the section label above it is
+   the separator. `:first-of-type` doesn't reach it in #octoplus-sessions
+   (the .octoplus-label is the first-of-type div there), hence both cases
+   spelled out. */
+.octoplus-label + .octoplus-session,
+.octoplus-results > .octoplus-session:first-child{border-top:none;padding-top:0;}
 .octoplus-session b{color:var(--text);font-weight:600;}
 .octoplus-session-main{min-width:0;}
 .octoplus-session-pts{flex-shrink:0;white-space:nowrap;text-align:right;}
 .octoplus-joined{color:var(--mint);font-weight:600;}
 .octoplus-earned{color:var(--mint);font-weight:600;}
+/* An event that has started but not yet ended — reuses the app's pulsing
+   mint live-dot, the same "happening now" cue as the Live usage card; the
+   row's text goes full-strength so it stands out from the dim list. */
+.octoplus-now{display:inline-flex;align-items:center;color:var(--mint);font-weight:600;}
+.octoplus-session-live .octoplus-session-main{color:var(--text);}
 /* Collapsible past-results section. */
-.octoplus-results-section{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);}
+.octoplus-results-section{margin-top:10px;padding-top:12px;border-top:1px solid var(--line);}
 .octoplus-results-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:none;border:none;padding:0;font-family:inherit;text-align:left;}
 .octoplus-results-toggle .octoplus-label{margin:0;}
 .octoplus-results-summary{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);}
