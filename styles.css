@@ -861,6 +861,8 @@ button{font-family:inherit;cursor:pointer;}
 .octoplus-session-when b{color:var(--text);font-weight:600;}
 .octoplus-session-meta{font-family:'Inter', sans-serif;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
 .octoplus-joined{color:var(--mint);font-weight:600;}
+.octoplus-earned{color:var(--mint);font-weight:600;}
+.octoplus-results:not(:empty){margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
 
 /* Live usage — last 30 minutes */
 /* v2.165: was a flat margin-top:10px, disconnected from the line-height-

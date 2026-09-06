@@ -51,9 +51,11 @@ export async function loadOctoplus() {
     fetchPoints(), fetchSavingSessions(acct),
   ]);
 
+  const sess = sessions.status === 'fulfilled' ? sessions.value : null;
   $('octoplus-card').classList.remove('hidden');
   renderPoints(points.status === 'fulfilled' ? points.value : null);
-  renderSessions(sessions.status === 'fulfilled' ? sessions.value : null);
+  renderSessions(sess);
+  renderResults(sess);
   return true;
 }
 
@@ -92,7 +94,7 @@ async function fetchSavingSessions(acct) {
           account(accountNumber: $accountNumber) {
             hasJoinedCampaign
             signedUpMeterPoint { regionId }
-            joinedEvents { eventId }
+            joinedEvents { eventId startAt endAt eventType rewardGivenInOctoPoints }
           }
         }
       }`, { accountNumber: acct });
@@ -104,15 +106,17 @@ async function fetchSavingSessions(acct) {
     // either national or targeted at this account's grid region.
     const events = (ss.events || []).filter(e =>
       !e.devEvent && (!e.targetRegion || e.targetRegion.regionId == null || e.targetRegion.regionId === myRegion));
+    const joinedEvents = ss.account?.joinedEvents || [];
     const now = Date.now();
     const future = events.filter(e => new Date(e.endAt).getTime() > now);
     logDebug('Octoplus saving sessions',
-      `${(ss.events || []).length} raw / ${events.length} filtered / ${future.length} upcoming; ` +
+      `${(ss.events || []).length} raw / ${events.length} filtered / ${future.length} upcoming, ${joinedEvents.length} joined; ` +
       `next: ${future.slice(0, 3).map(e => `[${e.eventType || '?'}] ${new Date(e.startAt).toLocaleString('en-GB')}`).join('  ·  ') || '—'}`);
     return {
       events,
+      joinedEvents,
       hasJoinedCampaign: !!ss.account?.hasJoinedCampaign,
-      joinedIds: new Set((ss.account?.joinedEvents || []).map(e => String(e.eventId))),
+      joinedIds: new Set(joinedEvents.map(e => String(e.eventId))),
     };
   } catch (err) {
     logIssue('Octoplus saving sessions', err);
@@ -141,31 +145,34 @@ const kindLabel = t => KIND[t]
 
 // Promos like Weekend Happy Hour arrive as a run of back-to-back hourly
 // events; collapse a contiguous run of the same type into one block.
-function groupSessions(events) {
+// `events` carry a pre-normalised `.reward`; `combine` merges it across a
+// run — max for an upcoming pts/kWh rate, sum for points actually earned.
+function groupSessions(events, combine = Math.max) {
   const sorted = [...events].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
   const groups = [];
   for (const e of sorted) {
+    const r = Number(e.reward) || 0;
     const last = groups[groups.length - 1];
     if (last && last.eventType === e.eventType
         && new Date(last.endAt).getTime() === new Date(e.startAt).getTime()) {
       last.endAt = e.endAt;
-      last.ids.push(String(e.id));
-      last.reward = Math.max(last.reward, e.rewardPerKwhInOctoPoints || 0);
+      last.reward = combine(last.reward, r);
     } else {
-      groups.push({
-        eventType: e.eventType, startAt: e.startAt, endAt: e.endAt,
-        ids: [String(e.id)], reward: e.rewardPerKwhInOctoPoints || 0,
-      });
+      groups.push({ eventType: e.eventType, startAt: e.startAt, endAt: e.endAt, ids: [], reward: r });
     }
+    groups[groups.length - 1].ids.push(String(e.id ?? e.eventId));
   }
   return groups;
 }
+const sum = (a, b) => a + b;
 
 function renderSessions(data) {
   const el = $('octoplus-sessions');
   if (!data) { el.innerHTML = ''; return; }
   const now = Date.now();
-  const groups = groupSessions((data.events || []).filter(e => new Date(e.endAt).getTime() > now));
+  const groups = groupSessions((data.events || [])
+    .filter(e => new Date(e.endAt).getTime() > now)
+    .map(e => ({ ...e, reward: e.rewardPerKwhInOctoPoints })));
   const upcoming = groups.slice(0, MAX_SESSIONS);
   const more = groups.length - upcoming.length;
 
@@ -183,5 +190,28 @@ function renderSessions(data) {
     }).join('');
     if (more > 0) html += `<div class="octoplus-empty">+${more} more</div>`;
   }
+  el.innerHTML = html;
+}
+
+// Sessions/happy-hours the account actually took part in that have finished,
+// with the points they earned. joinedEvents only covers the current
+// campaign, so this is "so far this season", not lifetime.
+function renderResults(data) {
+  const el = $('octoplus-results');
+  if (!data) { el.innerHTML = ''; return; }
+  const now = Date.now();
+  const done = groupSessions((data.joinedEvents || [])
+    .filter(e => e.endAt && new Date(e.endAt).getTime() <= now)
+    .map(e => ({ ...e, id: e.eventId, reward: e.rewardGivenInOctoPoints })), sum)
+    .sort((a, b) => new Date(b.startAt) - new Date(a.startAt));
+  if (!done.length) { el.innerHTML = ''; return; }
+
+  const total = done.reduce((s, g) => s + g.reward, 0);
+  let html = '<div class="octoplus-label">Your results</div>';
+  html += done.slice(0, MAX_SESSIONS).map(g => `<div class="octoplus-session">
+    <div class="octoplus-session-when"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)}</div>
+    <div class="octoplus-session-meta">${kindLabel(g.eventType)}${g.reward ? ` · earned <span class="octoplus-earned">${Math.round(g.reward).toLocaleString('en-GB')} pts</span>` : ''}</div>
+  </div>`).join('');
+  if (total > 0) html += `<div class="octoplus-empty">${done.length} taken part in · ${Math.round(total).toLocaleString('en-GB')} pts earned this campaign</div>`;
   el.innerHTML = html;
 }
