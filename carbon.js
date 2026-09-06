@@ -314,11 +314,14 @@ function renderGenMix(mix) {
     `<i style="width:${nuclear}%;background:var(--gas-blue)"></i>` +
     `<i style="width:${fossil}%;background:var(--text-dim)"></i>` +
     `<i style="width:${rest}%;background:var(--line-strong)"></i>`;
-  const named = [['wind', g('wind')], ['solar', g('solar')], ['nuclear', nuclear], ['gas', g('gas')], ['biomass', g('biomass')]]
-    .filter(([, p]) => p >= 3)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([f, p]) => `${Math.round(p)}% ${f}`);
+  // Name the biggest real fuels straight from the mix rather than a fixed
+  // whitelist — top 4 that clear 3%, with the "other" catch-all dropped
+  // and interconnector flow shown as "imported".
+  const named = mix
+    .filter(m => m.fuel !== 'other' && m.perc >= 3)
+    .sort((a, b) => b.perc - a.perc)
+    .slice(0, 4)
+    .map(m => `${Math.round(m.perc)}% ${m.fuel === 'imports' ? 'imported' : m.fuel}`);
   label.textContent = named.join('  ·  ');
 }
 
