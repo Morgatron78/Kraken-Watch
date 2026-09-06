@@ -955,8 +955,11 @@ button{font-family:inherit;cursor:pointer;}
 .schedule-day.upcoming .schedule-day-time{color:var(--pink);font-weight:600;}
 
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}
-/* v2.208: type-colored miles figure — mint/pink reused from the
-   SMART/BOOST badge's own colors, "(Est.)" stays the neutral dim color. */
+/* Type-coloured miles figure — mint/pink reused from the SMART/BOOST badge.
+   Sized to match the estimated cost directly below it (13px/600); the thin
+   10px mint was hard to read on white. "(Est.)" stays the small dim label. */
+.slot-miles-smart,
+.slot-miles-boost{font-size:13px;font-weight:600;}
 .slot-miles-smart{color:var(--mint);}
 .slot-miles-boost{color:var(--pink);}
 /* Estimated session cost — its own right-aligned line under the miles
@@ -1009,8 +1012,9 @@ button{font-family:inherit;cursor:pointer;}
 .slot-row-inline .left-group{display:flex;align-items:baseline;}
 .slot-row-inline .soc-col{display:flex;flex-direction:column;align-items:flex-end;gap:3px;white-space:nowrap;justify-self:end;text-align:right;}
 /* Second row: carbon on the left (needs more than the 96px the kWh column
-   uses), estimated cost right-aligned under the miles figure above it. */
-.slot-row-inline-2{grid-template-columns:1fr auto;margin-top:3px;}
+   uses), estimated cost right-aligned under the miles figure above it.
+   No margin — .slot's flex `gap` already spaces every row evenly. */
+.slot-row-inline-2{grid-template-columns:1fr auto;}
 
 /* v2.198: the problem mini-pill now sits in the header row, immediately
    left of the SMART/BOOST badge, instead of the stats row it kept
