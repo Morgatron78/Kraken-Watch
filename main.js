@@ -32,7 +32,7 @@ import { loadBilling, handleBillYearBarClick } from './billing.js';
 import { loadCarbon, gridCarbonText } from './carbon.js';
 import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insights.js';
 import { handleHeatmapToggle } from './heatmap.js';
-import { loadOctoplus } from './octoplus.js';
+import { loadOctoplus, handleOctoplusResultsToggle } from './octoplus.js';
 import { meterDebugNote, openSettings, closeSettings, saveSettings, initTheme, handleAppearanceChange } from './settings.js';
 
 /* ------------------------------ Rendering -------------------------------- */
@@ -355,6 +355,7 @@ function init() {
   // shouldn't be paid for on every app load if the user never opens this.
   $('insights-header').addEventListener('click', handleInsightsHeaderClick);
   $('heatmap-toggle').addEventListener('click', handleHeatmapToggle);
+  $('octoplus-results-toggle').addEventListener('click', handleOctoplusResultsToggle);
 
   // £ / kWh toggle — per fuel panel, instant re-render from cached data.
   document.querySelectorAll('.unit-toggle[data-fuel] .unit-toggle-btn').forEach(btn => {

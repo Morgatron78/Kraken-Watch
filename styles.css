@@ -854,15 +854,23 @@ button{font-family:inherit;cursor:pointer;}
    a compact Saving-Sessions list plus a Wheel-of-Fortune nudge. */
 .octoplus-sessions:not(:empty){margin-top:16px;}
 .octoplus-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-dim);margin-bottom:8px;}
-.octoplus-empty{font-family:'Inter', sans-serif;font-size:11px;color:var(--text-dim);}
-.octoplus-session{padding:8px 0;border-top:1px solid var(--line);}
+.octoplus-empty{font-family:'Inter', sans-serif;font-size:11px;color:var(--text-dim);margin-top:8px;}
+/* One line per event: date/time bold, the rest dim. */
+.octoplus-session{
+  padding:7px 0;border-top:1px solid var(--line);
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--text-dim);
+}
 .octoplus-session:first-of-type{border-top:none;padding-top:0;}
-.octoplus-session-when{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-dim);}
-.octoplus-session-when b{color:var(--text);font-weight:600;}
-.octoplus-session-meta{font-family:'Inter', sans-serif;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
+.octoplus-session b{color:var(--text);font-weight:600;}
 .octoplus-joined{color:var(--mint);font-weight:600;}
 .octoplus-earned{color:var(--mint);font-weight:600;}
-.octoplus-results:not(:empty){margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+/* Collapsible past-results section. */
+.octoplus-results-section{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);}
+.octoplus-results-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:none;border:none;padding:0;font-family:inherit;text-align:left;}
+.octoplus-results-toggle .octoplus-label{margin:0;}
+.octoplus-results-summary{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);}
+.octoplus-results-chevron{font-size:11px;color:var(--text-dim);flex-shrink:0;}
+.octoplus-results:not(.hidden){margin-top:12px;}
 
 /* Live usage — last 30 minutes */
 /* v2.165: was a flat margin-top:10px, disconnected from the line-height-

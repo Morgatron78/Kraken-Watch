@@ -480,11 +480,16 @@
     <div class="card hidden" id="octoplus-card">
       <div class="card-head">
         <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--mint)"><path d="M6 13V9a6 6 0 0 1 12 0v4"/><path d="M6 13c0 2-1.4 3-3 3M9.5 13.5c0 3.2-1 5.3-3 6.5M14.5 13.5c0 3.2 1 5.3 3 6.5M18 13c0 2 1.4 3 3 3M12 13.5v6"/><circle cx="9.5" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="9" r="1" fill="currentColor" stroke="none"/></svg> Octoplus</div>
+        <div class="card-tag tag-mint" id="octoplus-points">— pts</div>
       </div>
-      <div class="big-label">Octopoints</div>
-      <div class="big-value" id="octoplus-points">—<span>pts</span></div>
       <div class="octoplus-sessions" id="octoplus-sessions"></div>
-      <div class="octoplus-results" id="octoplus-results"></div>
+      <div class="octoplus-results-section hidden" id="octoplus-results-section">
+        <button type="button" class="octoplus-results-toggle" id="octoplus-results-toggle" aria-expanded="false">
+          <span><span class="octoplus-label" style="margin:0;">Your results</span> <span class="octoplus-results-summary" id="octoplus-results-summary"></span></span>
+          <span class="octoplus-results-chevron" id="octoplus-results-chevron">▸</span>
+        </button>
+        <div class="octoplus-results hidden" id="octoplus-results"></div>
+      </div>
     </div>
 
 

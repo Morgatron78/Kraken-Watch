@@ -125,9 +125,9 @@ async function fetchSavingSessions(acct) {
 }
 
 function renderPoints(balance) {
-  $('octoplus-points').innerHTML = balance == null
-    ? '—<span>pts</span>'
-    : `${balance.toLocaleString('en-GB')}<span>pts</span>`;
+  $('octoplus-points').textContent = balance == null
+    ? '— pts'
+    : `${balance.toLocaleString('en-GB')} pts`;
 }
 
 const MAX_SESSIONS = 4;
@@ -135,8 +135,10 @@ const MAX_SESSIONS = 4;
 // The savingSessions feed mixes event types. Octopus's own names, tidied.
 const KIND = {
   SAVING_SESSION: 'Saving Session',
+  TURN_DOWN: 'Saving Session',
   WEEKEND_HAPPY_HOUR: 'Weekend Happy Hour',
   FREE_ELECTRICITY: 'Free electricity',
+  TURN_UP: 'Free electricity',
   POWER_UP: 'Free electricity',
 };
 const kindLabel = t => KIND[t]
@@ -182,11 +184,8 @@ function renderSessions(data) {
   } else {
     html += upcoming.map(g => {
       const joined = g.ids.some(id => data.joinedIds.has(id));
-      const reward = g.reward ? `${g.reward} pts/kWh` : '';
-      return `<div class="octoplus-session">
-        <div class="octoplus-session-when"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)}</div>
-        <div class="octoplus-session-meta">${kindLabel(g.eventType)}${reward ? ` · ${reward}` : ''}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</div>
-      </div>`;
+      const reward = g.reward ? ` · ${g.reward} pts/kWh` : '';
+      return `<div class="octoplus-session"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)} · ${kindLabel(g.eventType)}${reward}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</div>`;
     }).join('');
     if (more > 0) html += `<div class="octoplus-empty">+${more} more</div>`;
   }
@@ -194,24 +193,36 @@ function renderSessions(data) {
 }
 
 // Sessions/happy-hours the account actually took part in that have finished,
-// with the points they earned. joinedEvents only covers the current
-// campaign, so this is "so far this season", not lifetime.
+// with the points they earned. Its own collapsible section (collapsed by
+// default — it's history, not something to act on) with a summary on the
+// toggle. joinedEvents only covers the current campaign, hence "this
+// campaign", not lifetime.
 function renderResults(data) {
-  const el = $('octoplus-results');
-  if (!data) { el.innerHTML = ''; return; }
+  const section = $('octoplus-results-section');
+  if (!data) { section.classList.add('hidden'); return; }
   const now = Date.now();
   const done = groupSessions((data.joinedEvents || [])
     .filter(e => e.endAt && new Date(e.endAt).getTime() <= now)
     .map(e => ({ ...e, id: e.eventId, reward: e.rewardGivenInOctoPoints })), sum)
     .sort((a, b) => new Date(b.startAt) - new Date(a.startAt));
-  if (!done.length) { el.innerHTML = ''; return; }
+  if (!done.length) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
 
-  const total = done.reduce((s, g) => s + g.reward, 0);
-  let html = '<div class="octoplus-label">Your results</div>';
-  html += done.slice(0, MAX_SESSIONS).map(g => `<div class="octoplus-session">
-    <div class="octoplus-session-when"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)}</div>
-    <div class="octoplus-session-meta">${kindLabel(g.eventType)}${g.reward ? ` · earned <span class="octoplus-earned">${Math.round(g.reward).toLocaleString('en-GB')} pts</span>` : ''}</div>
-  </div>`).join('');
-  if (total > 0) html += `<div class="octoplus-empty">${done.length} taken part in · ${Math.round(total).toLocaleString('en-GB')} pts earned this campaign</div>`;
-  el.innerHTML = html;
+  const total = Math.round(done.reduce((s, g) => s + g.reward, 0));
+  $('octoplus-results-summary').textContent = total > 0
+    ? `· ${done.length} · ${total.toLocaleString('en-GB')} pts`
+    : `· ${done.length}`;
+
+  $('octoplus-results').innerHTML = done.slice(0, 10).map(g =>
+    `<div class="octoplus-session"><b>${dayLabel(g.startAt)}</b> · ${kindLabel(g.eventType)}${g.reward ? ` · <span class="octoplus-earned">+${Math.round(g.reward).toLocaleString('en-GB')} pts</span>` : ''}</div>`
+  ).join('')
+    + (total > 0 ? `<div class="octoplus-empty">${done.length} taken part in · ${total.toLocaleString('en-GB')} pts earned this campaign</div>` : '');
+}
+
+export function handleOctoplusResultsToggle() {
+  const list = $('octoplus-results');
+  const open = !list.classList.contains('hidden');
+  list.classList.toggle('hidden', open);
+  $('octoplus-results-chevron').textContent = open ? '▸' : '▾';
+  $('octoplus-results-toggle').setAttribute('aria-expanded', String(!open));
 }
