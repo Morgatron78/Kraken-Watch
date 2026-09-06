@@ -4,9 +4,21 @@ Living document. Three phases:
 
 - **Phase 1** — build system, tests, robustness fixes. Pays for itself immediately; do regardless of roadmap.
 - **Phase 2** — break the monolith into ES modules, separate fetch from render, consolidate scattered state. Worth it if the feature roadmap is substantial.
-- **Phase 3** — features (EV control mutations, IndexedDB cache, tariff replay, carbon, etc.). Not scoped here.
+- **Phase 3** — features (EV control mutations, IndexedDB cache, tariff replay, etc.). Not scoped here.
 
 Ordering: Phase 1 → Phase 2 → Phase 3, though Phase 2 module extraction may interleave with early Phase 3 work where a feature naturally lands in a not-yet-extracted module.
+
+**Status:** Phase 1 is complete. Phase 2's module extraction is complete
+(`app.js` → 13 ES modules + `sw.js`); its cross-cutting refactors (2.A–2.D)
+were left as optional follow-ups and none have been done. Phase 3 was never
+formally scoped — it's an idea list, and several of its items (grid carbon,
+the time-of-day usage heat map, the Octoplus surface) have since shipped on
+their own anyway.
+
+Some detail below (the 1A code samples especially) describes the plan as
+first written; where the implementation later diverged — the `package.json`
+version field was dropped, the `v2.xxx` inline comments were thinned during
+Phase 2 — the surrounding text says so.
 
 ---
 
@@ -18,7 +30,7 @@ Ordering: Phase 1 → Phase 2 → Phase 3, though Phase 2 module extraction may 
 | 2 | Gas unit: add a Settings "m³ / kWh / auto" dropdown | **Declined** — fix the heuristic (whole-dataset, single threshold, single function) + diagnostics line; the existing calorific-value field covers the realistic case |
 | 3 | Service worker: `vite-plugin-pwa` (`injectManifest`) vs hand-rolled ~40-line plugin | **Resolved** — `vite-plugin-pwa`, `injectManifest` mode |
 | 4 | Chart de-dup (B6) in scope | **Open** — cleanup only, no bug attached; safe to drop |
-| 5 | Version/cache-bust mechanism | **Resolved** — git commit SHA, computed automatically at build time, not a manual bump. Semver in `package.json` becomes a purely optional, occasional, human-meaningful label with no functional role — see 1A step 3 below for why a manual bump can't reliably do the one job this number has. |
+| 5 | Version/cache-bust mechanism | **Resolved** — git commit SHA, computed automatically at build time, not a manual bump. The `package.json` `version` field was dropped entirely soon after (a hand-bumped number that never got bumped was just noise next to the SHA); the `v2.xxx` history lives in `docs/CHANGELOG.md`. |
 
 Constraints that hold across all phases: **stays vanilla JS** (no framework), rendering stays `innerHTML` string templates, `styles.css` stays one file unless splitting is trivial.
 
@@ -28,7 +40,7 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
 
 ## 1A. Vite build + GitHub Actions deploy
 
-**Goal:** `git push` → CI builds → deploys to Pages. Content-hashed filenames replace all four manual version bumps (`APP_VERSION`, `sw.js` `CACHE`, two `?v=` strings) with one number in `package.json`.
+**Goal:** `git push` → CI builds → deploys to Pages. Content-hashed filenames replace all four manual version bumps (`APP_VERSION`, `sw.js` `CACHE`, two `?v=` strings). *(Outcome: the number was dropped altogether — the build SHA does the job. See decision 5.)*
 
 ### Verified de-risking facts
 - No inline `on*=` handlers in `index.html`; no `window.*` globals in `app.js`. Module conversion is safe.
@@ -38,7 +50,7 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
 
 ### Steps
 1. **Repurpose root `package.json`** for the app (source stays at repo root — no `src/` move yet).
-   - `name: "kraken-watch"`, `"version": "2.265"`, `"type": "module"`.
+   - `name: "kraken-watch"`, `"type": "module"` (a `"version": "2.265"` field was added here first, then removed — see decision 5).
    - Drop `web-push`.
    - `devDependencies`: `vite`, `vitest` (+ SW plugin per decision 3).
    - Scripts: `dev`, `build`, `preview`, `test`.
@@ -47,14 +59,12 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
    import { defineConfig } from 'vite';
    import { execSync } from 'node:child_process';
    import { VitePWA } from 'vite-plugin-pwa';
-   import pkg from './package.json' with { type: 'json' };
 
    const buildSha = execSync('git rev-parse --short HEAD').toString().trim();
 
    export default defineConfig({
      base: './',
      define: {
-       __APP_VERSION__: JSON.stringify(pkg.version),
        __BUILD_SHA__: JSON.stringify(buildSha),
      },
      build: { manifest: true, outDir: 'dist' },
@@ -72,7 +82,7 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
    ```
 3. **`app.js` → module:**
    - `index.html`: `<script type="module" src="/app.js">`; drop `?v=` on script + stylesheet (Vite content-hashes the built filenames instead — see below).
-   - `const APP_VERSION = 'v' + __APP_VERSION__ + ' (' + __BUILD_SHA__ + ')';` — e.g. `v2.265 (a1b2c3d)`. `package.json`'s semver stays a manual, purely cosmetic label bumped whenever you like; the SHA half is what actually confirms a specific deploy landed, since it's automatic and can't be forgotten.
+   - `export const APP_VERSION = __BUILD_SHA__;` — the short commit SHA alone (e.g. `a1b2c3d`), shown in the footer. It's automatic and can't be forgotten, which is the whole job this number has. *(Originally `v{semver} ({sha})`; the semver half was dropped with the `version` field — decision 5.)*
    - Last line — handles the deferred-module `DOMContentLoaded` race **and** lets tests import without running `init()`:
      ```js
      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
@@ -85,7 +95,7 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
 8. **`.claude/launch.json`** → `npm run dev`, port 5173.
 
 ### Release flow after this
-`npm version patch && git push --follow-tags`. No `sw.js` / `?v=` / `APP_VERSION` edits.
+Just `git push`. No `sw.js` / `?v=` / `APP_VERSION` / version-bump edits — CI builds and deploys, the footer SHA updates itself. *(The plan first had `npm version patch && git push --follow-tags`; the version bump was dropped with the `version` field.)*
 
 ### Risks
 | Risk | Mitigation |
@@ -101,7 +111,7 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
 - Real commits from local, one per logical change, conventional-ish messages.
 - Feature branch → PR → merge to `main`, so CI runs before deploy.
 - Existing history left as-is (pushed, public, no value rewriting).
-- **`CHANGELOG.md`** started for new work. The ~150 inline `v2.xxx` comments in `app.js` left alone this pass (they carry genuine "why" context); optional thinning later.
+- **`CHANGELOG.md`** holds the pre-modularisation `v2.xxx` history. The ~150 inline `v2.xxx` comments that used to be scattered through `app.js` were left alone during Phase 1, then thinned during the Phase 2 module split; from the modular era on, git commit messages carry the "why".
 
 **Effort:** ~zero, discipline only.
 
@@ -110,7 +120,7 @@ Constraints that hold across all phases: **stays vanilla JS** (no framework), re
 Shared the "make functions importable" prerequisite with 1A.
 
 - `vitest` + `jsdom` as dev deps, `test/` dir, `"test": "vitest run"`.
-- `vitest.config.js` is deliberately separate from `vite.config.js` (that config runs a git subprocess + PWA manifest injection at load time, unwanted on every test run); it needs its own `define` stand-ins for `__APP_VERSION__`/`__BUILD_SHA__` since Vitest doesn't read the app's Vite config.
+- `vitest.config.js` is deliberately separate from `vite.config.js` (that config runs a git subprocess + PWA manifest injection at load time, unwanted on every test run); it needs its own `define` stand-in for `__BUILD_SHA__` since Vitest doesn't read the app's Vite config. *(It also stubbed `__APP_VERSION__` until that constant was removed — decision 5.)*
 - `environment: 'jsdom'` — required even before `init()` is a concern, since module-load-time code (`loadRestCallLog()`) touches `localStorage` directly, which doesn't exist in plain Node.
 - The bottom-of-file bootstrap now guards on `document.getElementById('connect-btn')` existing before wiring `init()` at all — not just the `readyState` check — since jsdom's `document.readyState` can't be relied on to still read `'loading'` by the time a bare test-file import runs. This also reads as a legitimate production safeguard on its own merits ("only bootstrap against a document that actually has this app's markup"), not a test-only hack.
 - `estimateSessionCostP` refactored to take rates as an optional second argument (defaulting to the module cache), so it's testable without reaching into module state.
@@ -194,7 +204,7 @@ No clamping was added anywhere (the "optionally clamp the power-meter fill" idea
 
 ### 3E. `$(id)` drift detection — done
 - **Dev-only warning**: `$` now branches on `import.meta.env.DEV` — the dev version warns and returns `null` on a missing id, the production version is the original bare `document.getElementById(id)`, so nothing changes in what ships. **Verified live, both branches**: removed `#sync-dot` from the DOM and clicked "Sync now" against both a `vite dev` server and the production `vite preview` build. Dev printed `[kw] missing #sync-dot`; production threw the exact same opaque `TypeError: Cannot set properties of null` the README's bill-history-toggle story describes, with zero warning overhead, confirming the dev branch is genuinely compiled away rather than just usually not firing.
-- **Build-time id cross-check** (`scripts/check-ids.mjs`, wired into the CI `build` job via `npm run check-ids`, so it runs on both `push` and `pull_request`): extracts every `id="…"` from `index.html`, plus every id `app.js` **assigns to an element it builds at runtime** (`insertAdjacentHTML`/template-literal markup with `id="…"`, or `el.id = '…'` on a `createElement`'d node — `ev-sessions-toggle-wrap`, `bh-pill-group`, and `ev-month-partial-note` all work this way) — missing that second source on the first run produced 3 false positives before the check was corrected to include it. Cross-references that combined set against every statically-resolvable `$('…')`/`getElementById('…')` call in `app.js`, skipping (and counting, not guessing at) any template-literal call with `${…}` interpolation. Errors and exits 1 on a genuine miss; a real index.html id with no static JS reference is printed as informational only, since it may well be built from an interpolated template the script can't resolve. **Run against the current codebase: zero missing ids, confirming no existing drift** — 24 informational "unreferenced" ids, all explained (template-literal-constructed, referenced only from the archived/disabled `octopoints-archive.js`, or CSS-only anchors).
+- **Build-time id cross-check** (`scripts/check-ids.mjs`, wired into the CI `build` job via `npm run check-ids`, so it runs on both `push` and `pull_request`): extracts every `id="…"` from `index.html`, plus every id `app.js` **assigns to an element it builds at runtime** (`insertAdjacentHTML`/template-literal markup with `id="…"`, or `el.id = '…'` on a `createElement`'d node — `ev-sessions-toggle-wrap`, `bh-pill-group`, and `ev-month-partial-note` all work this way) — missing that second source on the first run produced 3 false positives before the check was corrected to include it. Cross-references that combined set against every statically-resolvable `$('…')`/`getElementById('…')` call in `app.js`, skipping (and counting, not guessing at) any template-literal call with `${…}` interpolation. Errors and exits 1 on a genuine miss; a real index.html id with no static JS reference is printed as informational only, since it may well be built from an interpolated template the script can't resolve. **Run against the current codebase: zero missing ids, no drift** — the "unreferenced" ids it also lists are all benign (built from interpolated `${...}` template literals it can't resolve statically, or CSS-only anchors). *(The scan was later widened from `app.js` alone to every module file as Phase 2 split the monolith.)*
 
 Highest-value piece in this batch — catches HTML/JS drift before deploy, which is exactly the bug class the bill-history-toggle incident was.
 
@@ -263,7 +273,7 @@ Phase 1 is complete (Vite/ESM build, Vitest, CI, all 8 items shipped and verifie
 
 ## Module breakdown (extraction order — leaf/shared first)
 
-**Status: all 12 modules extracted and shipped** (each verified: tests green, `check-ids` at 225, `vite build` clean, live-verified against the production build, merged to `main`, CI green). `app.js` (~2,715 lines) is now 13 focused ES modules — `api`, `billing`, `charts`, `diagnostics`, `ev`, `format`, `insights`, `live-usage`, `main`, `rates`, `settings`, `store`, `usage` — plus `sw.js`. Row 6.5 (`live-usage.js`) was an unplanned split discovered mid-phase; row 12 was a pure rename. The cross-cutting sub-tasks below (2.A–2.D) are behaviour changes, not pure moves, and were **not** folded into the extractions — they remain as optional follow-up PRs.
+**Status: all 12 modules extracted and shipped** (each verified: tests green, `check-ids` green, `vite build` clean, live-verified against the production build, merged to `main`, CI green). `app.js` (~2,715 lines) is now 13 focused ES modules — `api`, `billing`, `charts`, `diagnostics`, `ev`, `format`, `insights`, `live-usage`, `main`, `rates`, `settings`, `store`, `usage` — plus `sw.js`. Row 6.5 (`live-usage.js`) was an unplanned split discovered mid-phase; row 12 was a pure rename. The cross-cutting sub-tasks below (2.A–2.D) are behaviour changes, not pure moves, and were **not** folded into the extractions — they remain as optional follow-up PRs.
 
 | # | Module | Contents | Imports |
 |---|---|---|---|
@@ -274,17 +284,22 @@ Phase 1 is complete (Vite/ESM build, Vitest, CI, all 8 items shipped and verifie
 | 5 | `charts.js` | `renderWeekBars`, `renderStackedBars`, `renderChartScale`, `renderPowerMeter`, `chartMax`, `isChartDense`, `chartLabelOrBlank` | format |
 | 6 | `rates.js` | `fetchElecRates`/`fetchGasRates`, `rateCache` + eviction, `rateAt`, `costForRange`, `bucketReadingsByDay`, gas conversion, `bufferedRateFrom`; cached-rate globals → exported mutable `rateState` object (only `rates.js` writes it) | api, store, diagnostics |
 | 6.5 | `live-usage.js` (unplanned addition) | "Live usage" (household draw + Last-30-min panel) — `getLiveDeviceId`, `loadLiveUsage`, `loadLive30`, `openLive30`/`closeLive30`, `bucketTelemetryByMinute`, plus `isLive30Open`/`pauseLive30Polling`/`resumeLive30PollingIfOpen` for Phase 1's visibility-aware refresh (PR5) to call across the module boundary. Split out ahead of `ev.js` on realizing it's a genuinely separate UI card, not part of the EV feature at all — it only *looked* EV-adjacent because both lived in the same section of the original file. `sanityCheck` moved to `diagnostics.js` in the same PR, since it's shared between this module and `ev.js`'s `chargePointPowerOutput` check, not owned by either. | api, charts, diagnostics, format, rates, store |
-| 7 | `ev.js` — done | all EV (~1,310 lines): `loadEVSmartFlex`, session/dispatch renderers, history buckets, insights, demo, plus the four EV click handlers (`handleEvHeaderClick`, `handleEvViewToggleClick`, `handleEvWeekClick`, `handleEvHistoryPeriodToggleClick`) relocated here from `app.js`'s `init()` — the click handlers mutate module-private state (`evManualOverride`, `evViewMode`, `evWeekSelectedDay`, `evHistoryPeriod`) that ESM import bindings can't let an importer reassign, so the whole handler moved rather than exposing yet more setter exports. Pure move, no behaviour change; no new tests needed (already indirectly exercised, same as `charts.js`/`rates.js`). Verified live against the production build: EV card renders in demo mode, all four moved click handlers fire correctly (collapse toggle, Windows/Sessions view toggle, Week/Month period toggle, day selection), no `TypeError`/`ReferenceError` in console. 126/126 tests pass, 225 ids preserved. | api, charts, rates, format, store |
-| 8 | `usage.js` — done | fuel panels, `renderFuelPanel`, day/week/month/year, date picker, `lastNDaysElecSplit` etc., plus 9 click handlers relocated here from `app.js`'s `init()` (unit toggle, period toggle, date-picker open/prev-month/next-month/grid-pick/reset, fuel-week-bar tap, elec-day-bar tap) — same reasoning as `ev.js`'s handler relocation: they mutate module-private state (`periodMode`, `pickedDate`, `pickerOpen`, `pickerViewMonth`, `fuelUnit`, `selectedDay`, `selectedDaySlot`) that an importer can't reassign. `fuelData` exported as a mutable object (like `rateState`) since `loadBilling`/`loadInsights` — staying in `app.js` until modules 9/10 — still read and write it; `dayTotal`/`breakdownRow`/`daysElapsedInMonth`/`daysInMonth`/`isoDate` also exported back to `app.js` for the same reason. `loadBilling` itself (the ~480-line function that actually fetches billing AND the elec/gas 7-day bars together) was deliberately left in `app.js` untouched — splitting it would be a behaviour change, not a pure move, so it stays as-is until module 9 picks it up complete with its calls into `usage.js`'s exports. Pure move, no behaviour change; no new tests needed (already indirectly exercised). Verified live against the production build: fuel panels render with fallback data, unit toggle/period toggle (Day/Week/Month/Year)/date-picker (open, calendar pick, prev-month nav, reset-to-today)/fuel-week-bar tap/elec-day-bar tap all work correctly, no TypeError/ReferenceError. 126/126 tests pass, 225 ids preserved (now 11 module files). | api, charts, rates, format, store |
-| 9 | `billing.js` — done | `loadBilling` (~480 lines — balance, next payment, MTD/predicted cost, elec/gas 7-day bars, last bill + itemized history, bill-year chart), `restoreToggleToSafety`, `populateDemoBilling`/`clearBillingUnavailable`, `renderBalanceFigure`, `renderBillYearBreakdown`, plus the bill-year-bars tap handler relocated from `app.js`'s `init()` (same reasoning as every prior handler relocation — it mutates module-private `selectedBillMonth`). `loadBilling` moved wholesale, unedited — it fetches billing figures AND the elec/gas 7-day bars together in one pass, and splitting that apart would have been a behaviour change, not a pure move, so module 8 (`usage.js`) deliberately left it in place for this PR to pick up complete. `billingState` and `billMonthsData` exported as mutable bindings (`export let`, since both are genuinely reassigned wholesale, not just mutated — same live-binding mechanism as `rateState`/`fuelData` but with reassignment instead of property mutation) since `computeBalanceForecast` in Insights — still in `app.js` until module 10 — reads both every render. Pure move, no behaviour change; no new tests needed. Verified live against the production build: demo billing data renders (balance/cost-MTD figures match `populateDemoBilling`'s fixtures), the bill-year-bar tap handler correctly toggles `.selected`/`.active-day`, and Insights (cross-importing `billingState`/`billMonthsData`) still expands and renders with no TypeError/ReferenceError. 126/126 tests pass, 225 ids preserved (now 12 module files). | api, rates, format, charts, usage |
-| 10 | `insights.js` — done | `loadInsights`, `trendVsAverage`, `renderInsightsElec`/`Gas`/`Billing`/`Standing`, `todayBlendedRateP`/`computeBalanceForecast`/`renderBalanceForecastChart`/`renderBalanceForecastBreakdown`, plus the insights-header expand handler and the runway-bar tap handler relocated from `app.js`'s `init()` (same reasoning as every prior relocation — they mutate module-private `insightsLoaded`/`selectedForecastCycle`). Reads `fuelData`/`dayTotal`/`daysInMonth`/`loadMonthData`/`fetchYearMonthly` from `usage.js` and `billingState`/`billMonthsData` from `billing.js` — the last module to depend on both. Pure move, no behaviour change; no new tests needed beyond repointing `trendVsAverage`'s existing import from `app.js` to `insights.js`. Verified live against the production build: Insights expands and lazy-loads on first click, elec/gas trend rows render correctly against fallback (zero) data, and the runway-bar tap handler correctly toggles `.selected`/`.active-day` on an injected bar, with no TypeError/ReferenceError. 126/126 tests pass, 225 ids preserved (now 13 module files). | rates, usage, billing, format, diagnostics |
-| 11 | `settings.js` — done | `openSettings`/`closeSettings`/`saveSettings`, the meter-point lookup, and `meterDebugNote` (exported `let`, live-binding — written here, read by `app.js`'s `loadAll`/`loadFastTier`). First module with a genuine two-way dependency: `saveSettings` calls `loadAll`/`startAutoRefresh` to kick off the first sync after connecting, and those stay in `app.js` (module 12, `main.js`, hasn't happened yet) — so `settings.js` imports from `app.js` while `app.js` imports `meterDebugNote`/the three settings functions back from `settings.js`. ES module bindings stay live across a cycle like this (verified, not just assumed): Vitest, `vite build`, and a live save-settings flow in the built app all worked with no temporal-dead-zone or undefined-binding errors, because every cross-reference resolves at call time (inside a function body) rather than at module-evaluation time. Pure move, no behaviour change; no new tests needed. Verified live against the production build: with no stored credentials, tapping "Connect" opens the modal, filling in a fake API key/account and saving correctly writes `kw_creds`, closes the modal, reveals the app content, and triggers the app.js sync/refresh cycle — no TypeError/ReferenceError. 126/126 tests pass, 225 ids preserved (now 14 module files). | store, api, diagnostics, format, app |
-| 12 | `main.js` (was `app.js`) — done | `init`, event wiring, `loadRates`, `loadAll`/`loadFastTier`/`loadSlowTier`, `startAutoRefresh`, visibility/auto-refresh timers. By the time modules 1–11 had all landed this was already all that remained in `app.js` (~470 lines, down from ~2,715), so module 12 was a pure `git mv app.js main.js` plus updating the one functional reference (`index.html`'s `<script src>`), the two import sites (`settings.js`, `test/refresh.test.js`), one test assertion (`test/check-ids.test.js`'s module-list check), and a handful of now-stale comments (`vite.config.js`, `vitest.config.js`, `README.md`). `loadAll`/`startAutoRefresh` are exported (settings.js imports them across the cycle); `shouldRunSlowTier` stays exported for `test/refresh.test.js`. Verified live against the production build: the app boots from the renamed hashed bundle, all 8 cards render, footer version shows, no module-load/MIME/TypeError errors. 126/126 tests pass, 225 ids preserved (14 module files: `main.js` now in the list where `app.js` was). | all |
+| 7 | `ev.js` — done | all EV (~1,310 lines): `loadEVSmartFlex`, session/dispatch renderers, history buckets, insights, demo, plus the four EV click handlers (`handleEvHeaderClick`, `handleEvViewToggleClick`, `handleEvWeekClick`, `handleEvHistoryPeriodToggleClick`) relocated here from `app.js`'s `init()` — the click handlers mutate module-private state (`evManualOverride`, `evViewMode`, `evWeekSelectedDay`, `evHistoryPeriod`) that ESM import bindings can't let an importer reassign, so the whole handler moved rather than exposing yet more setter exports. Pure move, no behaviour change; no new tests needed (already indirectly exercised, same as `charts.js`/`rates.js`). Verified live against the production build: EV card renders in demo mode, all four moved click handlers fire correctly (collapse toggle, Windows/Sessions view toggle, Week/Month period toggle, day selection), no `TypeError`/`ReferenceError` in console. 126/126 tests pass, `check-ids` still green. | api, charts, rates, format, store |
+| 8 | `usage.js` — done | fuel panels, `renderFuelPanel`, day/week/month/year, date picker, `lastNDaysElecSplit` etc., plus 9 click handlers relocated here from `app.js`'s `init()` (unit toggle, period toggle, date-picker open/prev-month/next-month/grid-pick/reset, fuel-week-bar tap, elec-day-bar tap) — same reasoning as `ev.js`'s handler relocation: they mutate module-private state (`periodMode`, `pickedDate`, `pickerOpen`, `pickerViewMonth`, `fuelUnit`, `selectedDay`, `selectedDaySlot`) that an importer can't reassign. `fuelData` exported as a mutable object (like `rateState`) since `loadBilling`/`loadInsights` — staying in `app.js` until modules 9/10 — still read and write it; `dayTotal`/`breakdownRow`/`daysElapsedInMonth`/`daysInMonth`/`isoDate` also exported back to `app.js` for the same reason. `loadBilling` itself (the ~480-line function that actually fetches billing AND the elec/gas 7-day bars together) was deliberately left in `app.js` untouched — splitting it would be a behaviour change, not a pure move, so it stays as-is until module 9 picks it up complete with its calls into `usage.js`'s exports. Pure move, no behaviour change; no new tests needed (already indirectly exercised). Verified live against the production build: fuel panels render with fallback data, unit toggle/period toggle (Day/Week/Month/Year)/date-picker (open, calendar pick, prev-month nav, reset-to-today)/fuel-week-bar tap/elec-day-bar tap all work correctly, no TypeError/ReferenceError. 126/126 tests pass, `check-ids` still green (now 11 module files). | api, charts, rates, format, store |
+| 9 | `billing.js` — done | `loadBilling` (~480 lines — balance, next payment, MTD/predicted cost, elec/gas 7-day bars, last bill + itemized history, bill-year chart), `restoreToggleToSafety`, `populateDemoBilling`/`clearBillingUnavailable`, `renderBalanceFigure`, `renderBillYearBreakdown`, plus the bill-year-bars tap handler relocated from `app.js`'s `init()` (same reasoning as every prior handler relocation — it mutates module-private `selectedBillMonth`). `loadBilling` moved wholesale, unedited — it fetches billing figures AND the elec/gas 7-day bars together in one pass, and splitting that apart would have been a behaviour change, not a pure move, so module 8 (`usage.js`) deliberately left it in place for this PR to pick up complete. `billingState` and `billMonthsData` exported as mutable bindings (`export let`, since both are genuinely reassigned wholesale, not just mutated — same live-binding mechanism as `rateState`/`fuelData` but with reassignment instead of property mutation) since `computeBalanceForecast` in Insights — still in `app.js` until module 10 — reads both every render. Pure move, no behaviour change; no new tests needed. Verified live against the production build: demo billing data renders (balance/cost-MTD figures match `populateDemoBilling`'s fixtures), the bill-year-bar tap handler correctly toggles `.selected`/`.active-day`, and Insights (cross-importing `billingState`/`billMonthsData`) still expands and renders with no TypeError/ReferenceError. 126/126 tests pass, `check-ids` still green (now 12 module files). | api, rates, format, charts, usage |
+| 10 | `insights.js` — done | `loadInsights`, `trendVsAverage`, `renderInsightsElec`/`Gas`/`Billing`/`Standing`, `todayBlendedRateP`/`computeBalanceForecast`/`renderBalanceForecastChart`/`renderBalanceForecastBreakdown`, plus the insights-header expand handler and the runway-bar tap handler relocated from `app.js`'s `init()` (same reasoning as every prior relocation — they mutate module-private `insightsLoaded`/`selectedForecastCycle`). Reads `fuelData`/`dayTotal`/`daysInMonth`/`loadMonthData`/`fetchYearMonthly` from `usage.js` and `billingState`/`billMonthsData` from `billing.js` — the last module to depend on both. Pure move, no behaviour change; no new tests needed beyond repointing `trendVsAverage`'s existing import from `app.js` to `insights.js`. Verified live against the production build: Insights expands and lazy-loads on first click, elec/gas trend rows render correctly against fallback (zero) data, and the runway-bar tap handler correctly toggles `.selected`/`.active-day` on an injected bar, with no TypeError/ReferenceError. 126/126 tests pass, `check-ids` still green (now 13 module files). | rates, usage, billing, format, diagnostics |
+| 11 | `settings.js` — done | `openSettings`/`closeSettings`/`saveSettings`, the meter-point lookup, and `meterDebugNote` (exported `let`, live-binding — written here, read by `app.js`'s `loadAll`/`loadFastTier`). First module with a genuine two-way dependency: `saveSettings` calls `loadAll`/`startAutoRefresh` to kick off the first sync after connecting, and those stay in `app.js` (module 12, `main.js`, hasn't happened yet) — so `settings.js` imports from `app.js` while `app.js` imports `meterDebugNote`/the three settings functions back from `settings.js`. ES module bindings stay live across a cycle like this (verified, not just assumed): Vitest, `vite build`, and a live save-settings flow in the built app all worked with no temporal-dead-zone or undefined-binding errors, because every cross-reference resolves at call time (inside a function body) rather than at module-evaluation time. Pure move, no behaviour change; no new tests needed. Verified live against the production build: with no stored credentials, tapping "Connect" opens the modal, filling in a fake API key/account and saving correctly writes `kw_creds`, closes the modal, reveals the app content, and triggers the app.js sync/refresh cycle — no TypeError/ReferenceError. 126/126 tests pass, `check-ids` still green (now 14 module files). | store, api, diagnostics, format, app |
+| 12 | `main.js` (was `app.js`) — done | `init`, event wiring, `loadRates`, `loadAll`/`loadFastTier`/`loadSlowTier`, `startAutoRefresh`, visibility/auto-refresh timers. By the time modules 1–11 had all landed this was already all that remained in `app.js` (~470 lines, down from ~2,715), so module 12 was a pure `git mv app.js main.js` plus updating the one functional reference (`index.html`'s `<script src>`), the two import sites (`settings.js`, `test/refresh.test.js`), one test assertion (`test/check-ids.test.js`'s module-list check), and a handful of now-stale comments (`vite.config.js`, `vitest.config.js`, `README.md`). `loadAll`/`startAutoRefresh` are exported (settings.js imports them across the cycle); `shouldRunSlowTier` stays exported for `test/refresh.test.js`. Verified live against the production build: the app boots from the renamed hashed bundle, all 8 cards render, footer version shows, no module-load/MIME/TypeError errors. 126/126 tests pass, `check-ids` still green (14 module files: `main.js` now in the list where `app.js` was). | all |
 
 Optional cosmetic (not done): move the `.js` files into `src/`.
 
-## Cross-cutting sub-tasks (own PRs, done per-module as extracted)
-- **2.A — State consolidation.** Replace the ~30 loose `let`s with per-domain state objects (`usageState`, `evState`, `billingState`, `pickerState`). Render functions take state as input rather than reaching for globals.
+## Cross-cutting sub-tasks — optional follow-ups, none done
+
+These are behaviour changes rather than pure moves, so they were deliberately
+kept out of the extraction PRs. All still outstanding; all discretionary. 2.B
+is the one with a concrete bug-class rationale behind it.
+
+- **2.A — State consolidation.** Replace the ~30 loose `let`s with per-domain state objects (`usageState`, `evState`, `billingState`, `pickerState`). Render functions take state as input rather than reaching for globals. *(Partly pre-empted by Phase 2: several modules already own a mutable state object — `rateState`, `fuelData`, `billingState` — rather than bare `let`s.)*
 - **2.B — fetch/render split.** `loadX()` → `fetchX(): Promise<Data>` + `renderX(data): void`. Highest value for `ev.js` and `billing.js`. This is what makes logic testable and what would have made the toggle bug structurally impossible.
 - **2.C — Stop reading state from the DOM.** `evManualOverride`, insights/EV expanded flags, `aria-expanded` reads → explicit state.
 - **2.D — Optional `card(el, { fetch, render })` helper** standardizing loading/error/empty — only if the repetition still grates after extraction.
@@ -307,4 +322,18 @@ No framework. No change to the `innerHTML`-template rendering approach. No CSS r
 
 # Phase 3 — features (not scoped here)
 
-From the review, roughly in priority order: IndexedDB stale-while-revalidate cache; EV control mutations (`triggerBoostCharge`, `setVehicleChargePreferences`, `updateDeviceSmartControl`, charge-cap toggle); bill-prediction accuracy tracking; carbon footprint (`getProjectedRegionalCarbonIntensity`); half-hourly usage heatmap; tariff "what-if" replay; `weeklyUsageInsights` / `costOfUsage`; greener-nights forecast; rate-change history; CSV/JSON export; iOS Shortcuts endpoint.
+Never formally scoped — an idea list from the original review. Tracked
+properly in `docs/roadmap.md` now; this is just the origin note.
+
+**Since shipped** (built on their own, outside any formal Phase 3): grid
+**carbon intensity** — via the NESO feed, not the Octopus
+`getProjectedRegionalCarbonIntensity` field noted here; the **time-of-day
+usage heat map**; the **Octoplus surface** (Free Electricity / Saving
+Sessions + points).
+
+**Still on the list**, roughly in priority order: IndexedDB
+stale-while-revalidate cache; EV control mutations (`triggerBoostCharge`,
+`setVehicleChargePreferences`, `updateDeviceSmartControl`, charge-cap
+toggle); bill-prediction accuracy tracking; tariff "what-if" replay;
+`weeklyUsageInsights` / `costOfUsage`; greener-nights forecast; rate-change
+history; CSV/JSON export; iOS Shortcuts endpoint.

@@ -1,8 +1,11 @@
+<img src="public/icon-192.png" alt="Kraken Watch app icon" width="88" align="right">
+
 # Kraken Watch
 
 A personal installable PWA dashboard for Octopus Energy — current rate, live
-usage, Intelligent Octopus Go EV charging, consumption, and billing, all on
-one screen, with your own API credentials stored only on your device.
+usage, Intelligent Octopus Go EV charging, consumption, grid carbon, and
+billing, all on one screen, with your own API credentials stored only on
+your device.
 
 ## Current status
 
