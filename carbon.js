@@ -2,6 +2,7 @@ import { $ } from './format.js';
 import { store } from './store.js';
 import { logIssue, logDebug } from './diagnostics.js';
 import { renderChartScale } from './charts.js';
+import { octRest } from './api.js';
 
 // Grid carbon intensity from the National Grid ESO API
 // (api.carbonintensity.org.uk — free, no auth, 48h regional forecast). This
@@ -53,6 +54,45 @@ let forecastAt = 0;
 let forecastInFlight = null;
 const FORECAST_TTL_MS = 20 * 60 * 1000;
 
+// The regional carbon endpoints need the account's outward postcode.
+// settings.js captures it into store.creds on connect, but that single
+// capture can miss — a failed meter-point lookup, an older build — and then
+// the card is silently stuck on national figures. This resolves it
+// independently and keeps it fresh: use the cached value when it's under a
+// day old, otherwise re-resolve from /accounts/ in the background. Only the
+// very first resolution (nothing cached at all) blocks the render.
+const OUTCODE_TTL_MS = 24 * 60 * 60 * 1000;
+let outcodeInFlight = null;
+
+async function refreshOutcode(accountNumber) {
+  try {
+    const acct = await octRest(`/accounts/${accountNumber}/`);
+    const props = acct?.properties || [];
+    const prop = props.find(p => !p.moved_out_at) || props[0];
+    const oc = (prop?.postcode || '').trim().split(/\s+/)[0].toUpperCase() || null;
+    if (oc) {
+      // Re-read store.creds at assignment so a concurrent creds write
+      // (e.g. loadVehicleInfoOnce) isn't clobbered.
+      store.creds = { ...store.creds, outcode: oc, outcodeAt: Date.now() };
+      logDebug('Carbon outcode', `resolved ${oc}`);
+    } else {
+      logDebug('Carbon outcode', 'no postcode on the account — using national figures');
+    }
+  } catch (err) {
+    logIssue('Carbon outcode lookup', err);
+  }
+}
+
+export async function ensureOutcode() {
+  const c = store.creds || {};
+  if (!c.accountNumber) return;
+  if (c.outcode && c.outcodeAt && Date.now() - c.outcodeAt < OUTCODE_TTL_MS) return;
+  if (!outcodeInFlight) {
+    outcodeInFlight = refreshOutcode(c.accountNumber).finally(() => { outcodeInFlight = null; });
+  }
+  if (!c.outcode) await outcodeInFlight; // block only when there's nothing to render a region with yet
+}
+
 async function fetchForecastSlots() {
   const outcode = (store.creds?.outcode || '').trim();
   // Start one half-hour back so the slot covering "now" is always included.
@@ -89,7 +129,7 @@ function getForecast({ force = false } = {}) {
 // Opportunistic warm-up for the EV dispatch-window tags — safe to call
 // alongside loadCarbon (they dedupe on forecastInFlight), best-effort.
 export async function ensureCarbonForecast() {
-  try { await getForecast(); } catch (err) { logIssue('Carbon forecast', err); }
+  try { await ensureOutcode(); await getForecast(); } catch (err) { logIssue('Carbon forecast', err); }
 }
 
 // Mean forecast gCO₂/kWh + dominant band across the forecast slots
@@ -110,6 +150,7 @@ export function carbonForecastForRange(fromMs, toMs) {
 
 export async function loadCarbon() {
   try {
+    await ensureOutcode();
     const { slots, region } = await getForecast({ force: true });
     if (!slots.length) throw new Error('no carbon-intensity slots returned');
 

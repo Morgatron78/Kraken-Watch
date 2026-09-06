@@ -144,7 +144,10 @@ export async function saveSettings() {
     creds.gasSerial = gasMp?.meters?.[gasMp.meters.length - 1]?.serial_number;
     // Outward postcode (the bit before the space) — used for the regional
     // carbon-intensity forecast. National figures are the fallback if absent.
-    creds.outcode = (prop?.postcode || '').trim().split(/\s+/)[0].toUpperCase() || null;
+    // carbon.js's ensureOutcode() re-resolves this on a ~daily TTL, so a
+    // miss here (or an older build) self-heals; the stamp starts that clock.
+    const oc = (prop?.postcode || '').trim().split(/\s+/)[0].toUpperCase() || null;
+    if (oc) { creds.outcode = oc; creds.outcodeAt = Date.now(); }
     if (agreement?.tariff_code) {
       // tariff codes look like E-1R-INTELLI-VAR-22-10-14-C — product code is the middle segment
       const parts = agreement.tariff_code.split('-');
