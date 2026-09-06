@@ -160,16 +160,18 @@ export async function loadBilling() {
   if (demoFallbackEnabled()) populateDemoBilling();
   else clearBillingUnavailable();
   if (store.creds?.accountNumber) $('billing-account-number').textContent = store.creds.accountNumber;
-  let anyLive = false;
+  const data = await fetchBillingData();
+  return renderBilling(data);
+}
 
-  // The three account-scoped queries used below — balance, next payment,
-  // bills — have no ordering dependency on one another, so they're kicked
-  // off together here and awaited further down where each result is
-  // consumed: concurrent, instead of three serial round trips on cold load.
-  // `.catch(() => {})` pre-marks each promise as handled so a rejection
-  // surfacing before its `await` can't trip `unhandledrejection`; the real
-  // error handling stays at each await site, so per-section isolation is
-  // exactly as before.
+/* ------------------------------ Fetch ---------------------------------- */
+// Every network call + derivation, no DOM. Each sub-fetch owns its
+// try/catch and returns data-or-null, so one section failing doesn't sink
+// the others (the isolation the old try-per-section had). The three
+// account queries fire concurrently and the REST-heavy MTD / 7-day-bar
+// fetches run alongside them.
+
+async function fetchBillingData() {
   const acct = store.creds?.accountNumber;
   const balanceQ = krakenGQL(`
     query AccountBalance($accountNumber: String!) {
@@ -184,375 +186,374 @@ export async function loadBilling() {
   const billsQ = krakenGQL(`
     query LastBill($accountNumber: String!) {
       account(accountNumber: $accountNumber) {
-        bills(first: 15) {
-          edges { node { id issuedDate fromDate toDate temporaryUrl } }
-        }
+        bills(first: 15) { edges { node { id issuedDate fromDate toDate temporaryUrl } } }
       }
     }`, { accountNumber: acct });
   balanceQ.catch(() => {}); nextPaymentQ.catch(() => {}); billsQ.catch(() => {});
 
-  // --- Account balance ---
-  // Uses the documented GraphQL `account.balance` field (confirmed via
-  // docs.octopus.energy) rather than guessing at a REST field, and passes
-  // includeAllLedgers: true as Octopus's own docs recommend for accuracy.
-  let balancePounds = null;
+  const [balance, nextPayment, mtd, weekBars, bills] = await Promise.all([
+    fetchBalance(balanceQ),
+    fetchNextPayment(nextPaymentQ),
+    fetchMtd(),
+    fetchWeekBars(),
+    fetchBills(billsQ),
+  ]);
+  return { balance, nextPayment, mtd, weekBars, bills };
+}
+
+// account.balance — documented GraphQL field, includeAllLedgers per Octopus's
+// own docs. Returns { balancePounds } or null (an anomaly is logged: every
+// real account has a balance, and nothing throws when it comes back null).
+async function fetchBalance(balanceQ) {
   try {
     const data = await balanceQ;
     const balancePence = data?.account?.balance;
-    if (typeof balancePence === 'number') {
-      balancePounds = balancePence / 100;
-      renderBalanceFigure('balance-now', 'balance-now-pill', balancePounds);
-      anyLive = true;
-    } else {
-      // Query succeeded (no GraphQL error, krakenGQL didn't throw) but the
-      // balance field itself came back missing/null — every real account
-      // has one, so this is a genuine anomaly, not a normal empty state.
-      // Nothing throws here, so without this explicit logIssue a sync could
-      // report "Billing: false" with no captured detail at all.
-      logIssue('Account balance', new Error(`Query succeeded but balance was ${JSON.stringify(balancePence)} (account: ${JSON.stringify(data?.account)})`));
-    }
-  } catch (err) { logIssue('Account balance', err); }
+    if (typeof balancePence === 'number') return { balancePounds: balancePence / 100 };
+    logIssue('Account balance', new Error(`Query succeeded but balance was ${JSON.stringify(balancePence)} (account: ${JSON.stringify(data?.account)})`));
+    return null;
+  } catch (err) { logIssue('Account balance', err); return null; }
+}
 
-  // --- Next scheduled payment (for "balance after next Direct Debit") ---
-  // Uses the documented `account.payments` field. Takes the nearest
-  // future-dated payment whatever its status, not just status ===
-  // 'SCHEDULED' — Octopus doesn't seem to materialize the individual
-  // payment record until closer to the collection date, so a strict filter
-  // found nothing for some accounts.
-  let nextPayment = null;
+// Nearest usable payment for "balance after next Direct Debit". Returns the
+// payment node (or null).
+async function fetchNextPayment(nextPaymentQ) {
   try {
     const data = await nextPaymentQ;
     const allPayments = (data?.account?.payments?.edges || []).map(e => e.node);
     const picked = pickNextPayment(allPayments, isoDate(new Date()));
-    nextPayment = picked.payment;
-    logDebug('Next payment', `${allPayments.length} payment(s) fetched, ${picked.futureCount} future-dated${nextPayment ? `, using: ${nextPayment.paymentDate} (${nextPayment.status}${nextPayment.isEstimate ? ', estimated from last payment' : ''})` : ', none usable'}`);
-  } catch (err) { logIssue('Next payment', err); }
+    logDebug('Next payment', `${allPayments.length} payment(s) fetched, ${picked.futureCount} future-dated${picked.payment ? `, using: ${picked.payment.paymentDate} (${picked.payment.status}${picked.payment.isEstimate ? ', estimated from last payment' : ''})` : ', none usable'}`);
+    return picked.payment;
+  } catch (err) { logIssue('Next payment', err); return null; }
+}
 
-  // --- Cost so far this cycle (assumes calendar month as the cycle — Octopus's
-  // API doesn't expose your actual billing-cycle start date, so this is an
-  // approximation; swap in your real billing day here if you know it) ---
+// Cost so far this cycle (calendar month assumed as the cycle — Octopus's
+// API doesn't expose the real billing day). Everything the balance /
+// projected / after-DD / trend figures need, pre-computed. Returns null on
+// failure. The linear projection carries today's daily average across the
+// rest of the month — no seasonal awareness, but a fair early-month figure.
+async function fetchMtd() {
   try {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const fromISO = monthStart.toISOString();
-    const toISO = now.toISOString();
     const elapsedDays = daysElapsedInMonth(now);
     const totalDays = daysInMonth(now);
-
     const [elec, gas, elecStanding, gasStanding] = await Promise.all([
-      costForRange('elec', fromISO, toISO, 'Electricity MTD'),
-      costForRange('gas', fromISO, toISO, 'Gas MTD').catch(() => null),
+      costForRange('elec', monthStart.toISOString(), now.toISOString(), 'Electricity MTD'),
+      costForRange('gas', monthStart.toISOString(), now.toISOString(), 'Gas MTD').catch(() => null),
       fetchStandingCharge('elec'),
-      fetchStandingCharge('gas')
+      fetchStandingCharge('gas'),
     ]);
-
-    const elecStandingTotal = elecStanding ? (elecStanding / 100) * elapsedDays : 0;
-    const gasStandingTotal = gasStanding ? (gasStanding / 100) * elapsedDays : 0;
-    if (elecStanding) rateState.elecStandingP = elecStanding;
-    if (gasStanding) rateState.gasStandingP = gasStanding;
-    const elecMTD = elec.cost + elecStandingTotal;
-    const gasMTD = gas ? gas.cost + gasStandingTotal : null;
+    const elecMTD = elec.cost + (elecStanding ? (elecStanding / 100) * elapsedDays : 0);
+    const gasMTD = gas ? gas.cost + (gasStanding ? (gasStanding / 100) * elapsedDays : 0) : null;
     const combinedMTD = elecMTD + (gasMTD ?? 0);
+    const predictedTotal = (combinedMTD / elapsedDays) * totalDays;
 
-    // Simple linear projection: today's daily average, carried across the rest
-    // of the cycle. It won't account for seasonal swings (e.g. gas rising as
-    // winter approaches) but is a reasonable early-month estimate. Applied to
-    // kWh the same way, for the toggle's benefit.
-    const avgDaily = combinedMTD / elapsedDays;
-    const predictedTotal = avgDaily * totalDays;
-    const elecPredictedCost = (elecMTD / elapsedDays) * totalDays;
-    const gasPredictedCost = gasMTD !== null ? (gasMTD / elapsedDays) * totalDays : null;
-    const elecPredictedKwh = (elec.kwh / elapsedDays) * totalDays;
-    const gasPredictedKwh = gas ? (gas.kwh / elapsedDays) * totalDays : null;
-
-    $('cost-mtd').textContent = fmtGBP(combinedMTD);
-    $('cost-predicted').textContent = fmtGBP(predictedTotal);
-    $('cycle-bar').style.width = `${Math.min(100, Math.round((elapsedDays / totalDays) * 100))}%`;
-    $('cycle-day').textContent = `Day ${elapsedDays} / ${totalDays}`;
-
-    fuelData.elec = fuelData.elec || {};
-    // usageCost (excludes standing) feeds the balance forecast's blended
-    // rate — mtd.cost includes standing charges (correct for the Billing
-    // card's "spend so far" figure), but the forecast adds today's standing
-    // charge separately per future month, so dividing by the
-    // standing-inclusive cost would double-count it. Worse the smaller
-    // this month's kWh is (e.g. gas in summer), since a fixed standing fee
-    // gets spread over very little usage, inflating pence/kWh sharply.
-    fuelData.elec.mtd = { cost: elecMTD, kwh: elec.kwh, usageCost: elec.cost };
-    fuelData.elec.predicted = { cost: elecPredictedCost, kwh: elecPredictedKwh };
-    if (elecStanding) $('elec-standing').textContent = `£${(elecStanding / 100).toFixed(2)}/day`;
-
+    // Today's gas unit rate — its own small fetch, only when there's gas.
+    let gasRateP = null;
     if (gasMTD !== null) {
-      fuelData.gas = fuelData.gas || {};
-      fuelData.gas.mtd = { cost: gasMTD, kwh: gas.kwh, usageCost: gas.cost };
-      fuelData.gas.predicted = { cost: gasPredictedCost, kwh: gasPredictedKwh };
-      if (gasStanding) $('gas-standing').textContent = `£${(gasStanding / 100).toFixed(2)}/day`;
       try {
-        // Local date components, not isoDate(now) + a literal Z — see
-        // loadRates in main.js for the BST boundary bug that avoids.
+        // Local date components, not isoDate + a literal Z — see loadRates
+        // in main.js for the BST boundary bug that avoids.
         const dayStart1 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const dayEnd1 = new Date(+dayStart1 + 24 * 60 * 60 * 1000 - 60000);
-        const gasRatesToday = await fetchGasRates(dayStart1.toISOString(), dayEnd1.toISOString());
-        const currentGasRate = rateAt(gasRatesToday, Date.now());
-        if (currentGasRate !== null) { $('gas-unit-rate').textContent = `${currentGasRate.toFixed(2)}p`; rateState.gasRateP = currentGasRate; }
-      } catch { /* keep whatever was already showing (demo or "—") */ }
+        const r = rateAt(await fetchGasRates(dayStart1.toISOString(), dayEnd1.toISOString()), Date.now());
+        if (r !== null) gasRateP = r;
+      } catch { /* keep whatever's already showing */ }
+    }
+
+    return {
+      elapsedDays, totalDays,
+      elecStandingP: elecStanding || null, gasStandingP: gasStanding || null, gasRateP,
+      elecMTD, gasMTD, combinedMTD, predictedTotal,
+      // usageCost (excludes standing) feeds the balance forecast's blended
+      // rate — the forecast adds standing per future month separately, so a
+      // standing-inclusive divisor would double-count it.
+      elecUsageCost: elec.cost, elecKwh: elec.kwh,
+      gasUsageCost: gas ? gas.cost : null, gasKwh: gas ? gas.kwh : null,
+      elecPredictedCost: (elecMTD / elapsedDays) * totalDays,
+      gasPredictedCost: gasMTD !== null ? (gasMTD / elapsedDays) * totalDays : null,
+      elecPredictedKwh: (elec.kwh / elapsedDays) * totalDays,
+      gasPredictedKwh: gas ? (gas.kwh / elapsedDays) * totalDays : null,
+    };
+  } catch (err) { logIssue('MTD/predicted cost', err); return null; }
+}
+
+// 7-day per-fuel breakdown (also the source of "latest available day" —
+// see renderFuelPanel). Returns { elecWeek, gasWeek } (either may be null),
+// or null if neither loaded.
+async function fetchWeekBars() {
+  const out = { elecWeek: null, gasWeek: null };
+  try {
+    out.elecWeek = await lastNDaysElecSplitWithStanding(7);
+    try { out.gasWeek = await lastNDaysGasSplitWithStanding(7); }
+    catch (err) { logIssue('Gas daily cost', err); }
+  } catch (err) { logIssue('Daily cost', err); }
+  return (out.elecWeek || out.gasWeek) ? out : null;
+}
+
+// Bills + their itemised transactions + the grouped-by-month totals for the
+// bill-year chart. Returns { bills, txnsByBill, monthsData }, null (no bills
+// on the account), or { error: true } (the query failed).
+async function fetchBills(billsQ) {
+  try {
+    const data = await billsQ;
+    const bills = (data?.account?.bills?.edges || []).map(e => e.node).filter(b => b.issuedDate);
+    bills.sort((a, b) => new Date(b.issuedDate) - new Date(a.issuedDate));
+    if (!bills[0]) return null;
+
+    // Itemised breakdown — one fetch across every listed bill's date range.
+    // Best-effort: on failure each row still falls back to date + link only.
+    let txnsByBill = null;
+    try {
+      const earliest = bills.reduce((min, b) => b.fromDate < min ? b.fromDate : min, bills[0].fromDate);
+      const spanEnd = bills.reduce((max, b) => b.toDate > max ? b.toDate : max, bills[0].toDate);
+      const txnData = await krakenGQL(`
+        query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+          account(accountNumber: $accountNumber) {
+            transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
+              edges { node { __typename id postedDate title amounts { gross } } }
+            }
+          }
+        }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
+      const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
+
+      // Usage (kWh + sub-period) in its own query so a failure here drops
+      // only kWh, not the whole breakdown. Fragment target is `... on
+      // Charge` (per the API's own error message — `BillCharge` is unrelated).
+      try {
+        const consData = await krakenGQL(`
+          query BillChargeConsumption($accountNumber: String!, $fromDate: Date, $toDate: Date) {
+            account(accountNumber: $accountNumber) {
+              transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
+                edges { node { ... on Charge { id consumption { quantity unit startDate endDate } } } }
+              }
+            }
+          }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
+        const consEdges = consData?.account?.transactions?.edges || [];
+        const consByCharge = new Map(
+          consEdges.map(e => e.node).filter(n => n?.id && n?.consumption).map(n => [n.id, n.consumption])
+        );
+        let matched = 0;
+        txns.forEach(t => { if (consByCharge.has(t.id)) { t.consumption = consByCharge.get(t.id); matched++; } });
+        logDebug('Bill charge consumption', `${consEdges.length} edge(s) returned, ${consByCharge.size} with id+consumption, ${matched}/${txns.length} txn(s) matched`);
+      } catch (err) { logIssue('Bill charge consumption', err); }
+
+      txnsByBill = bills.map(b => ({
+        bill: b,
+        items: txns.filter(t => t.postedDate >= b.fromDate && t.postedDate <= b.toDate),
+      }));
+    } catch (err) { logIssue('Bill transactions', err); }
+
+    return { bills, txnsByBill, monthsData: groupBillsByMonth(txnsByBill) };
+  } catch (err) {
+    logIssue('Last bill', err);
+    return { error: true };
+  }
+}
+
+/* ------------------------------ Render --------------------------------- */
+// Every DOM write + the state-object assignments (fuelData / rateState /
+// billingState / billMonthsData), from the fetchBillingData() bag — whether
+// that bag was just fetched or read back from the offline cache. Returns
+// whether anything real rendered.
+
+function renderBilling(d) {
+  let anyLive = false;
+
+  const balancePounds = d.balance?.balancePounds ?? null;
+  if (balancePounds !== null) {
+    renderBalanceFigure('balance-now', 'balance-now-pill', balancePounds);
+    anyLive = true;
+  }
+
+  if (d.mtd) {
+    const m = d.mtd;
+    if (m.elecStandingP) rateState.elecStandingP = m.elecStandingP;
+    if (m.gasStandingP) rateState.gasStandingP = m.gasStandingP;
+    if (m.gasRateP != null) rateState.gasRateP = m.gasRateP;
+
+    $('cost-mtd').textContent = fmtGBP(m.combinedMTD);
+    $('cost-predicted').textContent = fmtGBP(m.predictedTotal);
+    $('cycle-bar').style.width = `${Math.min(100, Math.round((m.elapsedDays / m.totalDays) * 100))}%`;
+    $('cycle-day').textContent = `Day ${m.elapsedDays} / ${m.totalDays}`;
+
+    fuelData.elec = fuelData.elec || {};
+    fuelData.elec.mtd = { cost: m.elecMTD, kwh: m.elecKwh, usageCost: m.elecUsageCost };
+    fuelData.elec.predicted = { cost: m.elecPredictedCost, kwh: m.elecPredictedKwh };
+    if (m.elecStandingP) $('elec-standing').textContent = `£${(m.elecStandingP / 100).toFixed(2)}/day`;
+
+    if (m.gasMTD !== null) {
+      fuelData.gas = fuelData.gas || {};
+      fuelData.gas.mtd = { cost: m.gasMTD, kwh: m.gasKwh, usageCost: m.gasUsageCost };
+      fuelData.gas.predicted = { cost: m.gasPredictedCost, kwh: m.gasPredictedKwh };
+      if (m.gasStandingP) $('gas-standing').textContent = `£${(m.gasStandingP / 100).toFixed(2)}/day`;
+      if (m.gasRateP != null) $('gas-unit-rate').textContent = `${m.gasRateP.toFixed(2)}p`;
     }
 
     if (balancePounds !== null) {
-      // Direct Debit accounts don't have usage deducted from the balance
-      // continuously — it's billed in one lump when the next statement is
-      // issued. So the projection subtracts the FULL predicted month cost,
-      // not just the not-yet-incurred remainder (which would double-count
-      // the "already billed" assumption that doesn't hold here).
-      const projected = balancePounds - predictedTotal;
+      // DD accounts aren't debited continuously — the month's usage is
+      // billed in one lump, so the projection subtracts the FULL predicted
+      // month cost, not just the remainder.
+      const projected = balancePounds - m.predictedTotal;
       renderBalanceFigure('balance-projected', 'balance-projected-pill', projected);
 
-      if (nextPayment) {
-        const afterDD = projected + (nextPayment.amount / 100);
-        $('next-dd-amount').textContent = fmtGBP(nextPayment.amount / 100);
-        $('next-dd-label').textContent = nextPayment.isEstimate ? 'Direct Debit (est.)' : 'Next Direct Debit';
+      if (d.nextPayment) {
+        const np = d.nextPayment;
+        const afterDD = projected + (np.amount / 100);
+        $('next-dd-amount').textContent = fmtGBP(np.amount / 100);
+        $('next-dd-label').textContent = np.isEstimate ? 'Direct Debit (est.)' : 'Next Direct Debit';
         renderBalanceFigure('balance-after-dd', 'balance-after-dd-pill', afterDD);
-
-        // Trend: is the incoming payment bigger or smaller than what this
-        // month's predicted to cost? Positive = balance building (summer),
-        // negative = balance drawing down (winter).
-        const trend = (nextPayment.amount / 100) - predictedTotal;
+        // Trend: incoming payment vs predicted month cost. Positive =
+        // balance building (summer), negative = drawing down (winter).
+        const trend = (np.amount / 100) - m.predictedTotal;
         const pill = $('balance-trend-pill');
         pill.className = 'trend-pill ' + (trend >= 0 ? 'up' : 'down');
         pill.textContent = `${trend >= 0 ? '↑' : '↓'} ${fmtGBP(trend)}/mo`;
-        billingState = { balancePounds, trend, hasNextPayment: true, nextPaymentAmount: nextPayment.amount / 100 };
-
+        billingState = { balancePounds, trend, hasNextPayment: true, nextPaymentAmount: np.amount / 100 };
         $('balance-after-dd-row').style.display = '';
       } else {
         $('balance-after-dd-row').style.display = 'none';
         billingState = { balancePounds, trend: null, hasNextPayment: false, nextPaymentAmount: null };
       }
     }
-
     anyLive = true;
-  } catch (err) {
-    logIssue('MTD/predicted cost', err);
   }
 
-  // --- 7-day bars, per fuel (also used to find "latest available day" —
-  // see note in renderFuelPanel; same-day/next-day data lag affects both
-  // fuels, not just gas, so there's no reliable "today" figure for either) ---
-  try {
-    fuelData.elec = fuelData.elec || {};
-    fuelData.elec.week = await lastNDaysElecSplitWithStanding(7);
-    logDebug('Elec week breakdown', fuelData.elec.week.map((d, i) => `[${i}] £${dayTotal('elec', d, 'cost').toFixed(2)} (hasData:${d.hasData})`).join(' '));
-    renderFuelPanel('elec');
-
-    try {
-      fuelData.gas = fuelData.gas || {};
-      fuelData.gas.week = await lastNDaysGasSplitWithStanding(7);
-      logDebug('Gas week breakdown', fuelData.gas.week.map((d, i) => `[${i}] £${dayTotal('gas', d, 'cost').toFixed(2)} (hasData:${d.hasData})`).join(' '));
-      renderFuelPanel('gas');
-    } catch (err) { logIssue('Gas daily cost', err); }
-
-    anyLive = true;
-  } catch (err) {
-    logIssue('Daily cost', err);
-  }
-
-  // Last bill: real, via Octopus's documented GraphQL schema (account.bills),
-  // itemized using account.transactions for each bill's date range. The most
-  // recent bill is always shown in full (date, billing period, total); up to
-  // 4 older bills are available behind the outer toggle using the identical
-  // row shape. Each row's own itemized breakdown collapses independently to
-  // save vertical space, defaulting closed.
-  try {
-    const data = await billsQ;
-
-    const bills = (data?.account?.bills?.edges || []).map(e => e.node).filter(b => b.issuedDate);
-    bills.sort((a, b) => new Date(b.issuedDate) - new Date(a.issuedDate));
-    const latest = bills[0];
-    if (latest) {
-      // Itemized per-transaction breakdown, one fetch covering every listed
-      // bill's date range. Best-effort: if this fails for any reason, every
-      // row still falls back to date + link only, never blocking that base view.
-      let txnsByBill = null;
-      try {
-        const earliest = bills.reduce((min, b) => b.fromDate < min ? b.fromDate : min, bills[0].fromDate);
-        const spanEnd = bills.reduce((max, b) => b.toDate > max ? b.toDate : max, bills[0].toDate);
-        const txnData = await krakenGQL(`
-          query BillTransactions($accountNumber: String!, $fromDate: Date, $toDate: Date) {
-            account(accountNumber: $accountNumber) {
-              transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-                edges { node { __typename id postedDate title amounts { gross } } }
-              }
-            }
-          }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
-        const txns = (txnData?.account?.transactions?.edges || []).map(e => e.node).filter(t => t.postedDate && t.amounts);
-
-        // Usage (kWh + sub-period) fetched in its own query, decoupled from
-        // the main one so a failure here only drops kWh, not the whole
-        // breakdown. The fragment target is `... on Charge` (confirmed by
-        // the API's own error message — `BillCharge` is an unrelated type).
-        try {
-          const consData = await krakenGQL(`
-            query BillChargeConsumption($accountNumber: String!, $fromDate: Date, $toDate: Date) {
-              account(accountNumber: $accountNumber) {
-                transactions(fromDate: $fromDate, toDate: $toDate, first: 100) {
-                  edges {
-                    node {
-                      ... on Charge {
-                        id
-                        consumption { quantity unit startDate endDate }
-                      }
-                    }
-                  }
-                }
-              }
-            }`, { accountNumber: store.creds.accountNumber, fromDate: earliest, toDate: spanEnd });
-          const consEdges = consData?.account?.transactions?.edges || [];
-          const consByCharge = new Map(
-            consEdges
-              .map(e => e.node)
-              .filter(n => n?.id && n?.consumption)
-              .map(n => [n.id, n.consumption])
-          );
-          let matched = 0;
-          txns.forEach(t => { if (consByCharge.has(t.id)) { t.consumption = consByCharge.get(t.id); matched++; } });
-          logDebug('Bill charge consumption', `${consEdges.length} edge(s) returned, ${consByCharge.size} with id+consumption, ${matched}/${txns.length} txn(s) matched`);
-        } catch (err) { logIssue('Bill charge consumption', err); }
-
-        txnsByBill = bills.map(b => ({
-          bill: b,
-          items: txns.filter(t => t.postedDate >= b.fromDate && t.postedDate <= b.toDate)
-        }));
-      } catch (err) { logIssue('Bill transactions', err); }
-
-      function itemDateRange(t) {
-        if (!t.consumption?.startDate || !t.consumption?.endDate) return '';
-        const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-        return `<span class="bh-item-sub">${fmt(t.consumption.startDate)} – ${fmt(t.consumption.endDate)}</span>`;
-      }
-      function itemKwh(t) {
-        if (!t.consumption?.quantity) return '';
-        const unitMap = { KILOWATT_HOUR: 'kWh', CUBIC_METERS: 'm³', CUBIC_METRE: 'm³', CUBIC_FEET: 'ft³' };
-        const unit = unitMap[t.consumption.unit] || (t.consumption.unit || '').toLowerCase().replace(/_/g, ' ');
-        const qty = parseFloat(t.consumption.quantity);
-        return ` · ${qty.toFixed(1)}${unit ? ' ' + unit : ''}`;
-      }
-
-      function billItemsHtml(items) {
-        if (!items || !items.length) return '';
-        const rows = items.map(t => {
-          const charge = isCharge(t);
-          const signed = (charge ? -t.amounts.gross : t.amounts.gross) / 100;
-          const cls = charge ? 'v' : 'v credit';
-          return `<div class="bh-item"><span class="l">${t.title}${itemKwh(t)}${itemDateRange(t)}</span><span class="${cls}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
-        }).join('');
-        return rows;
-      }
-      function billPeriod(b) {
-        const fmt = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-        return `${fmt(b.fromDate)} – ${fmt(b.toDate)}`;
-      }
-      function billRowHtml(b, collapsible) {
-        const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-        const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
-        const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill">View Bill</a>` : '<span class="bh-link" style="opacity:0.4">View Bill</span>';
-        const total = billChargeTotal(items);
-        const itemsHtml = billItemsHtml(items);
-        const toggleHtml = (itemsHtml && collapsible)
-          ? `<div class="bh-pill-group" id="bh-pill-group"><button type="button" class="bh-breakdown-toggle" data-bill-id="${b.id}" aria-expanded="false"><span>Show breakdown</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`
-          : '<span></span>';
-        const itemsClass = collapsible ? 'bh-items hidden' : 'bh-items';
-        return `<div class="bh-row">
-          <div class="bh-top">
-            <div><div class="bh-date">${date}</div><div class="bh-period"><b>Billing period:</b> ${billPeriod(b)}</div></div>
-            ${linkHtml}
-          </div>
-          <div class="bh-total-row">${toggleHtml}<div class="bh-total">${total != null ? fmtGBP(total) : '—'}</div></div>
-          ${itemsHtml ? `<div class="${itemsClass}" data-bill-id="${b.id}">${itemsHtml}</div>` : ''}
-        </div>`;
-      }
-
-      // Toggle already guaranteed safe by restoreToggleToSafety() at the
-      // top of this function — see there for the full explanation.
-      $('last-bill-row').innerHTML = billRowHtml(latest, true);
-
-      const rest = bills.slice(1);
-      const toggle = $('bill-history-toggle');
-      const pillGroup = document.getElementById('bh-pill-group');
-      if (pillGroup) pillGroup.appendChild(toggle);
-      if (rest.length) {
-        $('bill-history').innerHTML = rest.map(b => billRowHtml(b, false)).join('');
-        $('bill-history-toggle-label').textContent = `${rest.length} more`;
-        toggle.classList.remove('hidden');
-        toggle.onclick = () => {
-          const open = toggle.getAttribute('aria-expanded') === 'true';
-          toggle.setAttribute('aria-expanded', String(!open));
-          $('bill-history-toggle-label').textContent = open ? `${rest.length} more` : 'hide';
-          $('bill-history').classList.toggle('hidden', open);
-        };
-      } else {
-        toggle.classList.add('hidden');
-      }
-
-      // Per-row breakdown toggles, delegated across both containers since
-      // rows in bill-history are rebuilt each sync.
-      [$('last-bill-row'), $('bill-history')].forEach(container => {
-        container.querySelectorAll('.bh-breakdown-toggle').forEach(btn => {
-          btn.onclick = () => {
-            const id = btn.dataset.billId;
-            const itemsEl = container.querySelector(`.bh-items[data-bill-id="${id}"]`);
-            const open = btn.getAttribute('aria-expanded') === 'true';
-            btn.setAttribute('aria-expanded', String(!open));
-            btn.querySelector('span').textContent = open ? 'Show breakdown' : 'Hide breakdown';
-            itemsEl.classList.toggle('hidden', open);
-          };
-        });
-      });
-
-      // Bill total over time, grouped by calendar month (not one bar per
-      // bill) — a tariff switch mid-month produces two bills for one month,
-      // which as two same-labelled bars reads as a mistake. Grouping gives a
-      // true "spend per month" picture. Rolling window, not a Jan–Dec year,
-      // so bills from before January aren't dropped and the back half of the
-      // year isn't padded with empty placeholders.
-      //
-      // Fetches 15 bills, not 12: a month with 2+ bills eats a fetch slot
-      // without adding a distinct month, so 12 alone undershoots on any
-      // tariff switch. The chart is capped to the most recent 12 distinct
-      // months after grouping (.slice(-12)), staying a consistent width.
-      try {
-        const monthsData = groupBillsByMonth(txnsByBill);
-        const spansMultipleYears = monthsData.length > 0 && monthsData[0].year !== monthsData[monthsData.length - 1].year;
-
-        if (monthsData.length >= 2) {
-          billMonthsData = monthsData;
-          if (selectedBillMonth !== null && selectedBillMonth >= monthsData.length) selectedBillMonth = null;
-          const max = Math.max(...monthsData.map(m => m.total), 0.01);
-          const maxBarHeight = 78;
-          $('bill-year-bars').innerHTML = monthsData.map((m, i) => {
-            const seg = `<div class="bt-seg gas" style="height:${Math.max(1, Math.round((m.gas / max) * maxBarHeight))}px"></div><div class="bt-seg elec" style="height:${Math.max(1, Math.round((m.elec / max) * maxBarHeight))}px"></div>`;
-            const label = new Date(m.year, m.month, 1).toLocaleDateString('en-GB', spansMultipleYears ? { month: 'short', year: '2-digit' } : { month: 'short' });
-            const selected = i === selectedBillMonth ? ' selected' : '';
-            return `<div class="bt-bar"><div class="bt-stack${selected}" data-index="${i}">${seg}</div><span class="${i === selectedBillMonth ? 'active-day' : ''}">${label}</span></div>`;
-          }).join('');
-          renderBillYearBreakdown(selectedBillMonth);
-          $('bill-year-block').style.display = '';
-        } else {
-          billMonthsData = [];
-          selectedBillMonth = null;
-          $('bill-year-block').style.display = 'none';
-        }
-      } catch (err) { logIssue('Bill year chart', err); }
-
-      anyLive = true;
+  if (d.weekBars) {
+    if (d.weekBars.elecWeek) {
+      fuelData.elec = fuelData.elec || {};
+      fuelData.elec.week = d.weekBars.elecWeek;
+      logDebug('Elec week breakdown', d.weekBars.elecWeek.map((day, i) => `[${i}] £${dayTotal('elec', day, 'cost').toFixed(2)} (hasData:${day.hasData})`).join(' '));
+      renderFuelPanel('elec');
     }
-  } catch (err) {
-    logIssue('Last bill', err);
+    if (d.weekBars.gasWeek) {
+      fuelData.gas = fuelData.gas || {};
+      fuelData.gas.week = d.weekBars.gasWeek;
+      logDebug('Gas week breakdown', d.weekBars.gasWeek.map((day, i) => `[${i}] £${dayTotal('gas', day, 'cost').toFixed(2)} (hasData:${day.hasData})`).join(' '));
+      renderFuelPanel('gas');
+    }
+    anyLive = true;
+  }
+
+  if (d.bills?.error) {
     $('last-bill-row').innerHTML = '<div style="color:var(--text-dim);font-size:12.5px;">Last bill unavailable — check connection or Settings</div>';
     billMonthsData = [];
     selectedBillMonth = null;
     $('bill-year-block').style.display = 'none';
+  } else if (d.bills?.bills?.length) {
+    renderBillHistory(d.bills.bills, d.bills.txnsByBill);
+    renderBillYearChart(d.bills.monthsData);
+    anyLive = true;
   }
 
   return anyLive;
+}
+
+// Last-bill row + the collapsible older-bills list, with their toggles
+// re-wired (rows are rebuilt every render, so per-button `.onclick` is
+// reattached each time; the outer #bill-history-toggle is the persistent
+// one restoreToggleToSafety() protects).
+function renderBillHistory(bills, txnsByBill) {
+  const itemDateRange = t => {
+    if (!t.consumption?.startDate || !t.consumption?.endDate) return '';
+    const fmt = x => new Date(x).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return `<span class="bh-item-sub">${fmt(t.consumption.startDate)} – ${fmt(t.consumption.endDate)}</span>`;
+  };
+  const itemKwh = t => {
+    if (!t.consumption?.quantity) return '';
+    const unitMap = { KILOWATT_HOUR: 'kWh', CUBIC_METERS: 'm³', CUBIC_METRE: 'm³', CUBIC_FEET: 'ft³' };
+    const unit = unitMap[t.consumption.unit] || (t.consumption.unit || '').toLowerCase().replace(/_/g, ' ');
+    return ` · ${parseFloat(t.consumption.quantity).toFixed(1)}${unit ? ' ' + unit : ''}`;
+  };
+  const billItemsHtml = items => (items || []).map(t => {
+    const charge = isCharge(t);
+    const signed = (charge ? -t.amounts.gross : t.amounts.gross) / 100;
+    return `<div class="bh-item"><span class="l">${t.title}${itemKwh(t)}${itemDateRange(t)}</span><span class="${charge ? 'v' : 'v credit'}">${signed < 0 ? '−' : '+'}£${Math.abs(signed).toFixed(2)}</span></div>`;
+  }).join('');
+  const billPeriod = b => {
+    const fmt = x => new Date(x).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return `${fmt(b.fromDate)} – ${fmt(b.toDate)}`;
+  };
+  const billRowHtml = (b, collapsible) => {
+    const date = new Date(b.issuedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const items = txnsByBill ? txnsByBill.find(x => x.bill.id === b.id)?.items : null;
+    const linkHtml = b.temporaryUrl ? `<a class="bh-link" href="${b.temporaryUrl}" target="_blank" aria-label="View bill">View Bill</a>` : '<span class="bh-link" style="opacity:0.4">View Bill</span>';
+    const total = billChargeTotal(items);
+    const itemsHtml = billItemsHtml(items);
+    const toggleHtml = (itemsHtml && collapsible)
+      ? `<div class="bh-pill-group" id="bh-pill-group"><button type="button" class="bh-breakdown-toggle" data-bill-id="${b.id}" aria-expanded="false"><span>Show breakdown</span><svg viewBox="0 0 10 6" fill="none" width="9" height="6"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`
+      : '<span></span>';
+    return `<div class="bh-row">
+      <div class="bh-top">
+        <div><div class="bh-date">${date}</div><div class="bh-period"><b>Billing period:</b> ${billPeriod(b)}</div></div>
+        ${linkHtml}
+      </div>
+      <div class="bh-total-row">${toggleHtml}<div class="bh-total">${total != null ? fmtGBP(total) : '—'}</div></div>
+      ${itemsHtml ? `<div class="${collapsible ? 'bh-items hidden' : 'bh-items'}" data-bill-id="${b.id}">${itemsHtml}</div>` : ''}
+    </div>`;
+  };
+
+  // Toggle already guaranteed safe by restoreToggleToSafety() (see there).
+  $('last-bill-row').innerHTML = billRowHtml(bills[0], true);
+
+  const rest = bills.slice(1);
+  const toggle = $('bill-history-toggle');
+  const pillGroup = document.getElementById('bh-pill-group');
+  if (pillGroup) pillGroup.appendChild(toggle);
+  if (rest.length) {
+    $('bill-history').innerHTML = rest.map(b => billRowHtml(b, false)).join('');
+    $('bill-history-toggle-label').textContent = `${rest.length} more`;
+    toggle.classList.remove('hidden');
+    toggle.onclick = () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!open));
+      $('bill-history-toggle-label').textContent = open ? `${rest.length} more` : 'hide';
+      $('bill-history').classList.toggle('hidden', open);
+    };
+  } else {
+    toggle.classList.add('hidden');
+  }
+
+  // Per-row breakdown toggles — delegated across both containers since the
+  // bill-history rows are rebuilt each render.
+  [$('last-bill-row'), $('bill-history')].forEach(container => {
+    container.querySelectorAll('.bh-breakdown-toggle').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.billId;
+        const itemsEl = container.querySelector(`.bh-items[data-bill-id="${id}"]`);
+        const open = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!open));
+        btn.querySelector('span').textContent = open ? 'Show breakdown' : 'Hide breakdown';
+        itemsEl.classList.toggle('hidden', open);
+      };
+    });
+  });
+}
+
+// Bill total over time, grouped by calendar month (a mid-month tariff
+// switch produces two bills for one month; two same-labelled bars read as a
+// mistake). Rolling most-recent-12 window. Needs >= 2 months to be worth
+// drawing.
+function renderBillYearChart(monthsData) {
+  const spansMultipleYears = monthsData.length > 0 && monthsData[0].year !== monthsData[monthsData.length - 1].year;
+  if (monthsData.length >= 2) {
+    billMonthsData = monthsData;
+    if (selectedBillMonth !== null && selectedBillMonth >= monthsData.length) selectedBillMonth = null;
+    const max = Math.max(...monthsData.map(m => m.total), 0.01);
+    const maxBarHeight = 78;
+    $('bill-year-bars').innerHTML = monthsData.map((m, i) => {
+      const seg = `<div class="bt-seg gas" style="height:${Math.max(1, Math.round((m.gas / max) * maxBarHeight))}px"></div><div class="bt-seg elec" style="height:${Math.max(1, Math.round((m.elec / max) * maxBarHeight))}px"></div>`;
+      const label = new Date(m.year, m.month, 1).toLocaleDateString('en-GB', spansMultipleYears ? { month: 'short', year: '2-digit' } : { month: 'short' });
+      const selected = i === selectedBillMonth ? ' selected' : '';
+      return `<div class="bt-bar"><div class="bt-stack${selected}" data-index="${i}">${seg}</div><span class="${i === selectedBillMonth ? 'active-day' : ''}">${label}</span></div>`;
+    }).join('');
+    renderBillYearBreakdown(selectedBillMonth);
+    $('bill-year-block').style.display = '';
+  } else {
+    billMonthsData = [];
+    selectedBillMonth = null;
+    $('bill-year-block').style.display = 'none';
+  }
 }
 
 function populateDemoBilling() {
