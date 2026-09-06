@@ -8,12 +8,16 @@ Living document. Three phases:
 
 Ordering: Phase 1 → Phase 2 → Phase 3, though Phase 2 module extraction may interleave with early Phase 3 work where a feature naturally lands in a not-yet-extracted module.
 
-**Status:** Phase 1 is complete. Phase 2's module extraction is complete
-(`app.js` → 13 ES modules + `sw.js`); its cross-cutting refactors (2.A–2.D)
-were left as optional follow-ups and none have been done. Phase 3 was never
-formally scoped — it's an idea list, and several of its items (grid carbon,
-the time-of-day usage heat map, the Octoplus surface) have since shipped on
-their own anyway.
+**Status:** Phase 1 complete. Phase 2 complete — module extraction
+(`app.js` → 13 ES modules + `sw.js`) plus the cross-cutting refactors:
+2.A (state consolidation) and 2.C (stop reading state from the DOM) done
+across `ev` / `usage` / `insights` / `live-usage`; 2.B (fetch/render split)
+done for `ev.js` and, pragmatically, for `billing.js` (fetch concurrency +
+tested pure helpers rather than a full teardown of its interleaved
+sections); 2.D (the `card()` helper) assessed and declined — no common
+lifecycle to factor out. See the sub-tasks section for detail. Phase 3 was
+never formally scoped — an idea list, several items (grid carbon, the
+time-of-day usage heat map, the Octoplus surface) since shipped anyway.
 
 Some detail below (the 1A code samples especially) describes the plan as
 first written; where the implementation later diverged — the `package.json`
@@ -273,7 +277,7 @@ Phase 1 is complete (Vite/ESM build, Vitest, CI, all 8 items shipped and verifie
 
 ## Module breakdown (extraction order — leaf/shared first)
 
-**Status: all 12 modules extracted and shipped** (each verified: tests green, `check-ids` green, `vite build` clean, live-verified against the production build, merged to `main`, CI green). `app.js` (~2,715 lines) is now 13 focused ES modules — `api`, `billing`, `charts`, `diagnostics`, `ev`, `format`, `insights`, `live-usage`, `main`, `rates`, `settings`, `store`, `usage` — plus `sw.js`. Row 6.5 (`live-usage.js`) was an unplanned split discovered mid-phase; row 12 was a pure rename. The cross-cutting sub-tasks below (2.A–2.D) are behaviour changes, not pure moves, and were **not** folded into the extractions — they remain as optional follow-up PRs.
+**Status: all 12 modules extracted and shipped** (each verified: tests green, `check-ids` green, `vite build` clean, live-verified against the production build, merged to `main`, CI green). `app.js` (~2,715 lines) is now 13 focused ES modules — `api`, `billing`, `charts`, `diagnostics`, `ev`, `format`, `insights`, `live-usage`, `main`, `rates`, `settings`, `store`, `usage` — plus `sw.js`. Row 6.5 (`live-usage.js`) was an unplanned split discovered mid-phase; row 12 was a pure rename. The cross-cutting sub-tasks below (2.A–2.D) are behaviour changes, not pure moves, so they were **not** folded into the extractions — they landed afterwards as their own small PRs (2.A–2.C) or were declined (2.D).
 
 | # | Module | Contents | Imports |
 |---|---|---|---|
@@ -293,16 +297,48 @@ Phase 1 is complete (Vite/ESM build, Vitest, CI, all 8 items shipped and verifie
 
 Optional cosmetic (not done): move the `.js` files into `src/`.
 
-## Cross-cutting sub-tasks — optional follow-ups, none done
+## Cross-cutting sub-tasks — 2.A–2.C done, 2.D declined
 
-These are behaviour changes rather than pure moves, so they were deliberately
-kept out of the extraction PRs. All still outstanding; all discretionary. 2.B
-is the one with a concrete bug-class rationale behind it.
+Done as a run of small per-module PRs (each: pure move *or* pure behaviour
+change, gated, harness-verified). A fetch-concurrency win rode along at the
+front since the billing code was open anyway.
 
-- **2.A — State consolidation.** Replace the ~30 loose `let`s with per-domain state objects (`usageState`, `evState`, `billingState`, `pickerState`). Render functions take state as input rather than reaching for globals. *(Partly pre-empted by Phase 2: several modules already own a mutable state object — `rateState`, `fuelData`, `billingState` — rather than bare `let`s.)*
-- **2.B — fetch/render split.** `loadX()` → `fetchX(): Promise<Data>` + `renderX(data): void`. Highest value for `ev.js` and `billing.js`. This is what makes logic testable and what would have made the toggle bug structurally impossible.
-- **2.C — Stop reading state from the DOM.** `evManualOverride`, insights/EV expanded flags, `aria-expanded` reads → explicit state.
-- **2.D — Optional `card(el, { fetch, render })` helper** standardizing loading/error/empty — only if the repetition still grates after extraction.
+- **2.A — State consolidation — DONE.** `ev.js` (~18 loose `let`s → `evState`),
+  `usage.js` (7 → `usageState`), `insights.js` (3 → `insightsState`),
+  `live-usage.js` (4 → `liveState`). `billing.js` already had `billingState` /
+  `billMonthsData`; only `selectedBillMonth` was loose and it stayed (folded
+  into the render, low value to object-ify alone). `rateState` / `fuelData`
+  were already objects from Phase 2. Each object is a `const` mutated in
+  place, so the click handlers write `state.foo = …` directly.
+- **2.B — fetch/render split — DONE where it pays.**
+  `ev.js`: `loadEVSmartFlex` → `fetchEVSmartFlexData()` + `renderEVSmartFlex(data)`
+  (clean — one query, then a contiguous render block).
+  `billing.js`: `loadBilling` is five *interleaved* fetch→render sections with
+  the toggle-parking hack threaded through, so a wholesale teardown wasn't
+  worth the blast radius. Instead: (1) the three independent account queries
+  now fire concurrently (~2 round trips off cold load — the real perf item);
+  (2) the pure bill math (`pickNextPayment`, `billChargeTotal`,
+  `groupBillsByMonth`) lifted out to tested module-scope helpers. That
+  captures 2.B's actual value (testable logic) without the risk.
+- **2.C — stop reading state from the DOM — DONE.** `handleEvHeaderClick` and
+  `handleInsightsHeaderClick` now read `state.expanded` /
+  `manualOverride ?? prevWorthSeeing` instead of
+  `!classList.contains('hidden')`. `heatmap.js` / `octoplus.js` still read
+  `classList` in their toggles, but those are pure view flips with no logic
+  branching on the value — left as-is.
+- **2.D — `card(el, { fetch, render })` helper — DECLINED.** The premise
+  ("if the loading/error/empty repetition still grates") didn't hold once
+  2.A–2.C landed. Each card's empty/error state is deliberately different —
+  Carbon/Octoplus hide the whole card, EV runs a bespoke multi-element
+  Unavailable reset (or demo), Billing shows per-section fallback text with
+  the card still visible, Live usage swaps its body for a sub-block, Insights
+  degrades to a partial render. There's no common lifecycle to factor out;
+  `loadAll`'s `Promise.allSettled` over each module's own `loadX` already is
+  the shared orchestration. A wrapper would be indirection without payoff.
+
+Tests added along the way: `test/billing.test.js` (12) + `test/ev.test.js`
+(+13, covering `realProblemLabel` and the week/month bucket builders).
+Suite 126 → 151.
 
 ## Risks
 | Risk | Mitigation |
