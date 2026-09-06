@@ -34,7 +34,7 @@ import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insig
 import { handleHeatmapToggle } from './heatmap.js';
 import { loadOctoplus, handleOctoplusResultsToggle } from './octoplus.js';
 import { meterDebugNote, openSettings, closeSettings, saveSettings, initTheme, handleAppearanceChange } from './settings.js';
-import { cacheSnapshot, readSnapshot, markStale, clearStale, staleInfo, fmtStamp } from './offline.js';
+import { deferSnapshot, readSnapshot, markStale, clearStale, staleInfo, fmtStamp } from './offline.js';
 
 /* ------------------------------ Rendering -------------------------------- */
 
@@ -149,7 +149,7 @@ async function loadRates() {
     const rows = await fetchElecRates(dayStart.toISOString(), dayEnd.toISOString());
     if (!rows.length) throw new Error('No rate data returned');
     renderRates(rows);
-    cacheSnapshot('rates', rows);
+    deferSnapshot('rates', rows);
     clearStale('rates', 'rate-stamp');
     return true;
   } catch (err) {

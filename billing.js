@@ -8,7 +8,7 @@ import {
   fuelData, dayTotal, breakdownRow, daysElapsedInMonth, daysInMonth, isoDate,
   renderFuelPanel, lastNDaysElecSplitWithStanding, lastNDaysGasSplitWithStanding,
 } from './usage.js';
-import { cacheSnapshot, readSnapshot, markStale, clearStale, setCardStamp } from './offline.js';
+import { deferSnapshot, readSnapshot, markStale, clearStale, setCardStamp } from './offline.js';
 
 // Renders a balance figure as a hero number with a small "in credit"/"owed"
 // suffix, coloring coral only when genuinely in debit — the exceptional case
@@ -173,6 +173,18 @@ function reviveBillingSnapshot(d) {
 const billingComplete = d => !!(d.balance && d.mtd && d.bills && !d.bills.error);
 const billingGotAnything = d => !!(d.balance || d.mtd || (d.bills && !d.bills.error));
 
+// The cached bag drops the per-day half-hourly `slots` arrays (7 days ×
+// ~48 = the bulk of the payload). Offline, the Week bars still draw from
+// the day totals; only the tap-a-day mini half-hourly chart is absent —
+// a fair trade for a ~10× smaller snapshot.
+function slimBillingBag(d) {
+  const stripSlots = w => Array.isArray(w) ? w.map(({ slots, ...day }) => day) : w;
+  return {
+    ...d,
+    weekBars: d.weekBars && { elecWeek: stripSlots(d.weekBars.elecWeek), gasWeek: stripSlots(d.weekBars.gasWeek) },
+  };
+}
+
 export async function loadBilling() {
   restoreToggleToSafety();
   if (demoFallbackEnabled()) populateDemoBilling();
@@ -198,7 +210,7 @@ export async function loadBilling() {
   const anyLive = renderBilling(data);
   clearStale('billing', 'billing-stamp');
   setCardStamp('usage-stamp', null);
-  if (billingComplete(data)) cacheSnapshot('billing', data);
+  if (billingComplete(data)) deferSnapshot('billing', slimBillingBag(data));
   return anyLive;
 }
 

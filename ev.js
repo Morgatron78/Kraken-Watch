@@ -6,7 +6,7 @@ import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelO
 import { estimateSessionCostP, rateState } from './rates.js';
 import { daysElapsedInMonth } from './usage.js';
 import { ensureHistIntensity, intensityForRange, intensityMeanInHourBand, carbonBandForRange, ensureCarbonForecast, carbonForecastForRange } from './carbon.js';
-import { cacheSnapshot, readSnapshot, markStale, clearStale } from './offline.js';
+import { deferSnapshot, readSnapshot, markStale, clearStale } from './offline.js';
 
 // Settings takes an optional WLTP spec pair (range in miles, usable battery
 // kWh); the mi/kWh ratio is derived from it per-account. This fallback
@@ -397,7 +397,7 @@ async function loadEVSmartFlex() {
   const data = await fetchEVSmartFlexData();
   if (!data) return false; // no EV device on this path, or wrong shape
   const ok = await renderEVSmartFlex(data);
-  if (ok) { cacheSnapshot('ev', data); clearStale('ev', 'ev-stamp'); }
+  if (ok) { deferSnapshot('ev', data); clearStale('ev', 'ev-stamp'); }
   return ok;
 }
 

@@ -19,6 +19,18 @@ export function cacheSnapshot(key, data) {
   } catch { /* storage full / unavailable — non-critical, skip */ }
 }
 
+// Same, but off the critical path: `JSON.stringify` + a synchronous
+// `localStorage.setItem` of a card's data bag shouldn't block the render
+// that just finished. Loaders call this; the plain sync `cacheSnapshot`
+// stays for tests.
+export function deferSnapshot(key, data) {
+  const t = Date.now();
+  setTimeout(() => {
+    try { localStorage.setItem(PREFIX + key, JSON.stringify({ t, data })); }
+    catch { /* storage full / unavailable */ }
+  }, 0);
+}
+
 // Returns { t, data } or null. `maxAgeMs`, when given, rejects a snapshot
 // older than that (used for rates, where a stale schedule could actively
 // mislead — a day-old EV battery % just reads as "saved").
@@ -48,7 +60,7 @@ export function clearStale(key, stampElId) {
 export function setCardStamp(elId, ts) {
   const el = $(elId);
   if (!el) return;
-  el.textContent = ts == null ? '' : `saved ${fmtStamp(ts)}`;
+  el.textContent = ts == null ? '' : `Saved ${fmtStamp(ts)}`;
   el.classList.toggle('hidden', ts == null);
 }
 

@@ -1,9 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  cacheSnapshot, readSnapshot, markStale, clearStale, staleInfo, fmtStamp,
+  cacheSnapshot, deferSnapshot, readSnapshot, markStale, clearStale, staleInfo, fmtStamp,
 } from '../offline.js';
 
 beforeEach(() => localStorage.clear());
+
+describe('deferSnapshot', () => {
+  it('writes nothing synchronously, then persists on the next tick', async () => {
+    deferSnapshot('ev', { a: 1 });
+    expect(readSnapshot('ev')).toBeNull();          // nothing yet — off the critical path
+    await new Promise(r => setTimeout(r, 0));
+    expect(readSnapshot('ev').data).toEqual({ a: 1 });
+  });
+
+  it('stamps the time of the call, not the deferred write', async () => {
+    const before = Date.now();
+    deferSnapshot('ev', 1);
+    await new Promise(r => setTimeout(r, 10));
+    const { t } = readSnapshot('ev');
+    expect(t).toBeGreaterThanOrEqual(before);
+    expect(t).toBeLessThanOrEqual(Date.now());
+  });
+});
 
 describe('cacheSnapshot / readSnapshot', () => {
   it('round-trips a value with a timestamp', () => {
