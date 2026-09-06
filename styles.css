@@ -840,6 +840,21 @@ button{font-family:inherit;cursor:pointer;}
 .carbon-insight b{color:var(--text);font-weight:600;}
 .carbon-insight svg{flex-shrink:0;margin-top:1px;color:var(--mint);}
 
+/* Octoplus card — points headline reuses .big-label/.big-value; the rest is
+   a compact Saving-Sessions list plus a Wheel-of-Fortune nudge. */
+.octoplus-sessions:not(:empty){margin-top:16px;}
+.octoplus-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-dim);margin-bottom:8px;}
+.octoplus-empty{font-family:'Inter', sans-serif;font-size:11px;color:var(--text-dim);}
+.octoplus-session{padding:8px 0;border-top:1px solid var(--line);}
+.octoplus-session:first-of-type{border-top:none;padding-top:0;}
+.octoplus-session-when{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-dim);}
+.octoplus-session-when b{color:var(--text);font-weight:600;}
+.octoplus-session-meta{font-family:'Inter', sans-serif;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
+.octoplus-joined{color:var(--mint);font-weight:600;}
+.octoplus-spins:not(:empty){margin-top:14px;padding-top:12px;border-top:1px solid var(--line);}
+.octoplus-spins-line{display:flex;align-items:center;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim);}
+.octoplus-spins-line b{color:var(--text);font-weight:600;margin:0 3px;}
+
 /* Live usage — last 30 minutes */
 /* v2.165: was a flat margin-top:10px, disconnected from the line-height-
    based rhythm the two .sub rows above it now use (v2.164) — looked like

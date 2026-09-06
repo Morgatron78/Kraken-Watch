@@ -141,21 +141,24 @@ REST call (28 days of half-hourly readings); electricity only. Gamma-curved
 alpha ramp so the genuine peaks carry the colour, the busiest half-hour
 outlined and called out in a one-line insight.
 
-### C. Octoplus surface (Free Electricity / Saving Sessions + points)
-- **What:** upcoming free-electricity / saving-session events with
-  start/end and reward; current Octopoints balance; unused Wheel of
-  Fortune spins.
-- **Data:** `octoplusOffers`, `octoplusRewards`, `octoplusAccountInfo`,
-  `wheelOfFortuneSpins` (all GraphQL queries — read-only). Replaces the
-  archived Octopoints attempt, which used the now-superseded
-  `loyaltyPointLedgers` path.
-- **Fit:** medium — an event list is less visual than the rest of the app;
-  worth a compact treatment, not a full card, unless the account
-  participates heavily.
-- **Effort:** ~1 day. Gated on the account actually being on Octoplus —
-  verify with a live query first (the old attempt returned Unauthorized).
-- **Risk:** low (read-only), but may just come back empty/unauthorized
-  like Octopoints did.
+### C. Octoplus surface (Free Electricity / Saving Sessions + points) — **SHIPPED (pending a live check)**
+`octoplus.js` — a standalone card (between Billing and Insights) showing the
+Octopoints balance, upcoming Saving Sessions / Free Electricity events with
+their reward and a "Joined" marker, and any unused Wheel of Fortune spins.
+
+- **Data:** `octoplusAccountInfo` (enrolment probe), `loyaltyPointLedgers`
+  (`balanceCarriedForward`), `savingSessions`, `wheelOfFortuneSpinsAllowed`
+  — query shapes taken from the mature Home Assistant Octopus Energy
+  integration. Read-only.
+- **Gating:** fires a single `octoplusAccountInfo` probe first; if that
+  errors or the account isn't `ENROLLED`, the whole card stays hidden. Each
+  remaining part is its own query so one 401 doesn't sink the others.
+  Best-effort side feed, out of the sync-status calc (like carbon).
+- **Open:** the render path and all failure/hide paths are verified against
+  stubbed responses, but this account may still return Unauthorized on some
+  or all of these fields like the old `loyaltyPointsBalance` attempt did —
+  needs one real sync to confirm. The diagnostics panel logs the
+  `enrollmentStatus` and any per-query failure.
 
 ### D. EV control — **needs a decision, not just a task**
 - **What:** bump/boost charge now; set charge target %; set ready-by time;

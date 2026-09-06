@@ -32,6 +32,7 @@ import { loadBilling, handleBillYearBarClick } from './billing.js';
 import { loadCarbon, gridCarbonText } from './carbon.js';
 import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insights.js';
 import { handleHeatmapToggle } from './heatmap.js';
+import { loadOctoplus } from './octoplus.js';
 import { meterDebugNote, openSettings, closeSettings, saveSettings, initTheme, handleAppearanceChange } from './settings.js';
 
 /* ------------------------------ Rendering -------------------------------- */
@@ -136,9 +137,10 @@ export async function loadAll(source = 'app-start') {
   // sync-status calculation below — not having a telemetry device is a
   // normal, expected state for most accounts, not a sync failure.
   lastSlowTierAt = Date.now(); // this call does the slow tier's own work (loadBilling) directly — see shouldRunSlowTier
-  // loadLiveUsage and loadCarbon are best-effort side feeds — excluded from
-  // the sync-status calc below (no device / a NESO blip isn't an Octopus fail).
-  const [, , evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadCarbon(), loadEV(), loadBilling()]);
+  // loadLiveUsage / loadCarbon / loadOctoplus are best-effort side feeds —
+  // excluded from the sync-status calc below (no telemetry device, a NESO
+  // blip, or an account that isn't on Octoplus aren't Octopus sync failures).
+  const [, , , evSettled, billingSettled] = await Promise.allSettled([loadLiveUsage(), loadCarbon(), loadOctoplus(), loadEV(), loadBilling()]);
   const results = [evSettled, billingSettled];
   const allResults = [ratesResult, ...results.map(r => r.status === 'fulfilled' ? r.value : false)];
   // Capture the reason if either promise rejected outright. Internal paths
