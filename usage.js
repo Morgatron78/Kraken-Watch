@@ -1,6 +1,6 @@
 import { store } from './store.js';
 import { $, fmtGBP, fmtKwh } from './format.js';
-import { logIssue, logDebug, renderDiagnostics } from './diagnostics.js';
+import { logIssue, logDebug } from './diagnostics.js';
 import { octRest } from './api.js';
 import { renderChartScale, renderStackedBars } from './charts.js';
 import {
@@ -714,20 +714,20 @@ async function fetchElecDayHalfHourly(anchor = null) {
 // need the same day-by-day rate matching the Month view does, for the whole
 // year — far more calls.
 //
-// The optional yearsAgo offset (default 0) exists to probe whether a prior
-// year's group_by=month retains data past the ~2-month floor confirmed for
-// finer queries — that floor was only ever tested at daily/half-hourly
-// granularity, not this coarser aggregation.
-export async function fetchYearMonthly(fuel, yearsAgo = 0) {
+// Current year only. A one-off probe (Nov 2026) confirmed group_by=month is
+// subject to the same ~2-month retention floor as the finer queries — a
+// prior-year request comes back with only the last couple of months that
+// have data, not the full year — so there's no cheap route to multi-year
+// monthly history and no reason to parameterise the year.
+export async function fetchYearMonthly(fuel) {
   const creds = store.creds;
   const isElec = fuel === 'elec';
   const mp = isElec ? creds.elecMpan : creds.gasMprn;
   const serial = isElec ? creds.elecSerial : creds.gasSerial;
   if (!mp || !serial) throw new Error(`No ${fuel} meter point on file`);
   const now = new Date();
-  const targetYear = now.getFullYear() - yearsAgo;
-  const yearStart = new Date(targetYear, 0, 1).toISOString();
-  const yearEnd = (yearsAgo === 0 ? now : new Date(targetYear, 11, 31, 23, 59, 59)).toISOString();
+  const yearStart = new Date(now.getFullYear(), 0, 1).toISOString();
+  const yearEnd = now.toISOString();
   const path = isElec
     ? `/electricity-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${yearEnd}&group_by=month&page_size=100`
     : `/gas-meter-points/${mp}/meters/${serial}/consumption/?period_from=${yearStart}&period_to=${yearEnd}&group_by=month&page_size=100`;
@@ -849,17 +849,6 @@ export async function handlePeriodToggleClick(e) {
       try { fuelData.gas.year = await fetchYearMonthly('gas'); }
       catch (err) { logIssue('Year view (gas)', err); fuelData.gas.year = []; }
     }
-    // TEMPORARY diagnostic — probing whether electricity's group_by=month
-    // retains data past the ~2-month floor (see fetchYearMonthly). Logged
-    // only, not wired into any chart. Remove once answered.
-    try {
-      const priorYearElec = await fetchYearMonthly('elec', 1);
-      const withData = priorYearElec.filter(m => m.kwh > 0).length;
-      logDebug('Prior-year elec probe', `${priorYearElec.length} month(s) returned, ${withData} with non-zero kWh — ${priorYearElec.map(m => `${m.month}:${m.kwh.toFixed(0)}kWh`).join(' ')}`);
-    } catch (err) {
-      logDebug('Prior-year elec probe', `request failed — ${err.message}`);
-    }
-    renderDiagnostics(); // logDebug() alone doesn't redraw the panel
   }
   updateDatePickerUI();
   renderFuelPanel('elec');

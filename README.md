@@ -327,7 +327,9 @@ every sync logs reading counts, rate ranges, and totals.
   notes if ever revisited: EV annual stats' data is confirmed clean
   (away-from-home charging never appears in `chargingSessions`); personal
   records needs a new daily-resolution year fetch and would be unreliable
-  for electricity beyond the ~2-month floor; baseload needs to exclude any
+  for electricity beyond the ~2-month floor (monthly `group_by=month`
+  aggregation was probed and hits the same floor, so it's no escape hatch);
+  baseload needs to exclude any
   slot overlapping an EV charging session; tariff comparison has no
   existing plumbing for any tariff other than the account's own.
 - **`current`/`reAuthenticationState`** (device status fields) — confirmed
@@ -343,8 +345,10 @@ every sync logs reading counts, rate ranges, and totals.
   shows for a SmartFlex dispatch is a per-appliance override, invisible to
   the standard rate-history API, so there's nothing to rate-match against.
   EV cost stays an estimate — kWh × today's approximated rate, the same
-  technique used for elec/gas. One loose end: a `Money` field may exist
-  directly on the session object; unresolved probe.
+  technique used for elec/gas. Closed: a `Money`-typed field on the session
+  object was the last thread, but it isn't worth a speculative GraphQL field
+  probe (an unknown field name fails the whole query) for a value the two
+  investigations above already point to being absent.
 
 ## Setup
 

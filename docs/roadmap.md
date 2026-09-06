@@ -20,14 +20,17 @@ demo data) on failure.
 | **Billing** | Account balance + projected balance, Direct Debit (estimated), spend MTD + predicted, last-15-bills history (itemised per-fuel, links to real bill PDFs), bill-total-over-time chart (12 distinct months). Octopoints archived (returns Unauthorized). |
 | **Insights** (lazy) | Per-fuel trend vs 7-day avg, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, annual standing-charge total, EV streak + busiest day, and a 12-month **balance runway forecast** (last year's real kWh priced at today's rate). |
 
-**Known loose ends in the current code:**
-- `Money` field on the EV session object — an unresolved probe for whether
-  real (not estimated) charge cost is reachable. (README, project memory.)
-- `usage.js` has a `TEMPORARY diagnostic` block probing whether electricity's
-  `group_by=month` retains data past the ~2-month floor — "remove once
-  answered."
-- `ev.js` assumes `cost.amount` is pounds-decimal — never confirmed against
-  a real value.
+**Known loose ends in the current code — all closed in Phase 3a:**
+- ~~`Money` field on the EV session object~~ — closed. No cost field is
+  queried; a speculative field probe isn't worth risking the whole query
+  for a value the twice-run investigation says isn't there. (README.)
+- ~~`usage.js` `TEMPORARY diagnostic` block~~ — removed. Answered: a
+  prior-year `group_by=month` request returns only the last ~2 months with
+  data, the same retention floor as the finer queries — so monthly
+  aggregation is no escape hatch, and `fetchYearMonthly` is current-year
+  only with no `yearsAgo` param.
+- ~~`ev.js` `cost.amount` pounds-decimal assumption~~ — the comment was
+  stale (no cost field has been queried for some time); removed.
 
 ---
 
@@ -199,11 +202,11 @@ need only the live value and can ship with the card itself.
 
 ## 4. Recommended plan
 
-**Phase 3a — finish & tidy (½ day).**
-Close the three loose ends: resolve or drop the `Money`-field EV-cost
-probe, answer the `group_by=month` diagnostic and delete the temp block,
-confirm the `cost.amount` unit. Leaves the current codebase genuinely
-done.
+**Phase 3a — finish & tidy (½ day). — DONE.**
+All three loose ends closed (see §1). The `group_by=month` diagnostic was
+answered (same ~2-month floor as finer queries), its temp block removed and
+`fetchYearMonthly` de-parameterised; the stale `cost.amount` comment
+deleted; the `Money`-field probe formally closed as not worth pursuing.
 
 **Phase 3b — carbon (~1 day card, then optional cross-panel).**
 `carbon.js` + the standalone card + its own 30-min refresh, plus the two

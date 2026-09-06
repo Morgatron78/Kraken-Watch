@@ -133,8 +133,10 @@ export async function loadEV() {
 // deviceType filter (confirmed by a runtime error), so it returns every
 // device and the client-side .find(d => d.chargingSessions) does the real
 // filtering. Fields confirmed via live introspection except
-// SmartFlexChargingProblem, deliberately left out rather than guessed.
-// cost.amount's unit is assumed pounds decimal (unconfirmed).
+// SmartFlexChargingProblem, deliberately left out rather than guessed. No
+// cost field is queried — the session object exposes no working one (see
+// README "Considered and decided against"); cost is always the kWh × rate
+// estimate.
 //
 // SmartFlexDispatch.dispatches (per-window detail inside a session) was
 // dropped from the query: it came back empty on this account, and its only
