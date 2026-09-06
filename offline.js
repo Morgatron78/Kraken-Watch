@@ -35,11 +35,21 @@ export function readSnapshot(key, maxAgeMs) {
 // per-card "saved HH:MM" element that gets shown; clearStale hides it.
 export function markStale(key, ts, stampElId) {
   stale.set(key, ts);
-  if (stampElId) setStamp(stampElId, ts);
+  if (stampElId) setCardStamp(stampElId, ts);
 }
 export function clearStale(key, stampElId) {
   stale.delete(key);
-  if (stampElId) setStamp(stampElId, null);
+  if (stampElId) setCardStamp(stampElId, null);
+}
+
+// Show/hide a "saved HH:MM" stamp element directly (ts null = hide). For
+// the odd case where one snapshot feeds two cards' visible data (billing's
+// covers the Usage Week view), so both want a stamp off one stale key.
+export function setCardStamp(elId, ts) {
+  const el = $(elId);
+  if (!el) return;
+  el.textContent = ts == null ? '' : `saved ${fmtStamp(ts)}`;
+  el.classList.toggle('hidden', ts == null);
 }
 
 export function staleInfo() {
@@ -57,9 +67,3 @@ export function fmtStamp(ts) {
   return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${hhmm}`;
 }
 
-function setStamp(elId, ts) {
-  const el = $(elId);
-  if (!el) return;
-  el.textContent = ts == null ? '' : `saved ${fmtStamp(ts)}`;
-  el.classList.toggle('hidden', ts == null);
-}

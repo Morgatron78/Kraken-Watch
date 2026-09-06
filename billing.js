@@ -8,6 +8,7 @@ import {
   fuelData, dayTotal, breakdownRow, daysElapsedInMonth, daysInMonth, isoDate,
   renderFuelPanel, lastNDaysElecSplitWithStanding, lastNDaysGasSplitWithStanding,
 } from './usage.js';
+import { cacheSnapshot, readSnapshot, markStale, clearStale, setCardStamp } from './offline.js';
 
 // Renders a balance figure as a hero number with a small "in credit"/"owed"
 // suffix, coloring coral only when genuinely in debit — the exceptional case
@@ -155,13 +156,50 @@ export function groupBillsByMonth(txnsByBill) {
     .slice(-12);
 }
 
+// A billing snapshot's day objects (weekBars) carry Date instances that
+// JSON turns into strings — renderFuelPanel / dayTotal call Date methods on
+// them, so revive before rendering a restored snapshot. The bill dates are
+// already strings from the API (billRowHtml news them up), so only weekBars
+// needs it.
+function reviveBillingSnapshot(d) {
+  for (const arr of [d.weekBars?.elecWeek, d.weekBars?.gasWeek]) {
+    if (Array.isArray(arr)) arr.forEach(day => { if (day && day.date) day.date = new Date(day.date); });
+  }
+}
+
+// A snapshot is worth keeping only if the sync was complete — a partial one
+// (say balance loaded but the rate-limited bill fetch didn't) shouldn't
+// overwrite a fuller earlier snapshot.
+const billingComplete = d => !!(d.balance && d.mtd && d.bills && !d.bills.error);
+const billingGotAnything = d => !!(d.balance || d.mtd || (d.bills && !d.bills.error));
+
 export async function loadBilling() {
   restoreToggleToSafety();
   if (demoFallbackEnabled()) populateDemoBilling();
   else clearBillingUnavailable();
   if (store.creds?.accountNumber) $('billing-account-number').textContent = store.creds.accountNumber;
+
   const data = await fetchBillingData();
-  return renderBilling(data);
+
+  // Nothing loaded — repaint the last good snapshot (stamped on both the
+  // Billing card and the Usage card, whose Week view renderBilling also
+  // repaints) rather than dropping the whole card to Unavailable.
+  if (!billingGotAnything(data)) {
+    const snap = readSnapshot('billing');
+    if (snap?.data) {
+      reviveBillingSnapshot(snap.data);
+      renderBilling(snap.data);
+      markStale('billing', snap.t, 'billing-stamp');
+      setCardStamp('usage-stamp', snap.t);
+      return 'stale';
+    }
+  }
+
+  const anyLive = renderBilling(data);
+  clearStale('billing', 'billing-stamp');
+  setCardStamp('usage-stamp', null);
+  if (billingComplete(data)) cacheSnapshot('billing', data);
+  return anyLive;
 }
 
 /* ------------------------------ Fetch ---------------------------------- */

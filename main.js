@@ -280,8 +280,13 @@ async function loadSlowTier() {
     billingSettled = false;
   }
   logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot, getSyncIssues());
-  if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
-  else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
+  if (billingSettled === true) {
+    setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  } else if (billingSettled === 'stale') {
+    setSyncStatus('stale', `Saved data from ${fmtStamp(staleInfo().earliest)}`);
+  } else {
+    setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
+  }
   updateOfflineBanner();
   renderDiagnostics();
 }
