@@ -87,16 +87,42 @@ export async function loadBilling() {
   if (store.creds?.accountNumber) $('billing-account-number').textContent = store.creds.accountNumber;
   let anyLive = false;
 
+  // The three account-scoped queries used below — balance, next payment,
+  // bills — have no ordering dependency on one another, so they're kicked
+  // off together here and awaited further down where each result is
+  // consumed: concurrent, instead of three serial round trips on cold load.
+  // `.catch(() => {})` pre-marks each promise as handled so a rejection
+  // surfacing before its `await` can't trip `unhandledrejection`; the real
+  // error handling stays at each await site, so per-section isolation is
+  // exactly as before.
+  const acct = store.creds?.accountNumber;
+  const balanceQ = krakenGQL(`
+    query AccountBalance($accountNumber: String!) {
+      account(accountNumber: $accountNumber) { balance(includeAllLedgers: true) }
+    }`, { accountNumber: acct });
+  const nextPaymentQ = krakenGQL(`
+    query NextPayment($accountNumber: String!) {
+      account(accountNumber: $accountNumber) {
+        payments(first: 30) { edges { node { amount paymentDate status } } }
+      }
+    }`, { accountNumber: acct });
+  const billsQ = krakenGQL(`
+    query LastBill($accountNumber: String!) {
+      account(accountNumber: $accountNumber) {
+        bills(first: 15) {
+          edges { node { id issuedDate fromDate toDate temporaryUrl } }
+        }
+      }
+    }`, { accountNumber: acct });
+  balanceQ.catch(() => {}); nextPaymentQ.catch(() => {}); billsQ.catch(() => {});
+
   // --- Account balance ---
   // Uses the documented GraphQL `account.balance` field (confirmed via
   // docs.octopus.energy) rather than guessing at a REST field, and passes
   // includeAllLedgers: true as Octopus's own docs recommend for accuracy.
   let balancePounds = null;
   try {
-    const data = await krakenGQL(`
-      query AccountBalance($accountNumber: String!) {
-        account(accountNumber: $accountNumber) { balance(includeAllLedgers: true) }
-      }`, { accountNumber: store.creds.accountNumber });
+    const data = await balanceQ;
     const balancePence = data?.account?.balance;
     if (typeof balancePence === 'number') {
       balancePounds = balancePence / 100;
@@ -120,12 +146,7 @@ export async function loadBilling() {
   // found nothing for some accounts.
   let nextPayment = null;
   try {
-    const data = await krakenGQL(`
-      query NextPayment($accountNumber: String!) {
-        account(accountNumber: $accountNumber) {
-          payments(first: 30) { edges { node { amount paymentDate status } } }
-        }
-      }`, { accountNumber: store.creds.accountNumber });
+    const data = await nextPaymentQ;
     const today = isoDate(new Date());
     const allPayments = (data?.account?.payments?.edges || []).map(e => e.node);
     const upcoming = allPayments
@@ -283,14 +304,7 @@ export async function loadBilling() {
   // row shape. Each row's own itemized breakdown collapses independently to
   // save vertical space, defaulting closed.
   try {
-    const data = await krakenGQL(`
-      query LastBill($accountNumber: String!) {
-        account(accountNumber: $accountNumber) {
-          bills(first: 15) {
-            edges { node { id issuedDate fromDate toDate temporaryUrl } }
-          }
-        }
-      }`, { accountNumber: store.creds.accountNumber });
+    const data = await billsQ;
 
     const bills = (data?.account?.bills?.edges || []).map(e => e.node).filter(b => b.issuedDate);
     bills.sort((a, b) => new Date(b.issuedDate) - new Date(a.issuedDate));
