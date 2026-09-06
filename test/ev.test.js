@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { formatVehicleName } from '../ev.js';
+import { formatVehicleName, realProblemLabel, buildEVWeekBuckets, buildEVMonthBuckets } from '../ev.js';
 import { formatElapsed } from '../format.js';
 import { estimateSessionCostP } from '../rates.js';
 import { bucketTelemetryByMinute } from '../live-usage.js';
@@ -104,5 +104,106 @@ describe('formatVehicleName', () => {
   it('omits the model but still shows the battery note when model is blank', () => {
     const { caption } = formatVehicleName('Polestar', '');
     expect(caption).toBe('67 kWh usable');
+  });
+});
+
+describe('realProblemLabel', () => {
+  it('returns a friendly label for a genuine (non-benign) cause', () => {
+    expect(realProblemLabel({ problems: [{ cause: 'COMMUNICATION_ERROR' }] })).toBe('Comms error');
+  });
+
+  it('returns the raw enum for a real but unmapped cause', () => {
+    expect(realProblemLabel({ problems: [{ cause: 'SOME_NEW_ERROR' }] })).toBe('SOME_NEW_ERROR');
+  });
+
+  it('ignores benign outcomes (target/full/no-charge/boost/tapering)', () => {
+    expect(realProblemLabel({ problems: [{ cause: 'SOC_LIMIT_REACHED' }] })).toBeNull();
+    expect(realProblemLabel({ problems: [{ cause: 'FULL_CHARGE' }] })).toBeNull();
+    expect(realProblemLabel({ problems: [{ cause: 'BOOST_CHARGING' }] })).toBeNull();
+  });
+
+  it('reads a truncationCause the same way as a cause', () => {
+    expect(realProblemLabel({ problems: [{ truncationCause: 'DISCONNECTED' }] })).toBe('Disconnected early');
+    expect(realProblemLabel({ problems: [{ truncationCause: 'UNKNOWN_TRUNCATION_CAUSE' }] })).toBe('Charge cut short');
+  });
+
+  it('returns the first real problem, skipping a leading benign one', () => {
+    expect(realProblemLabel({ problems: [
+      { cause: 'FULL_CHARGE' },
+      { cause: 'POWER_DISCREPANCY' },
+    ] })).toBe('Power discrepancy');
+  });
+
+  it('returns null for a session with no problems', () => {
+    expect(realProblemLabel({ problems: [] })).toBeNull();
+    expect(realProblemLabel({})).toBeNull();
+  });
+});
+
+describe('buildEVWeekBuckets', () => {
+  // Sat 10 Jan 2026; the 7-day window is Sun 4 Jan .. Sat 10 Jan.
+  const now = new Date(2026, 0, 10, 9, 0);
+
+  it('produces 7 day buckets with single-letter weekday labels', () => {
+    const { buckets, labels, dateFormat } = buildEVWeekBuckets([], now);
+    expect(buckets).toHaveLength(7);
+    expect(labels).toEqual(['S', 'M', 'T', 'W', 'T', 'F', 'S']);
+    expect(dateFormat).toBe('weekday');
+  });
+
+  it('files a session under its day and splits SMART vs BOOST kWh', () => {
+    const sessions = [
+      { start: new Date(2026, 0, 7, 2, 0).toISOString(), type: 'SMART', energyAdded: { value: 8 } },   // Wed -> idx 3
+      { start: new Date(2026, 0, 7, 20, 0).toISOString(), type: 'BOOST', energyAdded: { value: 3 } },   // Wed -> idx 3
+      { start: new Date(2026, 0, 10, 1, 0).toISOString(), type: 'SMART', energyAdded: { value: -5 } },  // Sat -> idx 6, abs
+    ];
+    const { buckets } = buildEVWeekBuckets(sessions, now);
+    expect(buckets[3]).toMatchObject({ smart: 8, boost: 3 });
+    expect(buckets[3].sessions).toHaveLength(2);
+    expect(buckets[6].smart).toBe(5);
+  });
+
+  it('ignores sessions outside the 7-day window', () => {
+    const sessions = [
+      { start: new Date(2026, 0, 1, 12, 0).toISOString(), type: 'SMART', energyAdded: { value: 9 } },  // before window
+      { start: new Date(2026, 0, 20, 12, 0).toISOString(), type: 'SMART', energyAdded: { value: 9 } }, // after window
+    ];
+    const { buckets } = buildEVWeekBuckets(sessions, now);
+    expect(buckets.reduce((s, b) => s + b.smart + b.boost, 0)).toBe(0);
+  });
+
+  it('treats a missing energyAdded as zero kWh, not NaN', () => {
+    const sessions = [{ start: new Date(2026, 0, 8, 3, 0).toISOString(), type: 'SMART' }];
+    const { buckets } = buildEVWeekBuckets(sessions, now);
+    expect(buckets[4].smart).toBe(0);
+    expect(buckets[4].sessions).toHaveLength(1);
+  });
+});
+
+describe('buildEVMonthBuckets', () => {
+  // 10 Jan 2026 -> daysElapsedInMonth = 10, so 10 buckets (days 1..10).
+  const now = new Date(2026, 0, 10, 9, 0);
+
+  it('produces one bucket per elapsed day, labelled by day number', () => {
+    const { buckets, labels, dateFormat } = buildEVMonthBuckets([], now);
+    expect(buckets).toHaveLength(10);
+    expect(labels).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
+    expect(dateFormat).toBe('dayOfMonth');
+  });
+
+  it('files a session under its day-of-month bucket', () => {
+    const sessions = [
+      { start: new Date(2026, 0, 7, 2, 0).toISOString(), type: 'SMART', energyAdded: { value: 6 } },
+      { start: new Date(2026, 0, 7, 22, 0).toISOString(), type: 'BOOST', energyAdded: { value: 2 } },
+    ];
+    const { buckets } = buildEVMonthBuckets(sessions, now);
+    expect(buckets[6]).toMatchObject({ smart: 6, boost: 2 });
+    expect(buckets[6].sessions).toHaveLength(2);
+  });
+
+  it('ignores a session dated after the elapsed days', () => {
+    const sessions = [{ start: new Date(2026, 0, 15, 12, 0).toISOString(), type: 'SMART', energyAdded: { value: 5 } }];
+    const { buckets } = buildEVMonthBuckets(sessions, now);
+    expect(buckets.reduce((s, b) => s + b.smart, 0)).toBe(0);
   });
 });

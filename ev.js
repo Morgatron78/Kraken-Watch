@@ -25,13 +25,52 @@ function getEvBatteryKwh() {
   return (c.wltpBatteryKwh > 0) ? c.wltpBatteryKwh : EV_BATTERY_KWH_FALLBACK;
 }
 
-let evPrevWorthSeeing = false;
-let evManualOverride = null; // null = auto, true/false = user's explicit choice
+// All mutable card state in one object (previously ~18 loose module-level
+// `let`s). It's a const — properties are mutated in place, so the click
+// handlers write `evState.viewMode = ...` directly without needing an
+// exported-let reassignment. Grouped by the part of the card each drives.
+const evState = {
+  // Collapsed/expanded. manualOverride: null = follow "worth seeing",
+  // otherwise the user's explicit choice.
+  prevWorthSeeing: false,
+  manualOverride: null,
+
+  // Per-session problem-detail expand. expandedProblems keys are session
+  // start ISO strings so the open set survives a re-render; lastSessions /
+  // lastNow let the delegated click handler re-render a list it can't
+  // otherwise identify (8-day base vs a wider on-demand fetch).
+  expandedProblems: new Set(),
+  lastSessions: null,
+  lastNow: null,
+  problemListenerAttached: false,
+
+  // "Show more / less" sessions window. defaultSessions is the 8-day base
+  // (revert target); sessionsCache is keyed by day-count so re-expanding
+  // never re-fetches a tier; windowDays is what's on screen now.
+  defaultSessions: null,
+  sessionsCache: new Map(),
+  windowDays: 8,
+  toggleBtnAttached: false,
+
+  // Charge History chart. monthCache ({ key:'YYYY-M', sessions, hasMore })
+  // avoids re-fetching a month already viewed. loadedSessions is the live
+  // card's 8-day list, reused by the Week view at no network cost.
+  weekBuckets: null,
+  weekSelectedDay: null,
+  historyPeriod: 'week',
+  loadedSessions: null,
+  monthCache: null,
+  historyDates: null,
+  historyDateFormat: 'weekday',
+
+  // Dispatch/Sessions tab choice, reapplied after every re-render.
+  viewMode: 'dispatch',
+};
 
 function applyEvCollapse(worthSeeing) {
-  if (worthSeeing && !evPrevWorthSeeing) evManualOverride = null; // rising edge: force back to auto (open)
-  evPrevWorthSeeing = worthSeeing;
-  const expanded = evManualOverride !== null ? evManualOverride : worthSeeing;
+  if (worthSeeing && !evState.prevWorthSeeing) evState.manualOverride = null; // rising edge: force back to auto (open)
+  evState.prevWorthSeeing = worthSeeing;
+  const expanded = evState.manualOverride !== null ? evState.manualOverride : worthSeeing;
   $('ev-body').classList.toggle('hidden', !expanded);
   $('ev-card').classList.toggle('ev-collapsed', !expanded);
   $('ev-chevron').textContent = expanded ? '▾' : '▸';
@@ -171,7 +210,7 @@ const CAUSE_LABELS = {
   DISCONNECTED: 'Disconnected early', DEVICE_DEAUTH_SUCCESS: 'Device deauthorised',
   SUSPENDED: 'Suspended', UNKNOWN_TRUNCATION_CAUSE: 'Charge cut short'
 };
-function realProblemLabel(session) {
+export function realProblemLabel(session) {
   for (const p of (session.problems || [])) {
     const cause = p.cause || p.truncationCause;
     if (cause && !BENIGN_CAUSES.has(cause)) return CAUSE_LABELS[cause] || cause;
@@ -180,13 +219,10 @@ function realProblemLabel(session) {
 }
 const warnTriangleSvgSm = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 
-let expandedProblemSessions = new Set(); // keys = session start ISO strings, survives re-renders
-let lastRenderedSessions = null, lastRenderedNow = null; // so the click handler can re-render without needing to know which list (8-day/expanded) is currently showing
-
 // Sessions-tab renderer, factored out so it runs against either the default
 // 8-day `sessions` array or a wider on-demand fetch (see showMoreEVSessions).
 function renderEVSessionSlots(sessions, now) {
-  lastRenderedSessions = sessions; lastRenderedNow = now;
+  evState.lastSessions = sessions; evState.lastNow = now;
   const sessionSlots = $('ev-slots-session');
   sessionSlots.innerHTML = [...sessions].reverse().map(s => {
     const kwh = s.energyAdded?.value;
@@ -205,10 +241,10 @@ function renderEVSessionSlots(sessions, now) {
       : '';
     // Problem warning: a small icon-only toggle that reveals a detail row
     // with the full message on click. Expand state is keyed by session start
-    // time in expandedProblemSessions so it survives re-renders.
+    // time in evState.expandedProblems so it survives re-renders.
     const problem = realProblemLabel(s);
     const problemKey = s.start;
-    const isExpanded = problem && expandedProblemSessions.has(problemKey);
+    const isExpanded = problem && evState.expandedProblems.has(problemKey);
     const miniPillHtml = problem
       ? `<button type="button" class="badge-problem-mini" data-problem-key="${problemKey}" aria-expanded="${isExpanded}">${warnTriangleSvgSm}</button>`
       : '';
@@ -247,31 +283,25 @@ function renderEVSessionSlots(sessions, now) {
   if (!sessionSlots.children.length) sessionSlots.innerHTML = '<div class="slot">No charging sessions this week</div>';
 }
 
-let evProblemToggleListenerAdded = false;
 function attachEVProblemToggleListener() {
-  if (evProblemToggleListenerAdded) return;
-  evProblemToggleListenerAdded = true;
+  if (evState.problemListenerAttached) return;
+  evState.problemListenerAttached = true;
   // Event delegation on the parent (not each button): sessionSlots.innerHTML
   // gets fully rebuilt on every render, which would destroy per-button
   // listeners, but a listener on the parent container itself survives
   // since the parent element is never replaced, only its children.
   $('ev-slots-session').addEventListener('click', (e) => {
     const btn = e.target.closest('.badge-problem-mini');
-    if (!btn || !lastRenderedSessions) return;
+    if (!btn || !evState.lastSessions) return;
     const key = btn.dataset.problemKey;
-    if (expandedProblemSessions.has(key)) expandedProblemSessions.delete(key);
-    else expandedProblemSessions.add(key);
-    renderEVSessionSlots(lastRenderedSessions, lastRenderedNow);
+    if (evState.expandedProblems.has(key)) evState.expandedProblems.delete(key);
+    else evState.expandedProblems.add(key);
+    renderEVSessionSlots(evState.lastSessions, evState.lastNow);
   });
 }
 
-let evDefaultSessions = null; // the original 8-day list, cached so "Show less" can revert without a re-fetch
-let evSessionsCache = new Map(); // keyed by day-count (16, 32, 64...), so repeated expand/collapse never re-fetches the same tier twice
-let evSessionsWindowDays = 8; // the window currently on screen
-let evSessionsToggleBtnAdded = false;
-
 // "Show more" doubles the window (8→16→32→64…), re-fetching only tiers not
-// already in evSessionsCache; "Show less" reverts straight to the 8-day
+// already in evState.sessionsCache; "Show less" reverts straight to the 8-day
 // base. A separate on-demand fetch, not a widening of the default 8-day
 // query, so nothing depending on that scope (mini-stats, Windows tab) is
 // affected. first: 30 is the only value on this field confirmed safe
@@ -311,10 +341,10 @@ async function fetchEVSessionsWindow(days) {
 }
 
 async function showMoreEVSessions(moreBtn, lessBtn, now) {
-  const nextDays = evSessionsWindowDays * 2;
-  const cached = evSessionsCache.get(nextDays);
+  const nextDays = evState.windowDays * 2;
+  const cached = evState.sessionsCache.get(nextDays);
   if (cached) {
-    evSessionsWindowDays = nextDays;
+    evState.windowDays = nextDays;
     await ensureHistIntensity(now.getTime() - nextDays * 24 * 60 * 60 * 1000);
     renderEVSessionSlots(cached, now);
     lessBtn.classList.remove('hidden');
@@ -327,8 +357,8 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
     const sessions = await fetchEVSessionsWindow(nextDays);
     renderDiagnostics(); // redraw now so logDebug output shows immediately, not at the next scheduled sync
     if (sessions.length) {
-      evSessionsCache.set(nextDays, sessions);
-      evSessionsWindowDays = nextDays;
+      evState.sessionsCache.set(nextDays, sessions);
+      evState.windowDays = nextDays;
       await ensureHistIntensity(now.getTime() - nextDays * 24 * 60 * 60 * 1000);
       renderEVSessionSlots(sessions, now);
       lessBtn.classList.remove('hidden');
@@ -343,8 +373,8 @@ async function showMoreEVSessions(moreBtn, lessBtn, now) {
 }
 
 function showLessEVSessions(lessBtn, now) {
-  evSessionsWindowDays = 8;
-  renderEVSessionSlots(evDefaultSessions, now);
+  evState.windowDays = 8;
+  renderEVSessionSlots(evState.defaultSessions, now);
   lessBtn.classList.add('hidden');
 }
 
@@ -387,7 +417,7 @@ async function loadEVSmartFlex() {
   if (!vehicle) return false; // no EV device on this path, or wrong shape
 
   const sessions = (vehicle.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
-  evLoadedSessions = sessions;
+  evState.loadedSessions = sessions;
   const planned = data.plannedDispatches || [];
   const now = new Date();
 
@@ -591,7 +621,7 @@ async function loadEVSmartFlex() {
   // starts a new run. No badgeHtml — this data source has no Smart/Boost
   // type field.
   const dispatchSlots = $('ev-slots-dispatch');
-  dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evViewMode after render
+  dispatchSlots.classList.remove('hidden'); // rebuilt below, visibility corrected against evState.viewMode after render
   const runs = [];
   completedDispatchWindows.forEach(d => {
     const last = runs[runs.length - 1];
@@ -644,22 +674,22 @@ async function loadEVSmartFlex() {
   });
   if (!dispatchSlots.children.length) dispatchSlots.innerHTML = '<div class="slot">No dispatch windows scheduled</div>';
 
-  // Session view. Guarded on evSessionsWindowDays === 8: once the user has
+  // Session view. Guarded on evState.windowDays === 8: once the user has
   // expanded, a later auto-refresh must not re-render with the narrow 8-day
   // list, or the expanded view would silently revert. Tradeoff: the expanded
   // view then goes static until a full reload — better than undoing an
   // explicit choice.
-  evDefaultSessions = sessions;
+  evState.defaultSessions = sessions;
   attachEVProblemToggleListener();
-  if (evSessionsWindowDays === 8) renderEVSessionSlots(sessions, now);
+  if (evState.windowDays === 8) renderEVSessionSlots(sessions, now);
 
   // "Show more" / "Show less" — a centered button pair. "Show more" is
   // always visible; "Show less" appears once expanded and reverts to the
-  // 8-day base. Visibility is tied to evViewMode a few lines below so the
+  // 8-day base. Visibility is tied to evState.viewMode a few lines below so the
   // pair only shows under the Sessions tab.
   const sessionSlotsContainer = $('ev-slots-session');
-  if (!evSessionsToggleBtnAdded) {
-    evSessionsToggleBtnAdded = true;
+  if (!evState.toggleBtnAttached) {
+    evState.toggleBtnAttached = true;
     const wrap = document.createElement('div');
     wrap.id = 'ev-sessions-toggle-wrap';
     wrap.style.cssText = 'display:flex;justify-content:center;gap:8px;margin-top:12px;';
@@ -680,11 +710,11 @@ async function loadEVSmartFlex() {
   // Reapply the selected tab — every render above un-hides dispatchSlots to
   // rebuild it, which would otherwise leave Dispatch showing after an
   // auto-refresh regardless of what the user had selected.
-  $('ev-slots-dispatch').classList.toggle('hidden', evViewMode !== 'dispatch');
-  $('ev-slots-session').classList.toggle('hidden', evViewMode !== 'session');
-  $('ev-view-dispatch-btn').classList.toggle('active', evViewMode === 'dispatch');
-  $('ev-view-session-btn').classList.toggle('active', evViewMode === 'session');
-  $('ev-sessions-toggle-wrap').classList.toggle('hidden', evViewMode !== 'session');
+  $('ev-slots-dispatch').classList.toggle('hidden', evState.viewMode !== 'dispatch');
+  $('ev-slots-session').classList.toggle('hidden', evState.viewMode !== 'session');
+  $('ev-view-dispatch-btn').classList.toggle('active', evState.viewMode === 'dispatch');
+  $('ev-view-session-btn').classList.toggle('active', evState.viewMode === 'session');
+  $('ev-sessions-toggle-wrap').classList.toggle('hidden', evState.viewMode !== 'session');
 
   $('ev-view-toggle').classList.remove('hidden');
   $('ev-week-legend').classList.remove('hidden');
@@ -699,7 +729,7 @@ async function loadEVSmartFlex() {
     $('ev-pmeter').classList.add('hidden');
   }
 
-  await setEVHistoryPeriod(evHistoryPeriod);
+  await setEVHistoryPeriod(evState.historyPeriod);
   renderEVInsights(sessions, now);
 
   return true;
@@ -775,7 +805,7 @@ function renderEVHistoryBars(buckets, labels) {
 
 // 7 daily buckets from the sessions already loaded for the live card (no
 // new fetch).
-function buildEVWeekBuckets(sessions, now) {
+export function buildEVWeekBuckets(sessions, now) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 6);
   const buckets = Array.from({ length: 7 }, () => ({ smart: 0, boost: 0, sessions: [] }));
@@ -794,7 +824,7 @@ function buildEVWeekBuckets(sessions, now) {
 }
 
 // Streak + busiest-day for the Insights panel. Builds its own week buckets
-// rather than reusing Charge History's evWeekBuckets, which changes with
+// rather than reusing Charge History's evState.weekBuckets, which changes with
 // that card's Day/Week/Month toggle — these are inherently weekly concepts.
 function renderEVInsights(sessions, now) {
   const { buckets } = buildEVWeekBuckets(sessions, now);
@@ -888,7 +918,7 @@ function renderEVInsights(sessions, now) {
 // checked so an unusually heavy month is flagged rather than under-counted.
 async function loadEVMonthData(now) {
   const key = `${now.getFullYear()}-${now.getMonth()}`;
-  if (evMonthCache?.key === key) return evMonthCache;
+  if (evState.monthCache?.key === key) return evState.monthCache;
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   try {
     const data = await krakenGQL(`
@@ -905,15 +935,15 @@ async function loadEVMonthData(now) {
     const vehicle = (data.devices || []).find(d => d && d.chargingSessions);
     const sessions = (vehicle?.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
     const hasMore = !!vehicle?.chargingSessions?.pageInfo?.hasNextPage;
-    evMonthCache = { key, sessions, hasMore };
-    return evMonthCache;
+    evState.monthCache = { key, sessions, hasMore };
+    return evState.monthCache;
   } catch (err) {
     logIssue('EV month history', err);
     return null;
   }
 }
 
-function buildEVMonthBuckets(sessions, now) {
+export function buildEVMonthBuckets(sessions, now) {
   // Elapsed days only, matching Usage's Month view — no trailing empty bars
   // for days that haven't happened yet.
   const elapsedDays = daysElapsedInMonth(now);
@@ -931,11 +961,11 @@ function buildEVMonthBuckets(sessions, now) {
 }
 
 // Switches Charge History between Day/Week/Month. Month fetches on first
-// use only (then cached); Day and Week both reuse evLoadedSessions with
+// use only (then cached); Day and Week both reuse evState.loadedSessions with
 // zero new network cost.
 async function setEVHistoryPeriod(period) {
-  evHistoryPeriod = period;
-  evWeekSelectedDay = null;
+  evState.historyPeriod = period;
+  evState.weekSelectedDay = null;
   $('ev-week-breakdown').classList.add('hidden');
   document.getElementById('ev-month-partial-note')?.remove();
   document.querySelectorAll('#ev-history-period-toggle .unit-toggle-btn').forEach(btn => {
@@ -946,7 +976,7 @@ async function setEVHistoryPeriod(period) {
   let result;
   if (period === 'week') {
     $('ev-history-period-label').textContent = 'Week';
-    result = buildEVWeekBuckets(evLoadedSessions || [], now);
+    result = buildEVWeekBuckets(evState.loadedSessions || [], now);
   } else {
     $('ev-history-period-label').textContent = 'Month';
     const monthData = await loadEVMonthData(now);
@@ -968,25 +998,25 @@ async function setEVHistoryPeriod(period) {
     }
   }
 
-  evWeekBuckets = result.buckets;
-  evHistoryDates = result.dates;
-  evHistoryDateFormat = result.dateFormat;
+  evState.weekBuckets = result.buckets;
+  evState.historyDates = result.dates;
+  evState.historyDateFormat = result.dateFormat;
   renderEVHistoryBars(result.buckets, result.labels);
 }
 
 function renderEVWeekBreakdown(index) {
   const box = $('ev-week-breakdown');
-  const bucket = evWeekBuckets?.[index];
+  const bucket = evState.weekBuckets?.[index];
   if (!bucket || !bucket.sessions.length) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  const date = evHistoryDates?.[index];
+  const date = evState.historyDates?.[index];
   let dateLabel = '';
-  if (evHistoryDateFormat === 'weekday') {
+  if (evState.historyDateFormat === 'weekday') {
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     dateLabel = dayNames[date.getDay()];
-  } else if (evHistoryDateFormat === 'hour') {
+  } else if (evState.historyDateFormat === 'hour') {
     dateLabel = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } else if (evHistoryDateFormat === 'dayOfMonth') {
+  } else if (evState.historyDateFormat === 'dayOfMonth') {
     dateLabel = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   }
   const smartSessions = bucket.sessions.filter(s => s.type !== 'BOOST');
@@ -1028,15 +1058,6 @@ function renderEVWeekBreakdown(index) {
   box.innerHTML = `<div class="breakdown-date">${dateLabel}</div>${rows}<div class="breakdown-total"><span>Total</span><span>${total.toFixed(1)} kWh${costSuffix(totalCostP)}${co2Suffix(totalCo2)}</span></div>`;
 }
 
-let evWeekBuckets = null;
-let evWeekSelectedDay = null;
-let evHistoryPeriod = 'week';
-let evLoadedSessions = null;
-let evMonthCache = null; // { key: 'YYYY-M', sessions: [...] } — avoids refetching when toggling back to a month already viewed
-let evHistoryDates = null;
-let evHistoryDateFormat = 'weekday';
-let evViewMode = 'dispatch'; // the user's Dispatch/Sessions tab choice, so re-renders reapply it instead of resetting to Dispatch
-
 function populateDemoEV() {
     applyEvCollapse(true);
     $('ev-tag').textContent = 'DEMO DATA';
@@ -1060,23 +1081,26 @@ function populateDemoEV() {
 }
 
 // These four handlers live here rather than in main.js's init() so every EV
-// state variable (evManualOverride, evViewMode, evWeekSelectedDay,
-// evHistoryPeriod) stays private to this module.
+// state variable (evState.manualOverride, evState.viewMode, evState.weekSelectedDay,
+// evState.historyPeriod) stays private to this module.
 
 export function handleEvHeaderClick() {
-  const currentlyExpanded = !$('ev-body').classList.contains('hidden');
-  evManualOverride = !currentlyExpanded;
-  $('ev-body').classList.toggle('hidden', !evManualOverride);
-  $('ev-card').classList.toggle('ev-collapsed', !evManualOverride);
-  $('ev-chevron').textContent = evManualOverride ? '▾' : '▸';
-  $('ev-header').setAttribute('aria-expanded', String(evManualOverride));
+  // Current expanded state straight from evState, not read back off the
+  // DOM: applyEvCollapse keeps prevWorthSeeing / manualOverride
+  // authoritative, and the DOM is `manualOverride ?? prevWorthSeeing`.
+  const currentlyExpanded = evState.manualOverride ?? evState.prevWorthSeeing;
+  evState.manualOverride = !currentlyExpanded;
+  $('ev-body').classList.toggle('hidden', !evState.manualOverride);
+  $('ev-card').classList.toggle('ev-collapsed', !evState.manualOverride);
+  $('ev-chevron').textContent = evState.manualOverride ? '▾' : '▸';
+  $('ev-header').setAttribute('aria-expanded', String(evState.manualOverride));
 }
 
 export function handleEvViewToggleClick(e) {
   const btn = e.target.closest('.unit-toggle-btn');
   if (!btn) return;
   const view = btn.dataset.view;
-  evViewMode = view;
+  evState.viewMode = view;
   $('ev-view-dispatch-btn').classList.toggle('active', view === 'dispatch');
   $('ev-view-session-btn').classList.toggle('active', view === 'session');
   $('ev-slots-dispatch').classList.toggle('hidden', view !== 'dispatch');
@@ -1092,19 +1116,19 @@ export function handleEvWeekClick(e) {
   if (!bar) return;
   const index = parseInt(bar.dataset.i, 10);
   if (Number.isNaN(index)) return;
-  evWeekSelectedDay = (evWeekSelectedDay === index) ? null : index;
+  evState.weekSelectedDay = (evState.weekSelectedDay === index) ? null : index;
   document.querySelectorAll('#ev-week .ev-week-stack').forEach(el => {
-    el.classList.toggle('selected', parseInt(el.dataset.i, 10) === evWeekSelectedDay);
+    el.classList.toggle('selected', parseInt(el.dataset.i, 10) === evState.weekSelectedDay);
   });
   document.querySelectorAll('#ev-week span[data-i]').forEach(el => {
-    el.classList.toggle('active-day', parseInt(el.dataset.i, 10) === evWeekSelectedDay);
+    el.classList.toggle('active-day', parseInt(el.dataset.i, 10) === evState.weekSelectedDay);
   });
-  if (evWeekSelectedDay === null) $('ev-week-breakdown').classList.add('hidden');
-  else renderEVWeekBreakdown(evWeekSelectedDay);
+  if (evState.weekSelectedDay === null) $('ev-week-breakdown').classList.add('hidden');
+  else renderEVWeekBreakdown(evState.weekSelectedDay);
 }
 
 export function handleEvHistoryPeriodToggleClick(e) {
   const btn = e.target.closest('.unit-toggle-btn');
-  if (!btn || btn.dataset.period === evHistoryPeriod) return;
+  if (!btn || btn.dataset.period === evState.historyPeriod) return;
   setEVHistoryPeriod(btn.dataset.period);
 }
