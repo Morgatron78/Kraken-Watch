@@ -61,6 +61,9 @@
     </div>
   </div>
 
+  <!-- Offline banner: shown when one or more cards are rendering saved data -->
+  <div class="offline-banner hidden" id="offline-banner"></div>
+
   <!-- Diagnostics: shown when something failed to load live, or when debug info is available -->
   <div class="card" id="diagnostics-card" style="display:none;padding:14px 18px;margin-bottom:14px;border-color:var(--coral-line);">
     <div id="diagnostics-title" style="font-size:12px;font-weight:600;color:var(--coral);margin-bottom:8px;display:flex;align-items:center;gap:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Diagnostics</div>
@@ -85,6 +88,7 @@
         <div class="card-head-col">
           <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink)"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Current rate</div>
           <div class="card-tag tag-mint" id="rate-pill">● —</div>
+          <span class="card-stamp hidden" id="rate-stamp"></span>
         </div>
         <div class="big-label">Now</div>
         <div class="big-value" id="rate-value">—<span>p/kWh</span></div>
@@ -137,6 +141,7 @@
         <div class="card-head">
           <div class="card-title"><span><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink)"><path d="M5 18H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.19"/><path d="M15 6h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3.19"/><line x1="23" y1="13" x2="23" y2="11"/><polyline points="11 6 7 12 13 12 9 18"/></svg> EV charging</span><span id="ev-name"></span></div>
           <div style="display:flex;align-items:center;gap:6px;">
+            <span class="card-stamp hidden" id="ev-stamp"></span>
             <div class="card-tag tag-mint" id="ev-tag">—</div>
             <span id="ev-chevron" style="font-size:11px;color:var(--text-dim);">▸</span>
           </div>

@@ -6,6 +6,7 @@ import { renderPowerMeter, renderChartScale, chartMax, isChartDense, chartLabelO
 import { estimateSessionCostP, rateState } from './rates.js';
 import { daysElapsedInMonth } from './usage.js';
 import { ensureHistIntensity, intensityForRange, intensityMeanInHourBand, carbonBandForRange, ensureCarbonForecast, carbonForecastForRange } from './carbon.js';
+import { cacheSnapshot, readSnapshot, markStale, clearStale } from './offline.js';
 
 // Settings takes an optional WLTP spec pair (range in miles, usable battery
 // kWh); the mi/kWh ratio is derived from it per-account. This fallback
@@ -141,9 +142,22 @@ export async function loadEV() {
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
-  // A failed sync shows a genuine Unavailable state, not a fallback to
-  // older/less accurate data; recovers on the next auto-sync. The old
-  // dispatch-only path is in ev-legacy-archive.js if this needs revisiting.
+  // Live fetch failed — repaint the last good snapshot (stamped) rather
+  // than dropping to Unavailable. `now` is recomputed fresh so "Today /
+  // Yesterday" labels and the active-window check are correct against the
+  // real clock; a planned window whose time has passed just drops out.
+  const snap = readSnapshot('ev');
+  if (snap?.data) {
+    try {
+      await renderEVSmartFlex({ ...snap.data, now: new Date() });
+      markStale('ev', snap.t, 'ev-stamp');
+      return 'stale';
+    } catch (err) { logIssue('EV cache restore', err); }
+  }
+
+  // No snapshot either — a genuine Unavailable state (or demo, opted in);
+  // recovers on the next auto-sync. The old dispatch-only path is in
+  // ev-legacy-archive.js if this needs revisiting.
   if (demoFallbackEnabled()) {
     populateDemoEV();
   } else {
@@ -165,6 +179,7 @@ export async function loadEV() {
     $('ev-week-session-count').textContent = '—';
     $('insights-ev-panel').classList.add('hidden');
   }
+  clearStale('ev', 'ev-stamp');
   return false;
 }
 
@@ -381,7 +396,9 @@ function showLessEVSessions(lessBtn, now) {
 async function loadEVSmartFlex() {
   const data = await fetchEVSmartFlexData();
   if (!data) return false; // no EV device on this path, or wrong shape
-  return renderEVSmartFlex(data);
+  const ok = await renderEVSmartFlex(data);
+  if (ok) { cacheSnapshot('ev', data); clearStale('ev', 'ev-stamp'); }
+  return ok;
 }
 
 // Fetch + shape only: the one GraphQL query, then the pieces the renderer

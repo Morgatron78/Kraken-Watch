@@ -148,6 +148,20 @@ button{font-family:inherit;cursor:pointer;}
   box-shadow:0 0 0 1px var(--tint-strong) inset;
 }
 .brand-mark img{width:100%;height:100%;object-fit:cover;}
+
+/* Offline data — a thin strip under the topbar while any card is showing a
+   saved snapshot, plus a small per-card "saved HH:MM" stamp. Amber, the
+   app's "pending / heads-up" accent, not coral (nothing is broken — the
+   figures are real, just not current). */
+.offline-banner{
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;
+  color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);
+  border-radius:var(--radius-sm);padding:7px 12px;margin-bottom:14px;text-align:center;
+}
+.card-stamp{
+  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;
+  color:var(--amber);white-space:nowrap;
+}
 .brand-name{font-weight:600;display:flex;align-items:center;gap:6px;}
 /* v2.262: replaces the flat "Kraken Watch" text with a two-word wordmark —
    K and W enlarged (kilowatt wordplay, same pink accent as before), the
