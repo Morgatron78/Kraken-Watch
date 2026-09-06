@@ -58,31 +58,22 @@ export async function loadOctoplus() {
 }
 
 async function fetchPoints() {
-  // Preferred: the direct balance query. It Unauthorized'd on the pre-
-  // Octoplus attempt, but the account is clearly enrolled now and the rest
-  // of Octoplus resolves, so it's worth trying before the ledger fallback.
-  try {
-    const j = await krakenGQL(
-      `query OctoplusBalance($input: LoyaltyPointsBalanceInput!) {
-        loyaltyPointsBalance(input: $input) { loyaltyPoints }
-      }`, { input: { accountNumber: store.creds.accountNumber } });
-    const p = j?.loyaltyPointsBalance?.loyaltyPoints;
-    if (typeof p === 'number') {
-      logDebug('Octoplus points', `loyaltyPointsBalance = ${p}`);
-      return p;
-    }
-  } catch (err) {
-    logDebug('Octoplus points', `loyaltyPointsBalance failed — ${err.message}`);
-  }
-  // Fallback: newest ledger entry that carries a running balance.
+  // The direct loyaltyPointsBalance query stays Unauthorized (KT-CT-1111)
+  // on this account, so the balance is read off the ledger: the newest
+  // entry's balanceCarriedForward is the running total. It comes back as a
+  // numeric *string* ("100"), so it has to be coerced.
   try {
     const j = await krakenGQL(
       `query OctoplusLedgers { loyaltyPointLedgers { balanceCarriedForward postedAt } }`, {});
     const ledgers = (j?.loyaltyPointLedgers || []).slice()
       .sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt));
-    const bal = ledgers.map(l => l?.balanceCarriedForward).find(v => typeof v === 'number');
-    logDebug('Octoplus points', `${ledgers.length} ledger(s), newest balanceCarriedForward ${bal ?? 'none'}, sample ${JSON.stringify(ledgers[0] || null)}`);
-    return bal ?? null;
+    const bal = ledgers
+      .map(l => l?.balanceCarriedForward)
+      .filter(v => v != null && v !== '')
+      .map(Number)
+      .find(Number.isFinite);
+    logDebug('Octoplus points', `${ledgers.length} ledger(s), newest balance ${bal ?? 'none'}`);
+    return Number.isFinite(bal) ? bal : null;
   } catch (err) {
     logIssue('Octoplus points', err);
     return null;
@@ -137,32 +128,60 @@ function renderPoints(balance) {
 
 const MAX_SESSIONS = 4;
 
+// The savingSessions feed mixes event types. Octopus's own names, tidied.
+const KIND = {
+  SAVING_SESSION: 'Saving Session',
+  WEEKEND_HAPPY_HOUR: 'Weekend Happy Hour',
+  FREE_ELECTRICITY: 'Free electricity',
+  POWER_UP: 'Free electricity',
+};
+const kindLabel = t => KIND[t]
+  || (t || '').replace(/_/g, ' ').toLowerCase().replace(/^./, c => c.toUpperCase())
+  || 'Event';
+
+// Promos like Weekend Happy Hour arrive as a run of back-to-back hourly
+// events; collapse a contiguous run of the same type into one block.
+function groupSessions(events) {
+  const sorted = [...events].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
+  const groups = [];
+  for (const e of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && last.eventType === e.eventType
+        && new Date(last.endAt).getTime() === new Date(e.startAt).getTime()) {
+      last.endAt = e.endAt;
+      last.ids.push(String(e.id));
+      last.reward = Math.max(last.reward, e.rewardPerKwhInOctoPoints || 0);
+    } else {
+      groups.push({
+        eventType: e.eventType, startAt: e.startAt, endAt: e.endAt,
+        ids: [String(e.id)], reward: e.rewardPerKwhInOctoPoints || 0,
+      });
+    }
+  }
+  return groups;
+}
+
 function renderSessions(data) {
   const el = $('octoplus-sessions');
   if (!data) { el.innerHTML = ''; return; }
   const now = Date.now();
-  // Only sessions still to end, soonest first — then cap, since the raw
-  // list can carry a whole season of events.
-  const future = (data.events || [])
-    .filter(e => new Date(e.endAt).getTime() > now)
-    .sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
-  const upcoming = future.slice(0, MAX_SESSIONS);
-  const more = future.length - upcoming.length;
+  const groups = groupSessions((data.events || []).filter(e => new Date(e.endAt).getTime() > now));
+  const upcoming = groups.slice(0, MAX_SESSIONS);
+  const more = groups.length - upcoming.length;
 
-  let html = '<div class="octoplus-label">Saving Sessions</div>';
+  let html = '<div class="octoplus-label">Upcoming events</div>';
   if (!upcoming.length) {
-    html += `<div class="octoplus-empty">${data.hasJoinedCampaign ? 'Signed up — none scheduled right now.' : 'None scheduled right now.'}</div>`;
+    html += `<div class="octoplus-empty">${data.hasJoinedCampaign ? 'Signed up — nothing scheduled right now.' : 'Nothing scheduled right now.'}</div>`;
   } else {
-    html += upcoming.map(e => {
-      const joined = data.joinedIds.has(String(e.id));
-      const reward = e.rewardPerKwhInOctoPoints ? `${e.rewardPerKwhInOctoPoints} pts/kWh` : '';
-      const kind = /FREE|POWER_UP/i.test(e.eventType || '') ? 'Free electricity' : 'Saving Session';
+    html += upcoming.map(g => {
+      const joined = g.ids.some(id => data.joinedIds.has(id));
+      const reward = g.reward ? `${g.reward} pts/kWh` : '';
       return `<div class="octoplus-session">
-        <div class="octoplus-session-when"><b>${dayLabel(e.startAt)}</b> ${hhmm(e.startAt)}–${hhmm(e.endAt)}</div>
-        <div class="octoplus-session-meta">${kind}${reward ? ` · ${reward}` : ''}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</div>
+        <div class="octoplus-session-when"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)}</div>
+        <div class="octoplus-session-meta">${kindLabel(g.eventType)}${reward ? ` · ${reward}` : ''}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</div>
       </div>`;
     }).join('');
-    if (more > 0) html += `<div class="octoplus-empty">+${more} more scheduled</div>`;
+    if (more > 0) html += `<div class="octoplus-empty">+${more} more</div>`;
   }
   el.innerHTML = html;
 }
