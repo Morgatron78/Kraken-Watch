@@ -10,11 +10,12 @@ one screen, with your own API credentials stored only on your device.
 |---|---|---|
 | Current rate | Now/standard/off-peak rates, next change | **Live** |
 | Live usage | Current draw (W), £/hr estimate, color-coded by level. A "Last 30 min" toggle expands a pink Wh bar chart below the half-row — lazy-loaded only on expand, refreshes every 30s while open, stops the moment it's closed. Uses `smartMeterTelemetry` at `TEN_SECONDS` grouping, bucketed into 1-minute bars client-side (goes through Kraken GraphQL, so it never counts against the REST-call diagnostic) | **Live** — needs an Octopus Home Mini (or similar registered device); shows a plain "not available" message if you don't have one |
-| EV charging | Built on Octopus's SmartFlex API (`devices` → `SmartFlexVehicle` → `chargingSessions`). Live battery gauge with target-SoC/countdown, a striped "restricted zone" beyond the charge limit — driven by today's actual schedule target (`preferences.schedules[today].max`), falling back to the device-level `stateOfChargeLimit.upperSocLimit` only if no schedule entry exists for today; the device-level field alone turned out to be null on this account even mid-schedule, which silently hid the marker entirely until this was found — and estimated range added — the mi/kWh conversion, WLTP range, and usable battery kWh are all Settings-configurable per vehicle (Settings → EV), falling back to a Polestar 2 Standard Range Single Motor spec if unset. Vehicle title shows make on one line, model as a smaller caption underneath, both freely editable in Settings (make ≤15 chars, model ≤60). A weekly schedule strip highlights whichever target is still upcoming. Below that, a compact **live power meter** (segmented bar, scaled against a max-charger-kW fallback constant — no Settings field for this yet) shows current draw only while actively charging; kept fully out of the DOM otherwise rather than a placeholder. A single consolidated warnings area covers suspension, dispatch failures, connection loss, SoC-limit violations, device alerts, and a "Boost session this week" flag. Two subpanels: **Charging Activity** (Windows/Sessions toggle). Session rows show elapsed time, kWh added, a muted estimated cost, and estimated miles added — no SoC %/gain figures (see Approximations for why that was removed). Any session with a genuine problem gets a small warning-icon toggle inline with the SMART/BOOST badge; tap to expand the full message. "Show more" doubles the session window each press (8→16→32→64 days, each tier cached); "Show less" resets to 8. **Charge History**: Week/Month toggle (Day view removed — nearly every real session is an overnight charge straddling two calendar days, which an hour-of-today bucketing handled by silently missing rather than showing usefully), real kWh scale, tap-to-breakdown, Smart/Boost split in the chart legend, estimated cost as a third header stat. **Open risk if the account ever switches to charger-based smart charging** (e.g. an Ohme charger): this whole panel is built against `SmartFlexVehicle` via an inline GraphQL fragment — a different device type would likely show Unavailable until queries are rebuilt against the real shape | **Live**, via Kraken GraphQL |
-| Usage (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown. **Date picker**: a calendar icon next to the toggle opens a compact month grid — picking a day snaps Week/Month/Day to the matching real period, both fuels moving together. **Time-of-day pattern**: a collapsible weekday × hour heat map of average electricity use over the last 28 days (its own one-off fetch on first open), surfacing habitual rhythms the bar charts don't — the busiest half-hour is called out | **Live** |
+| EV charging | Built on Octopus's SmartFlex API (`devices` → `SmartFlexVehicle` → `chargingSessions`). Live battery gauge with target-SoC/countdown, a striped "restricted zone" beyond the charge limit — driven by today's actual schedule target (`preferences.schedules[today].max`), falling back to the device-level `stateOfChargeLimit.upperSocLimit` only if no schedule entry exists for today; the device-level field alone turned out to be null on this account even mid-schedule, which silently hid the marker entirely until this was found — and estimated range added — the mi/kWh conversion, WLTP range, and usable battery kWh are all Settings-configurable per vehicle (Settings → EV), falling back to a Polestar 2 Standard Range Single Motor spec if unset. Vehicle title shows make on one line, model as a smaller caption underneath, both freely editable in Settings (make ≤15 chars, model ≤60). A weekly schedule strip highlights whichever target is still upcoming. Below that, a compact **live power meter** (segmented bar, scaled against a max-charger-kW fallback constant — no Settings field for this yet) shows current draw only while actively charging; kept fully out of the DOM otherwise rather than a placeholder. A single consolidated warnings area covers suspension, dispatch failures, connection loss, SoC-limit violations, device alerts, and a "Boost session this week" flag. Two subpanels: **Charging Activity** (Windows/Sessions toggle). Session rows show elapsed time, kWh added, estimated miles added, a muted estimated cost, and a retrospective per-session **CO₂** figure with a carbon-band leaf glyph — grid intensity over the charge window, matched from history (see Approximations); no SoC %/gain figures (see Approximations for why that was removed). Dispatch windows (the Windows view) carry a small carbon-intensity chip banded the same low/moderate/high way. Any session with a genuine problem gets a small warning-icon toggle inline with the SMART/BOOST badge; tap to expand the full message. "Show more" doubles the session window each press (8→16→32→64 days, each tier cached); "Show less" resets to 8. **Charge History**: Week/Month toggle (Day view removed — nearly every real session is an overnight charge straddling two calendar days, which an hour-of-today bucketing handled by silently missing rather than showing usefully), real kWh scale, tap-to-breakdown, Smart/Boost split in the chart legend, estimated cost and estimated CO₂ as the third and fourth header stats. **Open risk if the account ever switches to charger-based smart charging** (e.g. an Ohme charger): this whole panel is built against `SmartFlexVehicle` via an inline GraphQL fragment — a different device type would likely show Unavailable until queries are rebuilt against the real shape | **Live**, via Kraken GraphQL |
+| Carbon intensity | `carbon.js` — grid CO₂ from the **National Grid ESO** feed (`api.carbonintensity.org.uk` — free, no auth, the app's one non-Octopus external feed). Card between EV charging and Usage: headline gCO₂/kWh with a Low/Moderate/High pill, coloured by band (mint/amber/coral). The outward half of your account's registered property postcode (picked up automatically during sync) pulls the *regional* figure, falling back to Great Britain if it isn't available. A thin **generation-mix bar** (renewables / nuclear / fossil / other, from the slot's `generationmix`) with the top three fuels named, a **48-hour half-hourly forecast** strip with a real gCO₂ scale, and a "Cleanest window HH:MM–HH:MM" insight line. NESO's 5-level index is collapsed to a 3-colour ramp. Forecast slots are cached (20-min TTL) and shared with the EV panel's dispatch-window tags through one in-flight promise, so a parallel load is never two fetches. `carbonState` (current gCO₂/index/region) is also read by the Current rate and Live usage cards for their own CO₂ lines | **Live**, external feed — kept out of the sync-status calc (a NESO outage or a missing postcode isn't an Octopus failure); hides its card on failure |
+| Usage (electricity + gas) | Day (electricity-only, half-hourly)/Week/Month/Year views, tap any bar for that period's full breakdown. **Date picker**: a calendar icon next to the toggle opens a compact month grid — picking a day snaps Week/Month/Day to the matching real period, both fuels moving together. **Time-of-day pattern**: a collapsible weekday × hour heat map of average electricity use over the last 28 days (its own one-off fetch on first open), surfacing habitual rhythms the bar charts don't — the busiest half-hour is called out. Sits between the electricity and gas panels when they stack, full-width below both on a wide screen | **Live** |
 | Billing | Account balance and projected balance, Direct Debit (estimated), Spend this month/Predicted, bill history (last 15 bills, most recent expanded, itemized per-fuel with links to the real bill), a bill-total-over-time chart (last 12 distinct months). **Octopoints — archived, not deleted**: the old `loyaltyPointsBalance` attempt returns Unauthorized; implementation preserved in `octopoints-archive.js` (superseded by the Octoplus card below) | **Live** |
-| Octoplus | `octoplus.js` — standalone card between Billing and Insights: Octopoints balance (`loyaltyPointLedgers.balanceCarriedForward`, main GraphQL host) and upcoming Saving Sessions / Free Electricity events with reward and a "Joined" marker (`savingSessions`, on the **backend** host `api.backend.octopus.energy` via `krakenBackendGQL` — same Kraken JWT). Fires an `octoplusAccountInfo` enrolment probe first; if it errors or the account isn't `ENROLLED` the whole card stays hidden. Points and sessions are separate queries so one failing doesn't sink the other. Wheel of Fortune omitted (main-API field deprecated). Query shapes follow the Home Assistant Octopus Energy integration | **Live**, best-effort side feed (out of the sync-status calc) |
-| Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, annual standing charge total, a standalone **EV Charging** panel (streak + busiest day), and a 12-month balance runway forecast (see below) | **Live**, lazy-loads a month of data on first expand |
+| Octoplus | `octoplus.js` — standalone card between Billing and Insights. Octopoints balance in a top-right pill (`loyaltyPointLedgers.balanceCarriedForward`, main GraphQL host — comes back as a numeric *string*), with a rough £ conversion at Octopus's standard bill rate (8 pts = 1p). Body is two ledger-style lists of one-line rows — date/kind on the left, points figure right-aligned: **Upcoming events** (Saving Sessions / Free Electricity / Weekend Happy Hour, from `savingSessions.events`, with reward per kWh and a "Joined" marker) and a collapsible **Your results** (past `joinedEvents` with `rewardGivenInOctoPoints`, and a running "N taken part in · X pts · ≈ £Y this campaign" footer). Contiguous same-type runs — a Weekend Happy Hour arrives as back-to-back hourly events — are collapsed into one block. `savingSessions` lives on the **backend** host `api.backend.octopus.energy` via `krakenBackendGQL` (same Kraken JWT). Fires an `octoplusAccountInfo` enrolment probe first; if it errors or the account isn't `ENROLLED` the whole card stays hidden. Points and sessions are separate queries so one failing doesn't sink the other. Wheel of Fortune omitted (main-API field deprecated). Query shapes follow the Home Assistant Octopus Energy integration | **Live**, best-effort side feed (out of the sync-status calc) |
+| Insights | Collapsed by default. Per-fuel trend vs. 7-day average, rate/charge splits, weekday/weekend pattern, best/worst day, monthly trajectory, seasonal gas narrative, a **This week's carbon** block (last 7 days' electricity CO₂ from matched grid intensity, plus the week's greenest/dirtiest day), annual standing charge total, a standalone **EV Charging** panel (streak + busiest day, plus a carbon line when the history match produced a figure), and a 12-month balance runway forecast (see below) | **Live**, lazy-loads a month of data on first expand |
 
 **Balance runway forecast**: for each of the next 12 payment cycles, prices
 *last year's same calendar month's real kWh* at *today's* blended rate,
@@ -40,16 +41,31 @@ Each color means one specific thing, consistently, everywhere it appears:
 - **Blue** — gas's identity, the same way pink is electricity's.
 - **Mint** — "this is the cheaper one," never fuel-specific. Off-peak rate,
   CREDIT balance status, cheapest-day extremes, the weekday side of
-  weekday/weekend.
+  weekday/weekend, and the low end of the grid-carbon ramp (see below).
 - **Coral** — genuine financial warnings only: DEBIT balance, a declining
   balance runway, sync errors. Deliberately not reused for "priciest
-  day"/peak rate, to keep it scoped to "something's wrong."
+  day"/peak rate, to keep it scoped to "something's wrong" — with one
+  deliberate exception, the grid-carbon ramp below, where it marks the
+  dirtiest third of intensity, not a fault.
 - **Amber** — "this is the more expensive one," fuel-agnostic, parallel to
   mint. Also independently used for "pending/caution" states elsewhere
-  (planned dispatch slots, medium live-usage draw, stale sync dot) — not
-  the same concept, but they don't currently clash.
+  (planned dispatch slots, medium live-usage draw, stale sync dot) and for
+  the middle of the grid-carbon ramp — not the same concept, but they
+  don't currently clash. In **light mode** the bright hue washes out as
+  text on white, so planned-dispatch elements (the "Planned" text, its
+  clock icon, the window's carbon chip) deepen to a gold `#b3760c`; that
+  override is scoped to just those dispatch-window elements — every other
+  light-mode amber stays bright.
 - **Violet** — general UI chrome only (buttons, focus rings, progress
   bar), no longer used for anything fuel- or rate-specific.
+
+The **grid-carbon ramp** (Carbon intensity card, the EV panel's carbon
+chips and leaf glyphs, Insights' "This week's carbon" and its
+greenest/dirtiest tags) is its own self-contained low→high scale, reusing
+mint → amber → coral. It's the one place coral doesn't mean "something's
+wrong" — here it just reads as "the dirtiest third of grid intensity," and
+in context the three-step scale is clear enough that a fourth set of hues
+wasn't worth introducing.
 
 One recurring bug worth remembering for any "vs average" indicator: the
 color needs to follow whether the direction is *good or bad news*, not the
@@ -209,6 +225,16 @@ reassignment.
   vehicle (falls back to a Polestar 2 Standard Range Single Motor spec:
   69kWh gross/67kWh usable, 322mi WLTP). WLTP is a lab figure, so
   real-world efficiency normally runs lower.
+- **Retrospective per-session / weekly CO₂** is matched from NESO's
+  *regional forecast* series. Regional data has no published "actual", so
+  the forecast value stands in for past half-hours too (`forecast ??
+  actual`). History is fetched in ≤13-day chunks — the API's per-request
+  span limit — back to the oldest visible session or the start of the
+  Insights week; if any half-hour in a session's window is missing, that
+  session's CO₂ shows nothing rather than a partial figure. gCO₂/kWh ×
+  the period's kWh, same "good enough on a fixed tariff" logic as the cost
+  estimate. Slots are half-hour-aligned and cached per outward postcode
+  (cleared if the postcode changes).
 - **Octopoints history labels** are humanized from `reasonCode`
   client-side (e.g. `SAVING_SESSION_REWARD` → "Saving session reward"),
   not a hardcoded mapping — no enum list exists to confirm real values
@@ -303,10 +329,11 @@ every sync logs reading counts, rate ranges, and totals.
 - **A SoC mini fill-bar** for session rows, replacing the (now-removed)
   text SoC — mocked up, declined in favor of the simpler text-only
   treatment the row settled on.
-- **Octopus Saving Sessions** — the relevant GraphQL fields are deprecated
-  on Octopus's side as of early 2026, no confirmed working replacement.
-  (Octopoints is a distinct feature that *was* built and later archived
-  for a different reason — see Billing row above.)
+- **Octopus Saving Sessions on the main GraphQL host** — the `savingSessions`
+  field isn't on `Query` there (it was assumed deprecated for a while). It
+  *does* exist on the **backend** host, and that's what the Octoplus card
+  now uses — see the Octoplus row. What stayed dropped: the Wheel of
+  Fortune nudge (its main-API field really is deprecated).
 - **EV push notifications** — built, later deprecated: GitHub Actions cron
   wasn't firing reliably. Any future "notify me" feature needs a different
   scheduling approach.
