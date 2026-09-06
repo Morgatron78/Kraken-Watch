@@ -33,16 +33,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 // vite.config.js/vitest.config.js are build tooling, never bundled into the
-// app. ev-legacy-archive.js/octopoints-archive.js are dead code kept only
-// as reference material (see their own header comments) — never imported
-// by app.js, never bundled, and not guaranteed to still match index.html's
-// current ids (that's the whole point of them being retired). All four
-// were already outside the original, app.js-only version of this check;
-// excluded explicitly now so growing the scan to every module doesn't
-// silently pull them back in.
+// app. ev-legacy-archive.js is dead code kept only as reference material
+// (see its own header comment) — never imported by app.js, never bundled,
+// and not guaranteed to still match index.html's current ids (that's the
+// whole point of it being retired). All three were already outside the
+// original, app.js-only version of this check; excluded explicitly now so
+// growing the scan to every module doesn't silently pull them back in.
 const NON_APP_JS_FILES = new Set([
   'vite.config.js', 'vitest.config.js',
-  'ev-legacy-archive.js', 'octopoints-archive.js',
+  'ev-legacy-archive.js',
 ]);
 export function findAppModuleFiles(root) {
   return readdirSync(root)

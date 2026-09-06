@@ -988,12 +988,6 @@ button{font-family:inherit;cursor:pointer;}
 .warning-line.amber{color:var(--amber);background:rgba(255,184,77,0.1);border:1px solid rgba(255,184,77,0.3);}
 .battery-gauge-fill{height:100%;background:var(--mint);border-radius:100px;}
 
-/* Octopoints (Billing card) — deliberately minimal: reuses the bill-history
-   row classes (bh-row/bh-top/bh-total/bh-total-row/bh-breakdown-toggle/
-   bh-items/bh-item) so it reads as "just another bill row," not a
-   separate visual language. Only one truly new class needed. */
-.octo-gbp{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--text-dim);font-weight:600;}
-
 .ev-subpanel-head{display:flex;justify-content:space-between;align-items:center;}
 .slot-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;}
 

@@ -523,12 +523,6 @@ export async function loadBilling() {
     $('bill-year-block').style.display = 'none';
   }
 
-  // Octopoints: deactivated — live testing returned Unauthorized
-  // (KT-CT-1111), most likely an account reader-permission gap. The full
-  // implementation is preserved in octopoints-archive.js; reinstate by
-  // moving it back and un-hiding #octo-block once permissions are confirmed.
-  $('octo-block').classList.add('hidden');
-
   return anyLive;
 }
 

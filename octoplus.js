@@ -4,9 +4,9 @@ import { krakenGQL, krakenBackendGQL } from './api.js';
 import { logIssue, logDebug } from './diagnostics.js';
 
 // Octoplus — points balance and upcoming Saving Sessions / Free Electricity
-// events. An earlier Octopoints attempt (octopoints-archive.js) hit a hard
-// "Unauthorized" on loyaltyPointsBalance; this uses the field set the mature
-// Home Assistant integration relies on.
+// events. A direct loyaltyPointsBalance query is Unauthorized on this
+// account, so the balance is read off the ledger instead — the field set
+// the mature Home Assistant integration relies on.
 //
 // Gated on a live octoplusAccountInfo probe: if that errors or the account
 // isn't ENROLLED, the whole card stays hidden. Points comes from the main

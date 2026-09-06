@@ -51,7 +51,7 @@ const correctnessRules = {
 };
 
 export default [
-  { ignores: ['dist/**', 'node_modules/**', 'ev-legacy-archive.js', 'octopoints-archive.js'] },
+  { ignores: ['dist/**', 'node_modules/**', 'ev-legacy-archive.js'] },
 
   // App modules (browser), plus the Vite build-time `define` constants.
   {

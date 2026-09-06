@@ -326,15 +326,6 @@ function init() {
   $('connect-btn').addEventListener('click', openSettings);
   $('settings-cancel').addEventListener('click', closeSettings);
   $('settings-save').addEventListener('click', saveSettings);
-  // Single static row, unlike bill-history's per-row toggles which get
-  // rebuilt (and re-delegated) every sync — this one only ever needs
-  // wiring once, since #octo-history itself is what gets refreshed.
-  $('octo-toggle').addEventListener('click', () => {
-    const open = $('octo-toggle').getAttribute('aria-expanded') === 'true';
-    $('octo-toggle').setAttribute('aria-expanded', String(!open));
-    $('octo-toggle').querySelector('span').textContent = open ? 'Show history' : 'Hide history';
-    $('octo-history').classList.toggle('hidden', open);
-  });
   $('toggle-api-key-visibility').addEventListener('click', () => {
     const field = $('input-api-key');
     const btn = $('toggle-api-key-visibility');
