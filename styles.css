@@ -63,12 +63,14 @@
   --line-strong: #bcbcc4;
   --text: #1e1e21;
   --text-dim: #6a6a70;
-  /* The warm accents are the one exception to "accent hues unchanged": at
-     their dark-theme lightness (#ffb84d / #f0d43a) they all but vanish as
-     text/marks on white. Deepened here to a readable gold; the translucent
-     soft/line helpers still key off the original bright hue. */
-  --amber: #b3760c;
-  --yellow: #b0870a;
+  /* Warm accents keep their bright dark-theme hue almost everywhere — on the
+     tinted/soft chips and warning lines they mostly sit on, they read fine.
+     The one place bright amber genuinely washed out on white was the EV
+     dispatch-window ("Windows") list — plain amber text on a near-white
+     tint — so those specific elements get a deepened gold via the scoped
+     rules further down ("dispatch-window amber"), not a global override. */
+  --amber: #ffb84d;
+  --yellow: #f0d43a;
   --mint-soft: rgba(61,220,151,0.16);
   --mint-line: rgba(61,220,151,0.4);
   --coral-soft: rgba(255,107,91,0.14);
@@ -102,6 +104,19 @@
 :root[data-theme="light"] .jump-pill button,
 :root[data-theme="light"] .picker-nav{
   box-shadow:0 0 0 1px var(--line-strong);
+}
+
+/* Light theme only — dispatch-window amber. --amber stays bright (#ffb84d)
+   globally; only the EV "Windows" list needs deepening, where a planned row
+   is amber text/marks on a near-white faint tint and the bright hue washes
+   out. The translucent .slot.scheduled background/border still come from
+   --amber-soft / --amber-line (keyed off the bright hue) — only the text,
+   the clock icon, and the carbon chip shift to gold. */
+:root[data-theme="light"] .planned-icon,
+:root[data-theme="light"] .slot.scheduled span,
+:root[data-theme="light"] .slot.scheduled b,
+:root[data-theme="light"] #ev-slots-dispatch .win-carbon-moderate{
+  color:#b3760c;
 }
 
 *{box-sizing:border-box;}
@@ -504,8 +519,12 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-panel-foot b{color:var(--text);}
 
 /* Time-of-day pattern — a weekday × hour heat map, collapsible sub-panel of
-   the Usage card, lazy-loaded on first open (see heatmap.js). */
-.heatmap-section{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;}
+   the Usage card, lazy-loaded on first open (see heatmap.js). Lives inside
+   the .fuel-panels grid as a full-width row: on desktop it sits under both
+   fuel panels (elec | gas on row 1); when the grid collapses to one column
+   it reorders to sit *between* electricity and gas (gas gets order:1). */
+.heatmap-section{grid-column:1 / -1;border-top:1px solid var(--line);padding-top:12px;}
+@media(max-width:640px){.fuel-panels .fuel-panel.gas{order:1;}}
 .heatmap-head{
   width:100%;display:flex;align-items:center;justify-content:space-between;
   background:none;border:none;padding:0;font-family:inherit;color:var(--text);
@@ -850,18 +869,23 @@ button{font-family:inherit;cursor:pointer;}
 .carbon-insight b{color:var(--text);font-weight:600;}
 .carbon-insight svg{flex-shrink:0;margin-top:1px;color:var(--mint);}
 
-/* Octoplus card — points headline reuses .big-label/.big-value; the rest is
-   a compact Saving-Sessions list plus a Wheel-of-Fortune nudge. */
+/* Octoplus card — points balance sits in the card-head pill (.card-tag);
+   the body is a compact upcoming-events list plus a collapsible past-results
+   section, both as one-line ledger rows. */
 .octoplus-sessions:not(:empty){margin-top:16px;}
 .octoplus-label{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-dim);margin-bottom:8px;}
 .octoplus-empty{font-family:'Inter', sans-serif;font-size:11px;color:var(--text-dim);margin-top:8px;}
-/* One line per event: date/time bold, the rest dim. */
+/* One line per event, read as a ledger: date/time/kind on the left (bold
+   date, rest dim), the points figure in a right-aligned column. */
 .octoplus-session{
+  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
   padding:7px 0;border-top:1px solid var(--line);
   font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--text-dim);
 }
 .octoplus-session:first-of-type{border-top:none;padding-top:0;}
 .octoplus-session b{color:var(--text);font-weight:600;}
+.octoplus-session-main{min-width:0;}
+.octoplus-session-pts{flex-shrink:0;white-space:nowrap;text-align:right;}
 .octoplus-joined{color:var(--mint);font-weight:600;}
 .octoplus-earned{color:var(--mint);font-weight:600;}
 /* Collapsible past-results section. */

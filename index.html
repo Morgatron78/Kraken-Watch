@@ -376,18 +376,21 @@
             <span>Standing charge: <b id="gas-standing">—</b></span>
           </div>
         </div>
-      </div>
 
-      <div class="heatmap-section">
-        <button type="button" class="heatmap-head" id="heatmap-toggle" aria-expanded="false">
-          <span class="heatmap-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink);vertical-align:-6px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Time-of-day pattern</span>
-          <span class="heatmap-chevron" id="heatmap-chevron">▸</span>
-        </button>
-        <div class="heatmap-body hidden" id="heatmap-body">
-          <div class="heatmap-note" id="heatmap-note">Average electricity use by hour and weekday, last 28 days.</div>
-          <div class="heatmap-grid" id="heatmap-grid"></div>
-          <div class="heatmap-legend"><span>less</span><i class="heatmap-legend-ramp"></i><span>more</span></div>
-          <div class="heatmap-insight" id="heatmap-insight"></div>
+        <!-- Time-of-day heat map — full-width row under both fuel panels on
+             desktop; reorders to sit between them when they stack (see the
+             .fuel-panel.gas order rule in styles.css). -->
+        <div class="heatmap-section">
+          <button type="button" class="heatmap-head" id="heatmap-toggle" aria-expanded="false">
+            <span class="heatmap-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink);vertical-align:-6px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Time-of-day pattern</span>
+            <span class="heatmap-chevron" id="heatmap-chevron">▸</span>
+          </button>
+          <div class="heatmap-body hidden" id="heatmap-body">
+            <div class="heatmap-note" id="heatmap-note">Average electricity use by hour and weekday, last 28 days.</div>
+            <div class="heatmap-grid" id="heatmap-grid"></div>
+            <div class="heatmap-legend"><span>less</span><i class="heatmap-legend-ramp"></i><span>more</span></div>
+            <div class="heatmap-insight" id="heatmap-insight"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -479,7 +482,7 @@
     <!-- OCTOPLUS (hidden unless the account is enrolled and the queries resolve) -->
     <div class="card hidden" id="octoplus-card">
       <div class="card-head">
-        <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--mint)"><path d="M6 13V9a6 6 0 0 1 12 0v4"/><path d="M6 13c0 2-1.4 3-3 3M9.5 13.5c0 3.2-1 5.3-3 6.5M14.5 13.5c0 3.2 1 5.3 3 6.5M18 13c0 2 1.4 3 3 3M12 13.5v6"/><circle cx="9.5" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="9" r="1" fill="currentColor" stroke="none"/></svg> Octoplus</div>
+        <div class="card-title"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 13V9a6 6 0 0 1 12 0v4"/><path d="M6 13c0 2-1.4 3-3 3M9.5 13.5c0 3.2-1 5.3-3 6.5M14.5 13.5c0 3.2 1 5.3 3 6.5M18 13c0 2 1.4 3 3 3M12 13.5v6"/><circle cx="9.5" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="9" r="1" fill="currentColor" stroke="none"/></svg> Octoplus</div>
         <div class="card-tag tag-mint" id="octoplus-points">— pts</div>
       </div>
       <div class="octoplus-sessions" id="octoplus-sessions"></div>

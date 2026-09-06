@@ -1,4 +1,4 @@
-import { $ } from './format.js';
+import { $, fmtGBP } from './format.js';
 import { store } from './store.js';
 import { krakenGQL, krakenBackendGQL } from './api.js';
 import { logIssue, logDebug } from './diagnostics.js';
@@ -124,10 +124,18 @@ async function fetchSavingSessions(acct) {
   }
 }
 
+// Octopoints convert at Octopus's standard bill rate: 8 points = 1p. Shown
+// as whole pence under £1, pounds above — a rough "what's it worth" cue, not
+// an exact redemption value (gift-card rates differ).
+const pointsToMoney = pts => {
+  const pence = pts / 8;
+  return pence < 100 ? `${Math.round(pence)}p` : fmtGBP(pence / 100);
+};
+
 function renderPoints(balance) {
   $('octoplus-points').textContent = balance == null
     ? '— pts'
-    : `${balance.toLocaleString('en-GB')} pts`;
+    : `${balance.toLocaleString('en-GB')} pts · ${pointsToMoney(balance)}`;
 }
 
 const MAX_SESSIONS = 4;
@@ -184,8 +192,8 @@ function renderSessions(data) {
   } else {
     html += upcoming.map(g => {
       const joined = g.ids.some(id => data.joinedIds.has(id));
-      const reward = g.reward ? ` · ${g.reward} pts/kWh` : '';
-      return `<div class="octoplus-session"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)} · ${kindLabel(g.eventType)}${reward}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</div>`;
+      const reward = g.reward ? `${g.reward} pts/kWh` : '';
+      return `<div class="octoplus-session"><span class="octoplus-session-main"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)} · ${kindLabel(g.eventType)}${joined ? ' · <span class="octoplus-joined">Joined</span>' : ''}</span><span class="octoplus-session-pts">${reward}</span></div>`;
     }).join('');
     if (more > 0) html += `<div class="octoplus-empty">+${more} more</div>`;
   }
@@ -214,9 +222,9 @@ function renderResults(data) {
     : `· ${done.length}`;
 
   $('octoplus-results').innerHTML = done.slice(0, 10).map(g =>
-    `<div class="octoplus-session"><b>${dayLabel(g.startAt)}</b> · ${kindLabel(g.eventType)}${g.reward ? ` · <span class="octoplus-earned">+${Math.round(g.reward).toLocaleString('en-GB')} pts</span>` : ''}</div>`
+    `<div class="octoplus-session"><span class="octoplus-session-main"><b>${dayLabel(g.startAt)}</b> ${hhmm(g.startAt)}–${hhmm(g.endAt)} · ${kindLabel(g.eventType)}</span><span class="octoplus-session-pts octoplus-earned">${g.reward ? `+${Math.round(g.reward).toLocaleString('en-GB')} pts` : ''}</span></div>`
   ).join('')
-    + (total > 0 ? `<div class="octoplus-empty">${done.length} taken part in · ${total.toLocaleString('en-GB')} pts earned this campaign</div>` : '');
+    + (total > 0 ? `<div class="octoplus-empty">${done.length} taken part in · ${total.toLocaleString('en-GB')} pts earned this campaign · ≈ ${pointsToMoney(total)}</div>` : '');
 }
 
 export function handleOctoplusResultsToggle() {
