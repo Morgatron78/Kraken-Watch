@@ -209,6 +209,8 @@ function renderCarbonCard(slots, current, region) {
 
   // Cleanest and dirtiest 2-hour stretches ahead (4 consecutive half-hour
   // slots), searched across the whole forecast rather than just the strip.
+  // Rendered as a min/max pair — the same two-box layout as Insights'
+  // "Greenest day / Dirtiest day".
   let best = null, worst = null;
   for (let i = 0; i + 4 <= lookahead.length; i++) {
     const win = lookahead.slice(i, i + 4);
@@ -216,24 +218,31 @@ function renderCarbonCard(slots, current, region) {
     if (!best || avg < best.avg) best = { avg, start: win[0].from, end: win[3].to };
     if (!worst || avg > worst.avg) worst = { avg, start: win[0].from, end: win[3].to };
   }
-  if (best) {
-    const s = new Date(best.start);
+  if (best && worst) {
+    $('carbon-windows').classList.remove('hidden');
+    $('carbon-cleanest-value').textContent = `${Math.round(best.avg)} g/kWh`;
+    $('carbon-cleanest-when').textContent = windowLabel(best);
+    $('carbon-dirtiest-value').textContent = `${Math.round(worst.avg)} g/kWh`;
+    $('carbon-dirtiest-when').textContent = windowLabel(worst);
     // IOG's standard off-peak window is 23:30–05:30; flag the overlap when
-    // the greenest stretch falls inside it — the "cheap and clean align" line.
-    const startHour = s.getHours() + s.getMinutes() / 60;
-    const inOffPeak = startHour >= 23.5 || startHour < 5.5;
-    $('carbon-insight').innerHTML = `${leafSvg}Cleanest ${dayWord(dayDelta(best.start))}<b>${hhmm(best.start)}–${hhmm(best.end)}</b> &middot; avg ${Math.round(best.avg)} g`
-      + (inOffPeak ? ' &middot; overlaps your Intelligent Go off-peak' : '');
+    // the greenest stretch falls inside it — the "cheap and clean align" note.
+    const bh = new Date(best.start).getHours() + new Date(best.start).getMinutes() / 60;
+    const inOffPeak = bh >= 23.5 || bh < 5.5;
+    const offpeak = $('carbon-offpeak');
+    offpeak.innerHTML = inOffPeak ? `${leafSvg}Cleanest window overlaps your Intelligent Go off-peak` : '';
+    offpeak.classList.toggle('hidden', !inOffPeak);
   } else {
-    $('carbon-insight').textContent = '';
+    $('carbon-windows').classList.add('hidden');
+    $('carbon-offpeak').classList.add('hidden');
   }
-  // Only flag the dirtiest stretch when it's materially worse than the
-  // cleanest — on a flat day an "avoid" line is just noise.
-  if (best && worst && worst.avg - best.avg > 30) {
-    $('carbon-dirtiest').innerHTML = `${boltSvg}Dirtiest ${dayWord(dayDelta(worst.start))}<b>${hhmm(worst.start)}–${hhmm(worst.end)}</b> &middot; avg ${Math.round(worst.avg)} g`;
-  } else {
-    $('carbon-dirtiest').textContent = '';
-  }
+}
+
+// Time-range label for a cleanest/dirtiest window — "11:30–13:30" today,
+// "Tomorrow 11:30–13:30" (or "In 2d …") when it's not today.
+function windowLabel(w) {
+  const d = dayDelta(w.start);
+  const day = d === 1 ? 'Tomorrow ' : d >= 2 ? `In ${d}d ` : '';
+  return `${day}${hhmm(w.start)}–${hhmm(w.end)}`;
 }
 
 // The "what's coming" cluster in the card's top-right: which way the grid
@@ -286,9 +295,6 @@ function dayDelta(d) {
   const b = new Date(); b.setHours(0, 0, 0, 0);
   return Math.round((a - b) / 86400000);
 }
-// Prefix for the cleanest/dirtiest line: keeps the original "… window …"
-// wording for today, names the day otherwise.
-const dayWord = n => (n <= 0 ? 'window ' : n === 1 ? 'tomorrow ' : `in ${n}d `);
 
 // What's actually generating the electricity right now — from the slot's
 // generationmix (already in the NESO response). A thin stacked bar
@@ -317,7 +323,6 @@ function renderGenMix(mix) {
 }
 
 const leafSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>';
-const boltSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
 
 /* ---------------------- Historical intensity (retrospective) ----------------------
    The card above is forward-looking ("when is the grid clean?"). This block

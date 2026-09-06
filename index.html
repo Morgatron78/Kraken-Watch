@@ -236,8 +236,11 @@
         <div class="carbon-bars" id="carbon-bars"></div>
       </div>
       <div class="carbon-axis" id="carbon-axis"></div>
-      <div class="carbon-insight" id="carbon-insight"></div>
-      <div class="carbon-insight carbon-insight-dirty" id="carbon-dirtiest"></div>
+      <div class="minmax-row carbon-windows" id="carbon-windows">
+        <div class="minmax-col"><div class="minmax-tag low">Cleanest</div><div class="minmax-value" id="carbon-cleanest-value">—</div><div class="minmax-date" id="carbon-cleanest-when">—</div></div>
+        <div class="minmax-col"><div class="minmax-tag high">Dirtiest</div><div class="minmax-value" id="carbon-dirtiest-value">—</div><div class="minmax-date" id="carbon-dirtiest-when">—</div></div>
+      </div>
+      <div class="carbon-offpeak hidden" id="carbon-offpeak"></div>
     </div>
 
     <!-- CONSUMPTION -->
