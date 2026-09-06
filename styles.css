@@ -504,7 +504,7 @@ button{font-family:inherit;cursor:pointer;}
   width:100%;display:flex;align-items:center;justify-content:space-between;
   background:none;border:none;padding:0;font-family:inherit;color:var(--text);
 }
-.heatmap-title{font-size:13px;font-weight:600;display:flex;align-items:center;}
+.heatmap-title{font-size:16px;font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;}
 .heatmap-chevron{font-size:11px;color:var(--text-dim);}
 .heatmap-body{margin-top:12px;}
 .heatmap-note{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-bottom:10px;}
@@ -851,9 +851,6 @@ button{font-family:inherit;cursor:pointer;}
 .octoplus-session-when b{color:var(--text);font-weight:600;}
 .octoplus-session-meta{font-family:'Inter', sans-serif;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
 .octoplus-joined{color:var(--mint);font-weight:600;}
-.octoplus-spins:not(:empty){margin-top:14px;padding-top:12px;border-top:1px solid var(--line);}
-.octoplus-spins-line{display:flex;align-items:center;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim);}
-.octoplus-spins-line b{color:var(--text);font-weight:600;margin:0 3px;}
 
 /* Live usage — last 30 minutes */
 /* v2.165: was a flat margin-top:10px, disconnected from the line-height-
@@ -926,7 +923,7 @@ button{font-family:inherit;cursor:pointer;}
    Current rate / Live usage (.big-value). The gauge and the target/countdown
    line share a right-hand column so the target text starts at the bar's
    left edge, not the card edge. */
-.battery-pct{flex-shrink:0;}
+.battery-pct{flex-shrink:0;color:var(--pink);}
 .battery-right{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
 .battery-row-meta{display:flex;justify-content:space-between;align-items:baseline;}
 .battery-gauge{height:8px;background:var(--tint-track);border:1px solid var(--line);border-radius:100px;overflow:hidden;position:relative;}

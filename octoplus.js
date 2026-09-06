@@ -1,19 +1,19 @@
 import { $ } from './format.js';
 import { store } from './store.js';
-import { krakenGQL } from './api.js';
+import { krakenGQL, krakenBackendGQL } from './api.js';
 import { logIssue, logDebug } from './diagnostics.js';
 
-// Octoplus — points balance, Saving Sessions, and any unused Wheel of
-// Fortune spins. An earlier Octopoints attempt (octopoints-archive.js) hit
-// a hard "Unauthorized" on loyaltyPointsBalance; this uses the newer field
-// set the mature Home Assistant integration relies on
-// (octoplusAccountInfo / savingSessions / wheelOfFortuneSpinsAllowed), and
-// fires each part as its own query so one 401 doesn't sink the rest.
+// Octoplus — points balance and upcoming Saving Sessions / Free Electricity
+// events. An earlier Octopoints attempt (octopoints-archive.js) hit a hard
+// "Unauthorized" on loyaltyPointsBalance; this uses the field set the mature
+// Home Assistant integration relies on.
 //
 // Gated on a live octoplusAccountInfo probe: if that errors or the account
-// isn't ENROLLED, the whole card stays hidden — no point spending calls on
-// a feature the account can't use. Best-effort side feed, kept out of the
-// sync-status calc in main.js (like carbon).
+// isn't ENROLLED, the whole card stays hidden. Points comes from the main
+// GraphQL host; Saving Sessions only exist on the backend host
+// (krakenBackendGQL) — each is its own query so one failure doesn't sink
+// the other. Best-effort side feed, kept out of the sync-status calc in
+// main.js (like carbon).
 
 const hhmm = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const dayLabel = iso => {
@@ -29,8 +29,8 @@ export async function loadOctoplus() {
   const acct = store.creds?.accountNumber;
   if (!acct) { $('octoplus-card').classList.add('hidden'); return false; }
 
-  // Probe first — cheapest possible check that the account is on Octoplus
-  // and the field set is reachable on this token.
+  // Cheapest possible check that the account is on Octoplus and the field
+  // set is reachable on this token.
   let enrolled = false;
   try {
     const j = await krakenGQL(
@@ -47,14 +47,13 @@ export async function loadOctoplus() {
   }
   if (!enrolled) { $('octoplus-card').classList.add('hidden'); return false; }
 
-  const [points, sessions, spins] = await Promise.allSettled([
-    fetchPoints(), fetchSavingSessions(acct), fetchSpins(acct),
+  const [points, sessions] = await Promise.allSettled([
+    fetchPoints(), fetchSavingSessions(acct),
   ]);
 
   $('octoplus-card').classList.remove('hidden');
   renderPoints(points.status === 'fulfilled' ? points.value : null);
   renderSessions(sessions.status === 'fulfilled' ? sessions.value : null);
-  renderSpins(spins.status === 'fulfilled' ? spins.value : null);
   return true;
 }
 
@@ -72,53 +71,34 @@ async function fetchPoints() {
 
 async function fetchSavingSessions(acct) {
   try {
-    const j = await krakenGQL(
+    const j = await krakenBackendGQL(
       `query OctoplusSavingSessions($accountNumber: String!) {
         savingSessions {
           events(includeDev: false) { id code rewardPerKwhInOctoPoints startAt endAt eventType }
           account(accountNumber: $accountNumber) {
             hasJoinedCampaign
-            joinedEvents { eventId startAt endAt rewardGivenInOctoPoints eventType }
+            joinedEvents { eventId }
           }
         }
       }`, { accountNumber: acct });
     const ss = j?.savingSessions;
-    return ss ? {
+    if (!ss) return null;
+    logDebug('Octoplus saving sessions', `${(ss.events || []).length} event(s), joined campaign: ${!!ss.account?.hasJoinedCampaign}`);
+    return {
       events: ss.events || [],
       hasJoinedCampaign: !!ss.account?.hasJoinedCampaign,
       joinedIds: new Set((ss.account?.joinedEvents || []).map(e => String(e.eventId))),
-    } : null;
+    };
   } catch (err) {
     logIssue('Octoplus saving sessions', err);
     return null;
   }
 }
 
-async function fetchSpins(acct) {
-  try {
-    const j = await krakenGQL(
-      `query OctoplusSpins($accountNumber: String!) {
-        electricity: wheelOfFortuneSpinsAllowed(fuelType: ELECTRICITY, accountNumber: $accountNumber) { spinsAllowed }
-        gas: wheelOfFortuneSpinsAllowed(fuelType: GAS, accountNumber: $accountNumber) { spinsAllowed }
-      }`, { accountNumber: acct });
-    const e = Number(j?.electricity?.spinsAllowed) || 0;
-    const g = Number(j?.gas?.spinsAllowed) || 0;
-    return e + g;
-  } catch (err) {
-    logIssue('Octoplus spins', err);
-    return null;
-  }
-}
-
 function renderPoints(balance) {
-  if (balance == null) {
-    $('octoplus-points').innerHTML = '—<span>pts</span>';
-    $('octoplus-points-tag').textContent = '—';
-    return;
-  }
-  const fmt = balance.toLocaleString('en-GB');
-  $('octoplus-points').innerHTML = `${fmt}<span>pts</span>`;
-  $('octoplus-points-tag').textContent = `${fmt} pts`;
+  $('octoplus-points').innerHTML = balance == null
+    ? '—<span>pts</span>'
+    : `${balance.toLocaleString('en-GB')}<span>pts</span>`;
 }
 
 function renderSessions(data) {
@@ -131,7 +111,7 @@ function renderSessions(data) {
 
   let html = '<div class="octoplus-label">Saving Sessions</div>';
   if (!upcoming.length) {
-    html += `<div class="octoplus-empty">${data.hasJoinedCampaign ? 'Signed up — no sessions scheduled right now.' : 'None scheduled right now.'}</div>`;
+    html += `<div class="octoplus-empty">${data.hasJoinedCampaign ? 'Signed up — none scheduled right now.' : 'None scheduled right now.'}</div>`;
   } else {
     html += upcoming.map(e => {
       const joined = data.joinedIds.has(String(e.id));
@@ -145,11 +125,3 @@ function renderSessions(data) {
   }
   el.innerHTML = html;
 }
-
-function renderSpins(count) {
-  const el = $('octoplus-spins');
-  if (!count) { el.innerHTML = ''; return; }
-  el.innerHTML = `<div class="octoplus-spins-line">${wheelSvg}You have <b>${count}</b> unused Wheel of Fortune spin${count === 1 ? '' : 's'}</div>`;
-}
-
-const wheelSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;color:var(--amber);"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/><line x1="19.1" y1="4.9" x2="4.9" y2="19.1"/></svg>';

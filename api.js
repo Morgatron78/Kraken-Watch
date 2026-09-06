@@ -3,6 +3,9 @@ import { logRawIssue } from './diagnostics.js';
 
 const REST_BASE = 'https://api.octopus.energy/v1';
 const GQL_BASE = 'https://api.octopus.energy/v1/graphql/';
+// A few newer surfaces (Octoplus Saving Sessions) live only on Octopus's
+// "backend" GraphQL host — same Kraken JWT, different endpoint.
+const GQL_BACKEND_BASE = 'https://api.backend.octopus.energy/v1/graphql/';
 
 // Without a timeout, a hung request in a mobile dead zone leaves the app on
 // "Syncing…" indefinitely — nothing ever settles the promise. One shared
@@ -100,12 +103,12 @@ export async function getKrakenToken() {
   return token;
 }
 
-export async function krakenGQL(query, variables, _isRetry) {
+async function gqlRequest(base, query, variables, _isRetry) {
   const token = await getKrakenToken();
   const opName = extractGqlOperationName(query);
   let res;
   try {
-    res = await fetch(GQL_BASE, {
+    res = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: token },
       body: JSON.stringify({ query, variables }),
@@ -133,11 +136,22 @@ export async function krakenGQL(query, variables, _isRetry) {
     // credential still fails cleanly rather than looping.
     if (code === 'KT-CT-1124' && !_isRetry) {
       krakenToken = null;
-      return krakenGQL(query, variables, true);
+      return gqlRequest(base, query, variables, true);
     }
     throw new Error(code ? `${message} (${code})` : message);
   }
   return json.data;
+}
+
+export function krakenGQL(query, variables, _isRetry) {
+  return gqlRequest(GQL_BASE, query, variables, _isRetry);
+}
+
+// Same contract as krakenGQL, against the backend GraphQL host (see
+// GQL_BACKEND_BASE). CORS from a browser origin is unverified for this host;
+// callers must treat a plain fetch failure here as "feature unavailable".
+export function krakenBackendGQL(query, variables, _isRetry) {
+  return gqlRequest(GQL_BACKEND_BASE, query, variables, _isRetry);
 }
 
 // Kraken's GraphQL equivalent of the REST-call diagnostic, deliberately

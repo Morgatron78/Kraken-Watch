@@ -146,19 +146,21 @@ outlined and called out in a one-line insight.
 Octopoints balance, upcoming Saving Sessions / Free Electricity events with
 their reward and a "Joined" marker, and any unused Wheel of Fortune spins.
 
-- **Data:** `octoplusAccountInfo` (enrolment probe), `loyaltyPointLedgers`
-  (`balanceCarriedForward`), `savingSessions`, `wheelOfFortuneSpinsAllowed`
-  — query shapes taken from the mature Home Assistant Octopus Energy
-  integration. Read-only.
+- **Data:** `octoplusAccountInfo` (enrolment probe) + `loyaltyPointLedgers`
+  (`balanceCarriedForward`) on the main GraphQL host; `savingSessions` on
+  the **backend** host (`api.backend.octopus.energy` — new
+  `krakenBackendGQL`, same JWT). Wheel of Fortune was dropped: the main-API
+  field is deprecated/removed and its backend replacement's shape is
+  unknown.
 - **Gating:** fires a single `octoplusAccountInfo` probe first; if that
-  errors or the account isn't `ENROLLED`, the whole card stays hidden. Each
-  remaining part is its own query so one 401 doesn't sink the others.
-  Best-effort side feed, out of the sync-status calc (like carbon).
-- **Open:** the render path and all failure/hide paths are verified against
-  stubbed responses, but this account may still return Unauthorized on some
-  or all of these fields like the old `loyaltyPointsBalance` attempt did —
-  needs one real sync to confirm. The diagnostics panel logs the
-  `enrollmentStatus` and any per-query failure.
+  errors or the account isn't `ENROLLED`, the whole card stays hidden.
+  Points and Saving Sessions are separate queries so one failing doesn't
+  sink the other. Best-effort side feed, out of the sync-status calc.
+- **Live status (from a real sync):** `enrollmentStatus = ENROLLED` and the
+  points balance resolve. Saving Sessions now target the backend host —
+  **unverified whether that host allows browser-origin CORS**; if it
+  doesn't, the fetch fails and only the points half shows. The diagnostics
+  panel logs the outcome.
 
 ### D. EV control — **needs a decision, not just a task**
 - **What:** bump/boost charge now; set charge target %; set ready-by time;

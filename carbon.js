@@ -133,10 +133,14 @@ function renderCarbonCard(slots, current, region) {
   $('carbon-card').classList.remove('hidden');
   $('rate-carbon').textContent = gridCarbonText();
   const idx = current.intensity.index;
+  const band = bandOf(idx);
   $('carbon-value').innerHTML = `${carbonState.currentGco2}<span>g CO₂/kWh</span>`;
+  // Tint the headline figure by band, the way Current rate / Live usage
+  // colour theirs by state — green when the grid's clean, coral when it's not.
+  $('carbon-value').style.color = band === 'low' ? 'var(--mint)' : band === 'high' ? 'var(--coral)' : 'var(--amber)';
   const pill = $('carbon-tag');
   pill.textContent = LABEL[idx] || '—';
-  pill.className = 'card-tag carbon-tag-' + bandOf(idx);
+  pill.className = 'card-tag carbon-tag-' + band;
   $('carbon-region').textContent = region;
 
   // Forecast strip — the next few hours at the API's native half-hour
