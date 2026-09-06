@@ -379,6 +379,19 @@ function showLessEVSessions(lessBtn, now) {
 }
 
 async function loadEVSmartFlex() {
+  const data = await fetchEVSmartFlexData();
+  if (!data) return false; // no EV device on this path, or wrong shape
+  return renderEVSmartFlex(data);
+}
+
+// Fetch + shape only: the one GraphQL query, then the pieces the renderer
+// needs — the vehicle, its sessions, planned dispatches, and the completed
+// dispatch windows filtered/sorted into the same rolling 8-day window as
+// the sessions. Also warms both grid-intensity feeds (history back to the
+// oldest session for the per-session CO₂ lines / weekly carbon insight, the
+// 48h forecast for the dispatch-window tags) so the renderer can read them
+// synchronously. Returns null when there's no SmartFlex vehicle to show.
+async function fetchEVSmartFlexData() {
   const data = await krakenGQL(`
     query EVSmartFlexData($accountNumber: String!, $after: DateTime!) {
       devices(accountNumber: $accountNumber) {
@@ -409,39 +422,43 @@ async function loadEVSmartFlex() {
       plannedDispatches(accountNumber: $accountNumber) { start end delta }
       completedDispatches(accountNumber: $accountNumber) { start end delta }
     }`, {
-      accountNumber: store.creds.accountNumber,
-      after: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
-    });
+    accountNumber: store.creds.accountNumber,
+    after: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
+  });
 
   const vehicle = (data.devices || []).find(d => d && d.chargingSessions);
-  if (!vehicle) return false; // no EV device on this path, or wrong shape
+  if (!vehicle) return null;
 
   const sessions = (vehicle.chargingSessions?.edges || []).map(e => e.node).filter(Boolean);
-  evState.loadedSessions = sessions;
   const planned = data.plannedDispatches || [];
   const now = new Date();
 
-  // Warm both grid-intensity feeds before rendering: history (back to the
-  // oldest session on screen) for the per-session CO₂ lines, the weekly
-  // carbon insight and completed-window tags; the 48h forecast for the
-  // planned/active dispatch-window tags. Both best-effort — a failure just
-  // omits those figures.
   const oldestSessionMs = sessions.reduce(
     (min, s) => Math.min(min, new Date(s.start).getTime()),
     now.getTime() - 8 * 24 * 60 * 60 * 1000
   );
   await Promise.allSettled([ensureHistIntensity(oldestSessionMs), ensureCarbonForecast()]);
-  const isActiveWindow = (d, n) => n >= new Date(d.start) && n < new Date(d.end);
-  const activeDispatch = planned.find(d => isActiveWindow(d, now));
+
   // completedDispatches comes back in reverse time order; sorted ascending
-  // to match the Planned rows below (oldest-first), so the combined Windows
-  // list reads one direction top to bottom. `delta` is negative for import
-  // (Math.abs where used). No date-range arg, so filtered client-side to the
-  // same rolling window as sessions.
+  // to match the Planned rows (oldest-first), so the combined Windows list
+  // reads one direction top to bottom. `delta` is negative for import
+  // (Math.abs where used). No date-range arg, so filtered client-side to
+  // the same rolling window as sessions.
   const windowStart = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
   const completedDispatchWindows = (data.completedDispatches || [])
     .filter(d => new Date(d.start) >= windowStart)
     .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  return { vehicle, sessions, planned, completedDispatchWindows, now };
+}
+
+// Everything DOM. Takes the bag from fetchEVSmartFlexData; still async only
+// because it hands off to setEVHistoryPeriod (its own fetch+render unit)
+// for the Charge History chart.
+async function renderEVSmartFlex({ vehicle, sessions, planned, completedDispatchWindows, now }) {
+  evState.loadedSessions = sessions;
+  const isActiveWindow = (d, n) => n >= new Date(d.start) && n < new Date(d.end);
+  const activeDispatch = planned.find(d => isActiveWindow(d, now));
 
   $('ev-tag').textContent = activeDispatch ? 'CHARGING' : (planned.length ? 'SCHEDULED' : 'IDLE');
   $('ev-tag').className = activeDispatch ? 'card-tag tag-pink' : (planned.length ? 'card-tag tag-amber' : 'card-tag tag-dim');
