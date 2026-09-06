@@ -377,6 +377,19 @@
           </div>
         </div>
       </div>
+
+      <div class="heatmap-section">
+        <button type="button" class="heatmap-head" id="heatmap-toggle" aria-expanded="false">
+          <span class="heatmap-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--pink);vertical-align:-3px;margin-right:4px;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>Time-of-day pattern</span>
+          <span class="heatmap-chevron" id="heatmap-chevron">▸</span>
+        </button>
+        <div class="heatmap-body hidden" id="heatmap-body">
+          <div class="heatmap-note" id="heatmap-note">Average electricity use by hour and weekday, last 28 days.</div>
+          <div class="heatmap-grid" id="heatmap-grid"></div>
+          <div class="heatmap-legend"><span>less</span><i class="heatmap-legend-ramp"></i><span>more</span></div>
+          <div class="heatmap-insight" id="heatmap-insight"></div>
+        </div>
+      </div>
     </div>
 
     <!-- BILLING -->

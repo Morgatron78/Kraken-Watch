@@ -497,6 +497,32 @@ button{font-family:inherit;cursor:pointer;}
 .fuel-panel-foot{display:flex;justify-content:space-between;margin-top:12px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);flex-wrap:wrap;gap:4px;}
 .fuel-panel-foot b{color:var(--text);}
 
+/* Time-of-day pattern — a weekday × hour heat map, collapsible sub-panel of
+   the Usage card, lazy-loaded on first open (see heatmap.js). */
+.heatmap-section{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;}
+.heatmap-head{
+  width:100%;display:flex;align-items:center;justify-content:space-between;
+  background:none;border:none;padding:0;font-family:inherit;color:var(--text);
+}
+.heatmap-title{font-size:13px;font-weight:600;display:flex;align-items:center;}
+.heatmap-chevron{font-size:11px;color:var(--text-dim);}
+.heatmap-body{margin-top:12px;}
+.heatmap-note{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--text-dim);margin-bottom:10px;}
+.heatmap-grid{
+  display:grid;grid-template-columns:20px repeat(7, 1fr);
+  gap:1.5px;font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;
+}
+.hm-day{font-size:9px;color:var(--text-dim);text-align:center;padding-bottom:2px;}
+.hm-hour{font-size:7.5px;color:var(--text-dim);text-align:right;padding-right:4px;line-height:8.5px;}
+.hm-cell{height:8.5px;border-radius:1.5px;}
+.hm-cell-empty{background:var(--tint);}
+.hm-cell-peak{outline:1.5px solid var(--text);outline-offset:-1px;}
+.heatmap-legend{display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-top:8px;font-family:'Inter', sans-serif;font-size:9px;color:var(--text-dim);}
+.heatmap-legend-ramp{width:60px;height:8px;border-radius:2px;background:linear-gradient(90deg,rgba(255,79,163,0.06),rgba(255,79,163,1));}
+.heatmap-insight{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim);margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
+.heatmap-insight:empty{display:none;}
+.heatmap-insight b{color:var(--text);font-weight:600;}
+
 /* Mini half-hourly chart inside the Week/Month breakdown box — electricity
    only, since gas readings settle once per day with no intra-day shape to
    show. Reuses .chart-scale/.seg-offpeak/.seg-peak so it matches the main

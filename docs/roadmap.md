@@ -133,16 +133,13 @@ NESO API has historical + regional data). Build that matcher once in
 and reuse it across all three. The Live usage and Current rate touches
 need only the live value and can ship with the card itself.
 
-### B. Usage heat map
-- **What:** an hour-of-day × day grid (GitHub-contributions style), colour
-  = kWh. Surfaces *habitual* patterns ("6pm spike every weekday") that the
-  existing Day/Week/Month bars don't make obvious.
-- **Data:** none new — the half-hourly `consumption` data is already
-  fetched for the Usage card.
-- **Fit:** strong — genuinely visual, no number-only block.
-- **Effort:** ~half a day, pure client-side render, likely a sub-panel of
-  the existing Usage card rather than a new card.
-- **Risk:** low.
+### B. Usage heat map — **SHIPPED**
+An hour-of-day × weekday grid (`heatmap.js`), cell colour = mean kWh per
+half-hour over the last 28 days, as a collapsible "Time-of-day pattern"
+sub-panel of the Usage card. Lazy-loaded on first open with its own single
+REST call (28 days of half-hourly readings); electricity only. Gamma-curved
+alpha ramp so the genuine peaks carry the colour, the busiest half-hour
+outlined and called out in a one-line insight.
 
 ### C. Octoplus surface (Free Electricity / Saving Sessions + points)
 - **What:** upcoming free-electricity / saving-session events with
