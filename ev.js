@@ -201,7 +201,7 @@ function renderEVSessionSlots(sessions, now) {
     // marked "(Est.)". Coloured by session type (mint Smart / pink Boost),
     // matching the SMART/BOOST badge and mint's app-wide "cheaper" role.
     const milesText = kwh != null
-      ? `<span class="slot-miles-line"><span class="slot-soc-gain ${s.type === 'BOOST' ? 'slot-miles-boost' : 'slot-miles-smart'}">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles</span><span class="slot-soc-gain"> (Est.)</span></span>`
+      ? `<span class="slot-miles-line"><span class="slot-soc-gain ${s.type === 'BOOST' ? 'slot-miles-boost' : 'slot-miles-smart'}">+${Math.round(Math.abs(kwh) * getEvRangeMiPerKwh())} miles</span><span class="slot-soc-gain">&nbsp;(Est.)</span></span>`
       : '';
     // Problem warning: a small icon-only toggle that reveals a detail row
     // with the full message on click. Expand state is keyed by session start
