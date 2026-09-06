@@ -192,23 +192,23 @@ their reward and a "Joined" marker, and any unused Wheel of Fortune spins.
   first mutations. Rate-limit budget also matters (each action is a
   GraphQL call, and a poll to confirm it took).
 
-### E. Offline data (not just shell) — **SHIPPED**
-- **What:** the service worker precached the app shell but not data, so a
-  cold open with no signal showed empty cards. Now `offline.js` keeps a
-  last-known-good snapshot per card in `localStorage`, written on every
-  successful render, read back only when a live fetch fails (fallback
-  only — online behaviour unchanged). A top-of-page "Showing saved data
-  from HH:MM" banner + a per-card "saved HH:MM" stamp; the sync line reads
-  "Saved data from HH:MM" while any card is on a snapshot.
-- **Covered:** Current rate (12h freshness cap — a stale schedule
-  misleads), EV charging, Billing, and the Usage Week view (restored as a
-  side effect of the Billing snapshot, since renderBilling repaints the
-  fuel panels). Month/Year/Day usage stay fetch-on-demand.
-- **Opted out:** Live usage (real-time), Carbon + Octoplus (hide-on-fail
-  by design).
-- **Prereq done:** `loadBilling` got its `fetchBillingData()` /
-  `renderBilling(bag)` split (the deferred Phase 2 2.B piece) so the same
-  bag paints whether fetched or read from cache.
+### E. Offline data (not just shell) — **SHIPPED, THEN REVERTED**
+- **What:** the service worker precaches the app shell but not data, so a
+  cold open with no signal shows empty cards. A `localStorage` snapshot
+  layer (`offline.js`) was built to repaint the Current rate / EV /
+  Billing / Usage-Week cards from last-known-good data on a failed fetch,
+  with a top-of-page banner + per-card "Saved HH:MM" stamps.
+- **Why reverted:** for a PWA that's almost always opened with signal, the
+  value (one usage view in two charts, the EV panel, and briefly-stale
+  rates) didn't justify the surface area — three shipped regressions (CI
+  locale in the stamp formatter, a request-flood perf cliff from
+  over-parallelised billing fetches, an EV-header title-wrap break) plus a
+  UX gap (blank Insights split blocks). Reverted in one commit back to
+  `fbd73d1` behaviour.
+- **Kept from the work:** `loadBilling`'s `fetchBillingData()` /
+  `renderBilling(bag)` split (the deferred Phase 2 2.B piece); `carbon.js`
+  `ensureOutcode` postcode caching; Insights hiding the two month-split
+  blocks when empty; the EV title-wrap hardening.
 
 ### Explicitly not recommended
 - Manual meter-reading submission — the account has smart meters.

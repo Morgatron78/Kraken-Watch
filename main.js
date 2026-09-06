@@ -34,7 +34,6 @@ import { handleInsightsHeaderClick, handleInsightsRunwayBarClick } from './insig
 import { handleHeatmapToggle } from './heatmap.js';
 import { loadOctoplus, handleOctoplusResultsToggle } from './octoplus.js';
 import { meterDebugNote, openSettings, closeSettings, saveSettings, initTheme, handleAppearanceChange } from './settings.js';
-import { deferSnapshot, readSnapshot, markStale, clearStale, staleInfo, fmtStamp } from './offline.js';
 
 /* ------------------------------ Rendering -------------------------------- */
 
@@ -44,52 +43,10 @@ function setSyncStatus(state, label) {
   $('sync-text').textContent = label;
 }
 
-// Top-of-page "showing saved data" strip — visible whenever any card is
-// currently rendering its offline snapshot rather than fresh data
-// (offline.js's stale registry). The per-card "saved HH:MM" stamps are set
-// by each loader; this is the at-a-glance version.
-function updateOfflineBanner() {
-  const banner = $('offline-banner');
-  if (!banner) return;
-  const info = staleInfo();
-  if (info.keys.length) {
-    banner.textContent = `Showing saved data from ${fmtStamp(info.earliest)} — reconnect to refresh`;
-    banner.classList.remove('hidden');
-  } else {
-    banner.classList.add('hidden');
-  }
-}
-
-// Shared sync-status decision for loadAll / loadFastTier from their tier
-// results, so all paths agree. A result of 'stale' means that loader
-// repainted its offline snapshot; true = fresh; false = unavailable/demo.
-function applySyncStatus(allResults) {
-  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const allReal = allResults.every(v => v === true);
-  const anyReal = allResults.some(v => v === true);
-  const info = staleInfo();
-  if (allReal) {
-    setSyncStatus('ok', `Synced ${time}`);
-  } else if (info.keys.length) {
-    // At least one card is on its saved snapshot — that's the honest
-    // headline whether or not something else loaded fresh; the banner
-    // carries the fuller wording.
-    setSyncStatus('stale', `Saved data from ${fmtStamp(info.earliest)}`);
-  } else if (anyReal) {
-    setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
-  } else {
-    setSyncStatus('error', demoFallbackEnabled() ? 'Using demo data — check settings' : 'Data unavailable — check settings');
-  }
-  updateOfflineBanner();
-}
-
 /* ------------------------------ Data loaders ------------------------------ */
 
 // Renders the Current rate card from the rate-change rows (fetchElecRates
-// shape). Split out from loadRates so the same rows — whether just fetched
-// or read back from the offline cache — paint the same way. Recomputes
-// `now` internally so a cache restore still points at the right slot in
-// today's schedule.
+// shape), split out from loadRates. Recomputes `now` internally.
 function renderRates(rows) {
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -131,11 +88,6 @@ function renderRates(rows) {
   $('rate-carbon').textContent = gridCarbonText(); // whatever the carbon feed has so far ("—" until its first load)
 }
 
-// A stale rate schedule could actively mislead ("off-peak now!" when it
-// isn't), so the offline cache for rates is only trusted for 12h — older
-// than that and the card goes to its normal Unavailable state.
-const RATES_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-
 async function loadRates() {
   try {
     const now = new Date();
@@ -149,19 +101,9 @@ async function loadRates() {
     const rows = await fetchElecRates(dayStart.toISOString(), dayEnd.toISOString());
     if (!rows.length) throw new Error('No rate data returned');
     renderRates(rows);
-    deferSnapshot('rates', rows);
-    clearStale('rates', 'rate-stamp');
     return true;
   } catch (err) {
     logIssue('Rates', err);
-    const snap = readSnapshot('rates', RATES_CACHE_MAX_AGE_MS);
-    if (snap && Array.isArray(snap.data) && snap.data.length) {
-      try {
-        renderRates(snap.data);
-        markStale('rates', snap.t, 'rate-stamp');
-        return 'stale';
-      } catch (e) { logIssue('Rates cache restore', e); }
-    }
     if (demoFallbackEnabled()) {
       rateState.offPeakRateP = 7.5;
       rateState.currentRateP = 7.5;
@@ -186,7 +128,6 @@ async function loadRates() {
       $('rate-next').textContent = '—';
       $('rate-carbon').textContent = gridCarbonText();
     }
-    clearStale('rates', 'rate-stamp');
     return false;
   }
 }
@@ -220,7 +161,11 @@ export async function loadAll(source = 'app-start') {
     EV: evSettled.status === 'fulfilled' ? evSettled.value : false,
     Billing: billingSettled.status === 'fulfilled' ? billingSettled.value : false
   }, apiKeySnapshot, getSyncIssues());
-  applySyncStatus(allResults);
+  const allReal = allResults.every(v => v === true);
+  const anyReal = allResults.some(v => v === true);
+  if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  else if (anyReal) setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
+  else setSyncStatus('error', demoFallbackEnabled() ? 'Using demo data — check settings' : 'Data unavailable — check settings');
   renderDiagnostics();
 }
 
@@ -257,7 +202,12 @@ async function loadFastTier() {
   const evResult = evSettled.status === 'fulfilled' ? evSettled.value : false;
   await checkRateLimitBlocked();
   logSyncAttempt('fast', { Rates: ratesResult, EV: evResult }, apiKeySnapshot, getSyncIssues());
-  applySyncStatus([ratesResult, evResult]);
+  const allResults = [ratesResult, evResult];
+  const allReal = allResults.every(v => v === true);
+  const anyReal = allResults.some(v => v === true);
+  if (allReal) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  else if (anyReal) setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
+  else setSyncStatus('error', demoFallbackEnabled() ? 'Using demo data — check settings' : 'Data unavailable — check settings');
   renderDiagnostics();
 }
 
@@ -280,14 +230,8 @@ async function loadSlowTier() {
     billingSettled = false;
   }
   logSyncAttempt('slow', { Billing: billingSettled }, apiKeySnapshot, getSyncIssues());
-  if (billingSettled === true) {
-    setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
-  } else if (billingSettled === 'stale') {
-    setSyncStatus('stale', `Saved data from ${fmtStamp(staleInfo().earliest)}`);
-  } else {
-    setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
-  }
-  updateOfflineBanner();
+  if (billingSettled === true) setSyncStatus('ok', `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  else setSyncStatus('stale', demoFallbackEnabled() ? 'Partially synced — some demo data' : 'Partially synced — some data unavailable');
   renderDiagnostics();
 }
 /* --------------------------------- Init ----------------------------------- */

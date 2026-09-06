@@ -318,9 +318,9 @@ front since the billing code was open anyway.
   — (1) the three independent account queries made concurrent (~2 round
   trips off cold load), (2) the pure bill math (`pickNextPayment`,
   `billChargeTotal`, `groupBillsByMonth`) lifted out to tested helpers. The
-  full `fetchBillingData()` / `renderBilling(bag)` split then landed as the
-  prerequisite for offline caching (feature E) — every panel harness-checked
-  against the bag, whether just fetched or read from `localStorage`. So 2.B
+  full `fetchBillingData()` / `renderBilling(bag)` split then landed with
+  feature E — every panel harness-checked against the bag. Feature E was
+  later reverted; the split is worth keeping on its own and stayed. So 2.B
   is now done for both modules.
 - **2.C — stop reading state from the DOM — DONE.** `handleEvHeaderClick` and
   `handleInsightsHeaderClick` now read `state.expanded` /
