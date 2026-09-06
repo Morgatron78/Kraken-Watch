@@ -247,7 +247,7 @@ function stopAutoRefreshTimers() {
   if (fastTierIntervalId) { clearInterval(fastTierIntervalId); fastTierIntervalId = null; }
   if (slowTierIntervalId) { clearInterval(slowTierIntervalId); slowTierIntervalId = null; }
   if (liveUsageIntervalId) { clearInterval(liveUsageIntervalId); liveUsageIntervalId = null; }
-  // Paused, not closed — live-usage.js's own live30Open flag is left as-is
+  // Paused, not closed — live-usage.js's own liveState.live30Open flag is left as-is
   // (see closeLive30, which is the actual "the user closed it" path and
   // also resets that flag) so a tab that goes hidden with the panel open
   // resumes polling it, rather than silently losing the fact that it was

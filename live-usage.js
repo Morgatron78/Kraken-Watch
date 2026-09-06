@@ -12,12 +12,20 @@ import { carbonState } from './carbon.js';
 // every account has, so this degrades to a plain "not available" message
 // rather than faking numbers when no device is found.
 
-let liveDeviceId = null;
-let liveUnavailable = false;
+// Live-usage card state in one object. deviceId/unavailable describe the
+// Home-Mini lookup; live30* is the lazy "last 30 min" sub-panel's
+// open flag + its 30s poll handle (paused/resumed by main.js's
+// visibility handling via the exports at the bottom).
+const liveState = {
+  deviceId: null,
+  unavailable: false,
+  live30Open: false,
+  live30Interval: null,
+};
 
 async function getLiveDeviceId() {
-  if (liveDeviceId) return liveDeviceId;
-  if (liveUnavailable) return null;
+  if (liveState.deviceId) return liveState.deviceId;
+  if (liveState.unavailable) return null;
   try {
     const data = await krakenGQL(`
       query SmartDevices($accountNumber: String!) {
@@ -33,7 +41,7 @@ async function getLiveDeviceId() {
       for (const m of (a?.meterPoint?.meters || [])) {
         meterCount++;
         const deviceId = (m?.smartDevices || [])[0]?.deviceId;
-        if (deviceId) { liveDeviceId = deviceId; return liveDeviceId; }
+        if (deviceId) { liveState.deviceId = deviceId; return liveState.deviceId; }
       }
     }
     // Query succeeded but found nothing — logged so "genuinely no device" and
@@ -42,7 +50,7 @@ async function getLiveDeviceId() {
   } catch (err) {
     logIssue('Live device lookup', err);
   }
-  liveUnavailable = true;
+  liveState.unavailable = true;
   return null;
 }
 
@@ -129,9 +137,6 @@ export async function loadLiveUsage() {
 // 2-minute query above rather than guessing at an unconfirmed coarser enum
 // that could break the whole query; up to 180 raw points are bucketed
 // client-side into 1-minute bars instead.
-let live30Open = false;
-let live30Interval = null;
-
 export function bucketTelemetryByMinute(points, now) {
   const buckets = Array.from({ length: 30 }, () => 0);
   const windowStart = new Date(now.getTime() - 30 * 60 * 1000);
@@ -186,21 +191,21 @@ export async function loadLive30() {
 }
 
 export function closeLive30() {
-  live30Open = false;
+  liveState.live30Open = false;
   $('live30-toggle')?.setAttribute('aria-expanded', 'false');
   $('live30-panel')?.classList.add('hidden');
-  if (live30Interval) { clearInterval(live30Interval); live30Interval = null; }
+  if (liveState.live30Interval) { clearInterval(liveState.live30Interval); liveState.live30Interval = null; }
 }
 
 export function openLive30() {
-  live30Open = true;
+  liveState.live30Open = true;
   $('live30-toggle').setAttribute('aria-expanded', 'true');
   $('live30-panel').classList.remove('hidden');
   loadLive30();
   // Own 30s refresh while open, matching the headline draw figure's cadence
   // — stops the moment the panel closes, so it's not fetching in the
   // background when nobody's looking at it.
-  live30Interval = setInterval(loadLive30, 30 * 1000);
+  liveState.live30Interval = setInterval(loadLive30, 30 * 1000);
 }
 
 // The three exports below exist only for the visibility-aware refresh
@@ -209,11 +214,11 @@ export function openLive30() {
 // visibility or its "the user has this open" flag, which is exactly what
 // openLive30/closeLive30 do and must NOT be reused for.
 export function isLive30Open() {
-  return live30Open;
+  return liveState.live30Open;
 }
 export function pauseLive30Polling() {
-  if (live30Interval) { clearInterval(live30Interval); live30Interval = null; }
+  if (liveState.live30Interval) { clearInterval(liveState.live30Interval); liveState.live30Interval = null; }
 }
 export function resumeLive30PollingIfOpen() {
-  if (live30Open) live30Interval = setInterval(loadLive30, 30 * 1000);
+  if (liveState.live30Open) liveState.live30Interval = setInterval(loadLive30, 30 * 1000);
 }

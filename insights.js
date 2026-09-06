@@ -7,11 +7,16 @@ import { ensureHistIntensity, intensityForRange } from './carbon.js';
 
 // --- Insights (collapsed by default; data lazy-loaded on first expand) ---
 
-let insightsLoaded = false;
+const insightsState = {
+  loaded: false,   // data fetched once, on first expand
+  expanded: false, // panel open? starts collapsed, matching the HTML
+  forecastData: [],          // balance-runway cycles, for the tap handler
+  selectedForecastCycle: null,
+};
 
 export async function loadInsights() {
-  if (insightsLoaded) return;
-  insightsLoaded = true;
+  if (insightsState.loaded) return;
+  insightsState.loaded = true;
   try {
     fuelData.elec = fuelData.elec || {};
     fuelData.gas = fuelData.gas || {};
@@ -43,8 +48,8 @@ export async function loadInsights() {
 // expand only, since it needs a full month's data (~30 calls) that
 // shouldn't be paid for on every app load if the user never opens this.
 export function handleInsightsHeaderClick() {
-  const currentlyExpanded = !$('insights-body').classList.contains('hidden');
-  const nowExpanded = !currentlyExpanded;
+  insightsState.expanded = !insightsState.expanded;
+  const nowExpanded = insightsState.expanded;
   $('insights-body').classList.toggle('hidden', !nowExpanded);
   $('insights-hint').classList.toggle('hidden', nowExpanded);
   $('insights-chevron').textContent = nowExpanded ? '▾' : '▸';
@@ -439,15 +444,12 @@ function computeBalanceForecast() {
   return cycles;
 }
 
-let balanceForecastData = [];
-let selectedForecastCycle = null;
-
 function renderBalanceForecastBreakdown(index) {
   const box = $('insights-runway-breakdown');
   if (!box) return;
-  if (index === null || !balanceForecastData[index]) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  if (index === null || !insightsState.forecastData[index]) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   box.classList.remove('hidden');
-  const d = balanceForecastData[index];
+  const d = insightsState.forecastData[index];
   const source = d.fallback
     ? `Not enough billing history for ${d.label} yet — using this month's own predicted cost as a flat estimate.`
     : `Based on ${d.sourceMonthLabel} ${d.sourceYear} usage, priced at today's rates`;
@@ -463,11 +465,11 @@ function renderBalanceForecastBreakdown(index) {
 
 function renderBalanceForecastChart() {
   const wrap = $('insights-runway-chart-wrap');
-  if (!balanceForecastData.length) { wrap.classList.add('hidden'); return; }
+  if (!insightsState.forecastData.length) { wrap.classList.add('hidden'); return; }
   wrap.classList.remove('hidden');
 
-  const maxPos = Math.max(...balanceForecastData.map(c => c.cumulative), 0);
-  const minCumulative = Math.min(...balanceForecastData.map(c => c.cumulative), 0);
+  const maxPos = Math.max(...insightsState.forecastData.map(c => c.cumulative), 0);
+  const minCumulative = Math.min(...insightsState.forecastData.map(c => c.cumulative), 0);
   const hasNegative = minCumulative < 0;
   const maxNeg = hasNegative ? Math.abs(minCumulative) : 0;
   const range = (maxPos + maxNeg) || 1; // only guards true div-by-zero, never fakes a negative range
@@ -486,25 +488,25 @@ function renderBalanceForecastChart() {
     : `<span style="position:absolute;top:0px;right:0;transform:translateY(-50%)">${fmtGBP(Math.ceil(maxPos))}</span>`
       + `<span style="position:absolute;top:${chartH}px;right:0;transform:translateY(-50%)">£0</span>`;
 
-  $('insights-runway-bars').innerHTML = balanceForecastData.map((c, i) => {
+  $('insights-runway-bars').innerHTML = insightsState.forecastData.map((c, i) => {
     const isNeg = c.cumulative < 0;
     const h = isNeg ? Math.max(2, Math.round((Math.abs(c.cumulative) / maxNeg) * negH))
                      : Math.max(2, Math.round((c.cumulative / maxPos) * posH));
     const pos = isNeg ? `top:${posH}px;height:${h}px` : `bottom:${negH}px;height:${h}px`;
-    const cls = 'forecast-bar' + (isNeg ? ' neg' : '') + (c.fallback ? ' fallback' : '') + (i === selectedForecastCycle ? ' selected' : '');
+    const cls = 'forecast-bar' + (isNeg ? ' neg' : '') + (c.fallback ? ' fallback' : '') + (i === insightsState.selectedForecastCycle ? ' selected' : '');
     return `<div class="forecast-col"><div class="forecast-bar-wrap" data-index="${i}"><div class="${cls}" style="${pos}"></div></div></div>`;
   }).join('');
-  $('insights-runway-labels').innerHTML = balanceForecastData.map((c, i) =>
-    `<span class="${i === selectedForecastCycle ? 'active-day' : ''}">${c.label}</span>`).join('');
+  $('insights-runway-labels').innerHTML = insightsState.forecastData.map((c, i) =>
+    `<span class="${i === insightsState.selectedForecastCycle ? 'active-day' : ''}">${c.label}</span>`).join('');
 
-  renderBalanceForecastBreakdown(selectedForecastCycle);
+  renderBalanceForecastBreakdown(insightsState.selectedForecastCycle);
 }
 
 function renderInsightsBilling() {
   const icon = $('insights-runway-icon'), headline = $('insights-runway-headline'), detail = $('insights-runway-detail');
-  balanceForecastData = computeBalanceForecast() || [];
+  insightsState.forecastData = computeBalanceForecast() || [];
 
-  if (!balanceForecastData.length) {
+  if (!insightsState.forecastData.length) {
     icon.textContent = '—';
     headline.textContent = 'Not enough data yet';
     headline.className = 'runway-headline';
@@ -513,32 +515,32 @@ function renderInsightsBilling() {
     return;
   }
 
-  // The breakdown opens only on an actual tap — selectedForecastCycle stays
+  // The breakdown opens only on an actual tap — insightsState.selectedForecastCycle stays
   // null until then, so renderBalanceForecastBreakdown(null) keeps the box
   // hidden. (It used to auto-select the lowest-balance month on load.)
 
-  const allPositive = balanceForecastData.every(c => c.cumulative >= 0);
+  const allPositive = insightsState.forecastData.every(c => c.cumulative >= 0);
   if (allPositive) {
-    const lastMonth = balanceForecastData[balanceForecastData.length - 1];
+    const lastMonth = insightsState.forecastData[insightsState.forecastData.length - 1];
     icon.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>';
     icon.style.color = 'var(--mint)';
     headline.className = 'runway-headline ok';
     headline.textContent = 'Payments look sufficient';
     detail.textContent = `Projected to stay in credit through ${lastMonth.label}`;
   } else {
-    const dipIdx = balanceForecastData.findIndex(c => c.cumulative < 0);
-    const recoverIdx = balanceForecastData.findIndex((c, i) => i > dipIdx && c.cumulative >= 0);
+    const dipIdx = insightsState.forecastData.findIndex(c => c.cumulative < 0);
+    const recoverIdx = insightsState.forecastData.findIndex((c, i) => i > dipIdx && c.cumulative >= 0);
     let lowIdx = 0;
-    balanceForecastData.forEach((c, i) => { if (c.cumulative < balanceForecastData[lowIdx].cumulative) lowIdx = i; });
+    insightsState.forecastData.forEach((c, i) => { if (c.cumulative < insightsState.forecastData[lowIdx].cumulative) lowIdx = i; });
     icon.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
     icon.style.color = 'var(--coral)';
     headline.className = 'runway-headline warn';
     if (recoverIdx !== -1) {
-      headline.textContent = `Payments may be tight — dips into debit around ${balanceForecastData[dipIdx].label}, recovers by ${balanceForecastData[recoverIdx].label}`;
-      detail.textContent = `Lowest point: ${fmtGBP(balanceForecastData[lowIdx].cumulative)} in ${balanceForecastData[lowIdx].label}`;
+      headline.textContent = `Payments may be tight — dips into debit around ${insightsState.forecastData[dipIdx].label}, recovers by ${insightsState.forecastData[recoverIdx].label}`;
+      detail.textContent = `Lowest point: ${fmtGBP(insightsState.forecastData[lowIdx].cumulative)} in ${insightsState.forecastData[lowIdx].label}`;
     } else {
-      headline.textContent = `Payments look insufficient — still in debit by ${balanceForecastData[balanceForecastData.length - 1].label}`;
-      detail.textContent = `Lowest point: ${fmtGBP(balanceForecastData[lowIdx].cumulative)} in ${balanceForecastData[lowIdx].label} — consider increasing your Direct Debit`;
+      headline.textContent = `Payments look insufficient — still in debit by ${insightsState.forecastData[insightsState.forecastData.length - 1].label}`;
+      detail.textContent = `Lowest point: ${fmtGBP(insightsState.forecastData[lowIdx].cumulative)} in ${insightsState.forecastData[lowIdx].label} — consider increasing your Direct Debit`;
     }
   }
 
@@ -568,13 +570,13 @@ export function handleInsightsRunwayBarClick(e) {
   if (!bar) return;
   const index = parseInt(bar.dataset.index, 10);
   if (Number.isNaN(index)) return;
-  selectedForecastCycle = (selectedForecastCycle === index) ? null : index;
+  insightsState.selectedForecastCycle = (insightsState.selectedForecastCycle === index) ? null : index;
   document.querySelectorAll('#insights-runway-bars .forecast-bar-wrap').forEach(el => {
-    const isSel = parseInt(el.dataset.index, 10) === selectedForecastCycle;
+    const isSel = parseInt(el.dataset.index, 10) === insightsState.selectedForecastCycle;
     el.querySelector('.forecast-bar').classList.toggle('selected', isSel);
   });
   document.querySelectorAll('#insights-runway-labels span').forEach((el, i) => {
-    el.classList.toggle('active-day', i === selectedForecastCycle);
+    el.classList.toggle('active-day', i === insightsState.selectedForecastCycle);
   });
-  renderBalanceForecastBreakdown(selectedForecastCycle);
+  renderBalanceForecastBreakdown(insightsState.selectedForecastCycle);
 }
