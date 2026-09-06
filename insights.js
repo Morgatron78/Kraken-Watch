@@ -53,7 +53,7 @@ export function handleInsightsHeaderClick() {
 }
 
 // A month-array index maps directly to a calendar date (index 0 = the 1st).
-// Deliberately independent of the shared `periodMode`/`dateForPeriodIndex`
+// Deliberately independent of the shared `usageState.period`/`dateForPeriodIndex`
 // used by the Usage panel — Insights can load while that panel is
 // showing Week, Day, or Year, so it needs its own fixed month-index mapping.
 function insightsMonthDate(index) {
