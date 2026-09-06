@@ -34,6 +34,16 @@ If a live call fails, that section shows "Unavailable" rather than a fake
 number. Demo data is available for testing but is **off by default** —
 turn it on in Settings ("Show demo data when something fails to load").
 
+**Offline data** (`offline.js`): the Current rate, EV charging, Billing
+and Usage-Week cards keep a last-known-good snapshot in `localStorage`,
+written on every successful render. Open the app with no signal and they
+repaint from it — a top-of-page "Showing saved data from HH:MM" banner
+plus a per-card "saved HH:MM" stamp make clear it isn't live. Fallback
+only: online behaviour is unchanged, no stale→fresh flash. The rate
+snapshot is only trusted for 12h (a stale schedule could mislead about
+off-peak). Live usage, Carbon and Octoplus opt out (real-time, or
+hide-on-fail by design). Cached data always wins over the demo setting.
+
 ## Color language
 
 Each color means one specific thing, consistently, everywhere it appears:

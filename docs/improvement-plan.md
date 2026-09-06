@@ -313,13 +313,15 @@ front since the billing code was open anyway.
 - **2.B — fetch/render split — DONE where it pays.**
   `ev.js`: `loadEVSmartFlex` → `fetchEVSmartFlexData()` + `renderEVSmartFlex(data)`
   (clean — one query, then a contiguous render block).
-  `billing.js`: `loadBilling` is five *interleaved* fetch→render sections with
-  the toggle-parking hack threaded through, so a wholesale teardown wasn't
-  worth the blast radius. Instead: (1) the three independent account queries
-  now fire concurrently (~2 round trips off cold load — the real perf item);
-  (2) the pure bill math (`pickNextPayment`, `billChargeTotal`,
-  `groupBillsByMonth`) lifted out to tested module-scope helpers. That
-  captures 2.B's actual value (testable logic) without the risk.
+  `billing.js`: `loadBilling` was five *interleaved* fetch→render sections
+  with the toggle-parking hack threaded through, so it was deferred at first
+  — (1) the three independent account queries made concurrent (~2 round
+  trips off cold load), (2) the pure bill math (`pickNextPayment`,
+  `billChargeTotal`, `groupBillsByMonth`) lifted out to tested helpers. The
+  full `fetchBillingData()` / `renderBilling(bag)` split then landed as the
+  prerequisite for offline caching (feature E) — every panel harness-checked
+  against the bag, whether just fetched or read from `localStorage`. So 2.B
+  is now done for both modules.
 - **2.C — stop reading state from the DOM — DONE.** `handleEvHeaderClick` and
   `handleInsightsHeaderClick` now read `state.expanded` /
   `manualOverride ?? prevWorthSeeing` instead of

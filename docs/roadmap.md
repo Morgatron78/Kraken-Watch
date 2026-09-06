@@ -192,13 +192,23 @@ their reward and a "Joined" marker, and any unused Wheel of Fortune spins.
   first mutations. Rate-limit budget also matters (each action is a
   GraphQL call, and a poll to confirm it took).
 
-### E. Offline data (not just shell)
-- **What:** the service worker precaches the app shell but not data, so a
-  cold open with no signal shows empty cards. Cache the last successful
-  sync per card and render it (stamped "as of HH:MM") until fresh data
-  arrives.
-- **Effort:** ~1–1.5 days, touches `sw.js` and each loader.
-- **Risk:** low-medium (stale-data-labelling needs to be unambiguous).
+### E. Offline data (not just shell) — **SHIPPED**
+- **What:** the service worker precached the app shell but not data, so a
+  cold open with no signal showed empty cards. Now `offline.js` keeps a
+  last-known-good snapshot per card in `localStorage`, written on every
+  successful render, read back only when a live fetch fails (fallback
+  only — online behaviour unchanged). A top-of-page "Showing saved data
+  from HH:MM" banner + a per-card "saved HH:MM" stamp; the sync line reads
+  "Saved data from HH:MM" while any card is on a snapshot.
+- **Covered:** Current rate (12h freshness cap — a stale schedule
+  misleads), EV charging, Billing, and the Usage Week view (restored as a
+  side effect of the Billing snapshot, since renderBilling repaints the
+  fuel panels). Month/Year/Day usage stay fetch-on-demand.
+- **Opted out:** Live usage (real-time), Carbon + Octoplus (hide-on-fail
+  by design).
+- **Prereq done:** `loadBilling` got its `fetchBillingData()` /
+  `renderBilling(bag)` split (the deferred Phase 2 2.B piece) so the same
+  bag paints whether fetched or read from cache.
 
 ### Explicitly not recommended
 - Manual meter-reading submission — the account has smart meters.
