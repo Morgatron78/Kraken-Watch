@@ -128,8 +128,8 @@ function renderInsightsElec() {
     const totalCost = offPeak + standard;
     const totalKwh = offPeakKwh + standardKwh;
     // Hidden until there's real settled month data — otherwise (early in a
-    // month, or offline with no cached month figures) it sat visible with
-    // "—" and zero-width bars, which read as broken.
+    // month, before the first days have settled) it sat visible with "—"
+    // and zero-width bars, which read as broken.
     $('insights-elec-split-block').classList.toggle('hidden', !(totalCost > 0));
     if (totalCost > 0) {
       const offPeakPct = (offPeak / totalCost) * 100, standardPct = 100 - offPeakPct;

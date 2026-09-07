@@ -364,8 +364,7 @@ async function fetchBills(billsQ) {
 
 /* ------------------------------ Render --------------------------------- */
 // Every DOM write + the state-object assignments (fuelData / rateState /
-// billingState / billMonthsData), from the fetchBillingData() bag — whether
-// that bag was just fetched or read back from the offline cache. Returns
+// billingState / billMonthsData), from the fetchBillingData() bag. Returns
 // whether anything real rendered.
 
 function renderBilling(d) {
