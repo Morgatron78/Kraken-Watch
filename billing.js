@@ -247,6 +247,13 @@ async function fetchMtd() {
       fetchStandingCharge('elec'),
       fetchStandingCharge('gas'),
     ]);
+    // Cache the standing charges into rateState here, at fetch time — the
+    // Week-view bars (fetchWeekBars → lastNDays*SplitWithStanding) read
+    // rateState.*StandingP, and since the fetch/render split that call now
+    // runs before renderBilling would have set them, so the first sync's
+    // Week bars lost their standing-charge segment entirely.
+    if (elecStanding) rateState.elecStandingP = elecStanding;
+    if (gasStanding) rateState.gasStandingP = gasStanding;
     const elecMTD = elec.cost + (elecStanding ? (elecStanding / 100) * elapsedDays : 0);
     const gasMTD = gas ? gas.cost + (gasStanding ? (gasStanding / 100) * elapsedDays : 0) : null;
     const combinedMTD = elecMTD + (gasMTD ?? 0);
@@ -372,8 +379,9 @@ function renderBilling(d) {
 
   if (d.mtd) {
     const m = d.mtd;
-    if (m.elecStandingP) rateState.elecStandingP = m.elecStandingP;
-    if (m.gasStandingP) rateState.gasStandingP = m.gasStandingP;
+    // rateState.elec/gasStandingP are set in fetchMtd now (the Week bars
+    // are built during the fetch phase and read them). gasRateP has no
+    // such early reader, so it's fine to land here.
     if (m.gasRateP != null) rateState.gasRateP = m.gasRateP;
 
     $('cost-mtd').textContent = fmtGBP(m.combinedMTD);
