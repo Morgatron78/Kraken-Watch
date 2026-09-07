@@ -137,35 +137,7 @@ export async function loadVehicleInfoOnce() {
 // Octopus figure — no API path exposes the per-dispatch reconciled rate.
 // See README "Considered and decided against" for the full investigation.
 
-// TEMP DIAGNOSTIC — remove after checking. Introspects the SmartFlex
-// preference/schedule types and dumps the raw per-day preferences to the
-// diagnostics panel, to confirm whether Octopus actually holds per-day
-// schedule data for this account or just 7 uniform entries.
-async function runScheduleIntrospection() {
-  try {
-    const t = await krakenGQL(`{
-      s1: __type(name: "SmartFlexDevicePreferenceSchedule") { name fields { name } }
-      s2: __type(name: "SmartFlexDeviceSchedule") { name fields { name } }
-      prefs: __type(name: "SmartFlexDevicePreferences") { fields { name } }
-      vehicle: __type(name: "SmartFlexVehicle") { fields { name } }
-    }`);
-    logDebug('SCHEMA', JSON.stringify(t).replace(/[<>]/g, ''));
-  } catch (e) { logDebug('SCHEMA', 'introspect failed: ' + (e?.message || e)); }
-  try {
-    const d = await krakenGQL(`query TempPrefs($accountNumber: String!) {
-      devices(accountNumber: $accountNumber) {
-        __typename
-        ... on SmartFlexVehicle {
-          preferences { __typename targetType unit mode schedules { dayOfWeek time min max } }
-        }
-      }
-    }`, { accountNumber: store.creds.accountNumber });
-    logDebug('PREFS', JSON.stringify(d).replace(/[<>]/g, ''));
-  } catch (e) { logDebug('PREFS', 'query failed: ' + (e?.message || e)); }
-}
-
 export async function loadEV() {
-  await runScheduleIntrospection().catch(() => {}); // TEMP — remove after checking
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
@@ -493,9 +465,12 @@ async function renderEVSmartFlex({ vehicle, sessions, planned, completedDispatch
   applyEvCollapse(!!activeDispatch || planned.length > 0);
 
   // Target SoC/time — a list of per-day schedule entries
-  // (SmartFlexDeviceSchedule: dayOfWeek/time/max), matched on today's
-  // day-of-week. DayOfWeek enum values assumed to be uppercase day names
-  // (a wrong guess just shows no target text, it can't break the query).
+  // (SmartFlexDevicePreferenceSchedule: dayOfWeek / time / min / max /
+  // upperLimit; only time and max are used here), matched on today's
+  // day-of-week. DayOfWeek enum values are uppercase day names. Confirmed
+  // by introspection Sept 2026: for a Polestar-via-Polestar-Energy account
+  // Octopus returns 7 identical entries — the real per-day schedule set in
+  // Polestar Energy does not propagate into Octopus's model.
   // Computed here, above the battery gauge, so the gauge's limit marker can
   // reuse it.
   const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
@@ -564,11 +539,13 @@ async function renderEVSmartFlex({ vehicle, sessions, planned, completedDispatch
   }
 
   // Weekly schedule preview — each day's ready-by time and target charge %
-  // (SmartFlexDeviceSchedule time/max). Most accounts schedule every day, so
-  // the per-day values are what's worth comparing; days with no entry show
-  // "—". Highlights whichever target is still upcoming, not "today": a day's
-  // entry is an overnight charge completing that morning, so once today's
-  // target time has passed it's tomorrow's that matters.
+  // (SmartFlexDevicePreferenceSchedule time / max). Kept a 7-column strip
+  // even though Octopus currently returns identical entries for every day
+  // on this account (see the introspection note above), on the chance the
+  // per-day behaviour changes. Days with no entry show "—". Highlights
+  // whichever target is still upcoming, not "today": a day's entry is an
+  // overnight charge completing that morning, so once today's target time
+  // has passed it's tomorrow's that matters.
   let upcomingIdx = now.getDay();
   const todayEntryForHighlight = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
   if (todayEntryForHighlight?.time) {
