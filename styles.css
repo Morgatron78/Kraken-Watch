@@ -1069,12 +1069,19 @@ button{font-family:inherit;cursor:pointer;}
 
 /* v2.156: margin-top/margin-bottom removed — spacing now comes from
    #ev-stack's flex gap. */
+.schedule-head{
+  display:flex;justify-content:space-between;margin:0 2px 7px;
+  font-family:'Inter', sans-serif;font-size:9px;letter-spacing:0.7px;text-transform:uppercase;color:var(--text-dim);
+}
 .schedule-preview{display:flex;gap:4px;padding:0 2px;}
-.schedule-day{flex:1;text-align:center;}
-.schedule-day-label{font-family:'Inter', sans-serif;font-size:8.5px;color:var(--text-dim);margin-bottom:4px;}
+.schedule-day{flex:1;text-align:center;padding:5px 2px;border-radius:8px;}
+.schedule-day-label{font-family:'Inter', sans-serif;font-size:8.5px;color:var(--text-dim);margin-bottom:5px;}
 .schedule-day-time{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text);}
+.schedule-day-target{font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-dim);margin-top:2px;}
+.schedule-day.upcoming{background:var(--tint);}
 .schedule-day.upcoming .schedule-day-label,
 .schedule-day.upcoming .schedule-day-time{color:var(--pink);font-weight:600;}
+.schedule-day.upcoming .schedule-day-target{color:var(--pink);}
 
 .slot-soc-gain{color:var(--text-dim);font-size:10px;}
 /* Type-coloured miles figure — mint/pink reused from the SMART/BOOST badge.

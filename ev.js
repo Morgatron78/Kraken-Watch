@@ -536,12 +536,12 @@ async function renderEVSmartFlex({ vehicle, sessions, planned, completedDispatch
     $('ev-battery-countdown').textContent = '';
   }
 
-  // Weekly schedule preview — shows each day's target time (most accounts
-  // have every day scheduled, so the time is what's worth comparing, not
-  // set-vs-unset). Days with no entry show "—". Highlights whichever target
-  // is still upcoming, not "today": a day's entry is an overnight charge
-  // completing that morning, so once today's target time has passed it's
-  // tomorrow's that matters.
+  // Weekly schedule preview — each day's ready-by time and target charge %
+  // (SmartFlexDeviceSchedule time/max). Most accounts schedule every day, so
+  // the per-day values are what's worth comparing; days with no entry show
+  // "—". Highlights whichever target is still upcoming, not "today": a day's
+  // entry is an overnight charge completing that morning, so once today's
+  // target time has passed it's tomorrow's that matters.
   let upcomingIdx = now.getDay();
   const todayEntryForHighlight = schedules.find(s => s.dayOfWeek === dayNames[now.getDay()]);
   if (todayEntryForHighlight?.time) {
@@ -551,13 +551,17 @@ async function renderEVSmartFlex({ vehicle, sessions, planned, completedDispatch
   }
   if (schedules.length) {
     $('ev-schedule-preview').classList.remove('hidden');
-    $('ev-schedule-preview').innerHTML = dayNames.map((d, i) => {
+    const days = dayNames.map((d, i) => {
       const entry = schedules.find(s => s.dayOfWeek === d);
       const isUpcoming = i === upcomingIdx;
       const label = ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i];
       const timeText = entry?.time ? entry.time.slice(0, 5) : '—';
-      return `<div class="schedule-day${isUpcoming ? ' upcoming' : ''}"><div class="schedule-day-label">${label}</div><div class="schedule-day-time">${timeText}</div></div>`;
+      const pctText = entry?.max != null ? `${Math.round(entry.max)}%` : '—';
+      return `<div class="schedule-day${isUpcoming ? ' upcoming' : ''}"><div class="schedule-day-label">${label}</div><div class="schedule-day-time">${timeText}</div><div class="schedule-day-target">${pctText}</div></div>`;
     }).join('');
+    $('ev-schedule-preview').innerHTML =
+      '<div class="schedule-head"><span>Weekly schedule</span><span>ready by · target</span></div>'
+      + `<div class="schedule-preview">${days}</div>`;
   } else {
     $('ev-schedule-preview').classList.add('hidden');
   }
