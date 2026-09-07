@@ -851,22 +851,16 @@ button{font-family:inherit;cursor:pointer;}
 .hidden{display:none !important;}
 
 /* Carbon intensity card */
-/* Headline row: "Grid now" figure on the left, a right-aligned "what's
-   coming" cluster (trend / next turning point / renewables now) filling
-   the space beside it. Stacks on a narrow phone. */
+/* Headline row: two mirrored big stats — grid intensity on the left,
+   renewable share (wind + solar + hydro) on the right. Stacks on a
+   narrow phone; the .carbon-headline gap doubles as the row gap. */
 .carbon-headline{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;}
-.carbon-next{
-  display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right;padding-top:3px;
-  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim);
-}
-.carbon-next > div:empty{display:none;}
-.carbon-trend{font-size:10px;font-weight:600;letter-spacing:0.3px;}
-.carbon-trend.falling{color:var(--mint);}
-.carbon-trend.rising{color:var(--coral);}
-.carbon-trend.steady{color:var(--text-dim);}
+.carbon-renew{display:flex;flex-direction:column;align-items:flex-end;text-align:right;}
+.carbon-renew .big-value{color:var(--mint);display:flex;align-items:center;gap:6px;}
+.carbon-renew .big-value svg{width:19px;height:19px;color:var(--mint);flex-shrink:0;}
 @media (max-width:380px){
   .carbon-headline{flex-wrap:wrap;}
-  .carbon-next{align-items:flex-start;text-align:left;}
+  .carbon-renew{align-items:flex-start;text-align:left;}
 }
 /* Generation-mix bar — what's powering the grid right now (renewables /
    nuclear / fossil / other), from the slot's generationmix. */
@@ -884,16 +878,6 @@ button{font-family:inherit;cursor:pointer;}
 .carbon-tag-low{color:var(--mint);background:var(--mint-soft);border:1px solid var(--mint-line);}
 .carbon-tag-moderate{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);}
 .carbon-tag-high{color:var(--coral);background:var(--coral-soft);border:1px solid var(--coral-line);}
-/* Cleanest / dirtiest upcoming windows — the shared min/max two-box
-   layout (.minmax-row / .minmax-col), same as Insights' greenest/dirtiest
-   day. Plus an optional one-line note when the greenest stretch overlaps
-   the IOG off-peak window. */
-.carbon-windows{margin-top:14px;}
-.carbon-offpeak{
-  display:flex;align-items:center;gap:6px;margin-top:8px;
-  font-family:'Inter', sans-serif;font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--mint);line-height:1.4;
-}
-.carbon-offpeak svg{flex-shrink:0;color:var(--mint);}
 
 /* Octoplus card — points balance sits in the card-head pill (.card-tag);
    the body is a compact upcoming-events list plus a collapsible past-results
