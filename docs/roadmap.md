@@ -249,3 +249,25 @@ action re-fetch on every one.
 **Or:** do 3a and stop. The app is feature-complete by the README's own
 "considered and decided against" standard, and everything above is
 genuinely optional.
+
+---
+
+## Status — September 2026: complete, parked
+
+3a, 3b (carbon card + the retrospective cross-panel touches) and 3c
+(Octoplus) all shipped. The carbon card was later reworked: the
+cleanest/dirtiest-window boxes and the "what's coming" trend cluster were
+removed as padding (the forecast chart already carries that), and the
+right of the headline is now a "Renewable now" stat mirroring "Grid now".
+
+**3d (EV control) was deliberately not pursued.** Kraken Watch stays a
+read-only dashboard — every mutation is a real side effect on physical
+hardware, and the value didn't justify becoming a remote. Same conclusion
+reached independently when the unofficial Polestar API was reviewed as an
+alternative control path.
+
+A final pass over the full Octopus REST + Kraken GraphQL surface (Sept
+2026) confirmed nothing meaningful is unbuilt. The only small candidates
+noted were `annualElectricityConsumption` / `annualGasConsumption` (a
+clean EAC figure that could firm up the Insights runway forecast) — left
+undone by choice. No outstanding work.

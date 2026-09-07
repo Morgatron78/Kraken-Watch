@@ -375,3 +375,11 @@ stale-while-revalidate cache; EV control mutations (`triggerBoostCharge`,
 toggle); bill-prediction accuracy tracking; tariff "what-if" replay;
 `weeklyUsageInsights` / `costOfUsage`; greener-nights forecast; rate-change
 history; CSV/JSON export; iOS Shortcuts endpoint.
+
+> **Superseded — September 2026.** This is the historical origin note;
+> `docs/roadmap.md` is where Phase 3 was actually tracked. Its closing
+> status: the app is complete and parked. Offline caching (Phase 3 /
+> feature E) was built and then reverted as not worth the surface area;
+> EV control was deliberately not pursued (read-only by choice); a final
+> Octopus API audit found nothing meaningful unbuilt. Nothing here is
+> outstanding.

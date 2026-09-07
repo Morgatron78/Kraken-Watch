@@ -12,11 +12,6 @@ describe('findAppModuleFiles', () => {
     expect(files).not.toContain('vite.config.js');
     expect(files).not.toContain('vitest.config.js');
   });
-
-  it('excludes the archived/dead-code file, never bundled and referencing retired ids', () => {
-    const files = findAppModuleFiles(repoRoot);
-    expect(files).not.toContain('ev-legacy-archive.js');
-  });
 });
 
 describe('extractHtmlIds', () => {

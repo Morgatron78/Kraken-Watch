@@ -143,8 +143,7 @@ export async function loadEV() {
 
   // A failed sync shows a genuine Unavailable state (or demo, if opted
   // in), not a fallback to older/less accurate data; recovers on the next
-  // auto-sync. The old dispatch-only path is in ev-legacy-archive.js if
-  // this needs revisiting.
+  // auto-sync.
   if (demoFallbackEnabled()) {
     populateDemoEV();
   } else {
