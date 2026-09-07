@@ -162,7 +162,9 @@
         </div>
         <div class="schedule-block hidden" id="ev-schedule-preview"></div>
         <div class="ev-warnings hidden" id="ev-warnings"></div>
-        <div id="ev-body" class="hidden">
+        <!-- Power meter sits outside #ev-body so it stays visible in the
+             collapsed panel while charging — its own .hidden (set only when
+             actively dispatching) is the real gate. -->
         <div class="pmeter hidden" id="ev-pmeter">
           <div class="pmeter-top">
             <span class="stat-label" style="margin:0;">Charging power</span>
@@ -170,7 +172,7 @@
           </div>
           <div class="pmeter-bar" id="ev-pmeter-bar"></div>
         </div>
-
+        <div id="ev-body" class="hidden">
         <div class="ev-subpanel">
           <div class="ev-subpanel-head">
             <div class="stat-label" style="margin:0;">Charging activity</div>

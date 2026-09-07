@@ -355,14 +355,14 @@ button{font-family:inherit;cursor:pointer;}
 /* v2.224: .ev-row/.ev-detail-label/.ev-detail-value removed — those were
    only used by "Next planned dispatch window", now gone (see app.js). */
 /* v2.251: #ev-body converted to flex+gap, same reasoning as #ev-stack
-   above (v2.156/v2.225) — its children (pmeter, the two ev-subpanels) were
-   spacing themselves via margin-top, which doesn't know to disappear when
-   a child is display:none. Confirmed real: with pmeter hidden on idle,
-   ev-subpanel's own margin-top still fired on top of #ev-stack's gap into
-   #ev-body, doubling the gap above "Charging activity". flex gap is
-   layout-aware — a hidden child contributes nothing — so this fixes it
-   structurally rather than special-casing the idle state. Margins removed
-   from .pmeter and .ev-subpanel below now that gap handles it. */
+   above (v2.156/v2.225) — its children were spacing themselves via
+   margin-top, which doesn't know to disappear when a child is
+   display:none, so a hidden child left a doubled gap above the next one.
+   flex gap is layout-aware — a hidden child contributes nothing — so this
+   fixes it structurally. Margins removed from .pmeter and .ev-subpanel
+   below now that gap handles it. (.pmeter later moved up to #ev-stack so
+   it shows in the collapsed panel while charging — same gap value, so
+   spacing is unchanged.) */
 #ev-body{display:flex;flex-direction:column;gap:16px;}
 /* v2.251: .ev-mini-row and its four boxes (This session/Power/Sessions
    today/Cost) removed entirely — This session was permanently stuck at
