@@ -137,7 +137,35 @@ export async function loadVehicleInfoOnce() {
 // Octopus figure — no API path exposes the per-dispatch reconciled rate.
 // See README "Considered and decided against" for the full investigation.
 
+// TEMP DIAGNOSTIC — remove after checking. Introspects the SmartFlex
+// preference/schedule types and dumps the raw per-day preferences to the
+// diagnostics panel, to confirm whether Octopus actually holds per-day
+// schedule data for this account or just 7 uniform entries.
+async function runScheduleIntrospection() {
+  try {
+    const t = await krakenGQL(`{
+      s1: __type(name: "SmartFlexDevicePreferenceSchedule") { name fields { name } }
+      s2: __type(name: "SmartFlexDeviceSchedule") { name fields { name } }
+      prefs: __type(name: "SmartFlexDevicePreferences") { fields { name } }
+      vehicle: __type(name: "SmartFlexVehicle") { fields { name } }
+    }`);
+    logDebug('SCHEMA', JSON.stringify(t).replace(/[<>]/g, ''));
+  } catch (e) { logDebug('SCHEMA', 'introspect failed: ' + (e?.message || e)); }
+  try {
+    const d = await krakenGQL(`query TempPrefs($accountNumber: String!) {
+      devices(accountNumber: $accountNumber) {
+        __typename
+        ... on SmartFlexVehicle {
+          preferences { __typename targetType unit mode schedules { dayOfWeek time min max } }
+        }
+      }
+    }`, { accountNumber: store.creds.accountNumber });
+    logDebug('PREFS', JSON.stringify(d).replace(/[<>]/g, ''));
+  } catch (e) { logDebug('PREFS', 'query failed: ' + (e?.message || e)); }
+}
+
 export async function loadEV() {
+  await runScheduleIntrospection().catch(() => {}); // TEMP — remove after checking
   const smartFlexOk = await loadEVSmartFlex().catch(err => { logIssue('EV SmartFlex data', err); return false; });
   if (smartFlexOk) return true;
 
