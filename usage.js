@@ -567,10 +567,21 @@ function renderYearBreakdown(fuel, months, monthIndex) {
 }
 
 
+// Whether a lazily-loaded period array (Month days, or Year months) is worth
+// keeping rather than re-fetching. A failed fetch — and an early-in-the-month
+// load from before any day has settled — comes back with every entry
+// hasData:false; those must stay retryable, or one transient failure leaves
+// the Month/Year chart showing standing charge and no usage until the app is
+// fully restarted, since this data is fetched once and never refreshed on
+// sync. Re-fetching on the next tab open is cheap and self-heals it.
+export function hasUsableDays(arr) {
+  return Array.isArray(arr) && arr.some(d => d.hasData !== false);
+}
+
 // Lazily fetches this-month daily figures the first time "Month" view is
 // selected, so the app doesn't fetch ~30 days of data on every sync by default.
 export async function loadMonthData(fuel) {
-  if (fuelData[fuel]?.month) return;
+  if (hasUsableDays(fuelData[fuel]?.month)) return;
   const elapsedDays = daysElapsedInMonth(new Date());
   const out = fuel === 'elec'
     ? await lastNDaysElecSplitWithStanding(elapsedDays)
@@ -743,6 +754,21 @@ export async function fetchYearMonthly(fuel) {
   });
 }
 
+// Year's lazy loader, mirroring loadMonthData: fetched once when "Year" view
+// is first opened (or Insights expands), and — crucially — a failed fetch is
+// left retryable via hasUsableDays rather than cached as an empty year that
+// sticks until an app restart.
+export async function loadYearData(fuel) {
+  if (hasUsableDays(fuelData[fuel]?.year)) return;
+  fuelData[fuel] = fuelData[fuel] || {};
+  try {
+    fuelData[fuel].year = await fetchYearMonthly(fuel);
+  } catch (err) {
+    logIssue(`Year view (${fuel})`, err);
+    fuelData[fuel].year = fuelData[fuel].year || []; // render the empty state; retried on the next open
+  }
+}
+
 async function lastNDaysCost(fuel, n, anchor = new Date()) {
   const creds = store.creds;
   const isElec = fuel === 'elec';
@@ -839,16 +865,7 @@ export async function handlePeriodToggleClick(e) {
       catch (err) { logIssue('Day view', err); fuelData.elec.day = { date: null, slots: [] }; }
     }
   } else if (usageState.period === 'year') {
-    fuelData.elec = fuelData.elec || {};
-    fuelData.gas = fuelData.gas || {};
-    if (!fuelData.elec.year) {
-      try { fuelData.elec.year = await fetchYearMonthly('elec'); }
-      catch (err) { logIssue('Year view (elec)', err); fuelData.elec.year = []; }
-    }
-    if (!fuelData.gas.year) {
-      try { fuelData.gas.year = await fetchYearMonthly('gas'); }
-      catch (err) { logIssue('Year view (gas)', err); fuelData.gas.year = []; }
-    }
+    await Promise.all([loadYearData('elec'), loadYearData('gas')]);
   }
   updateDatePickerUI();
   renderFuelPanel('elec');

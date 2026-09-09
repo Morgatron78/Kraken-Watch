@@ -1,29 +1,30 @@
 import { $, fmtGBP } from './format.js';
 import { logIssue, logDebug } from './diagnostics.js';
 import { rateState } from './rates.js';
-import { fuelData, dayTotal, daysInMonth, loadMonthData, fetchYearMonthly } from './usage.js';
+import { fuelData, dayTotal, daysInMonth, loadMonthData, loadYearData, hasUsableDays } from './usage.js';
 import { billingState, billMonthsData } from './billing.js';
 import { ensureHistIntensity, intensityForRange } from './carbon.js';
 
 // --- Insights (collapsed by default; data lazy-loaded on first expand) ---
 
 const insightsState = {
-  loaded: false,   // data fetched once, on first expand
+  loaded: false,   // data fetched once, on first expand — latched only once it actually came back
+  loading: false,  // a load is in flight (re-entrancy guard for a fast expand/collapse/expand)
   expanded: false, // panel open? starts collapsed, matching the HTML
   forecastData: [],          // balance-runway cycles, for the tap handler
   selectedForecastCycle: null,
 };
 
 export async function loadInsights() {
-  if (insightsState.loaded) return;
-  insightsState.loaded = true;
+  if (insightsState.loaded || insightsState.loading) return;
+  insightsState.loading = true;
   try {
     fuelData.elec = fuelData.elec || {};
     fuelData.gas = fuelData.gas || {};
     const tasks = [];
-    if (!fuelData.elec.month) tasks.push(loadMonthData('elec'));
-    if (!fuelData.gas.month) tasks.push(loadMonthData('gas'));
-    if (!fuelData.gas.year) tasks.push(fetchYearMonthly('gas').then(y => { fuelData.gas.year = y; }));
+    if (!hasUsableDays(fuelData.elec.month)) tasks.push(loadMonthData('elec'));
+    if (!hasUsableDays(fuelData.gas.month)) tasks.push(loadMonthData('gas'));
+    if (!hasUsableDays(fuelData.gas.year)) tasks.push(loadYearData('gas'));
     // Grid-intensity history for the weekly-carbon block — 8 days back covers
     // "the last 7 completed days". Best-effort inside; a failure just hides
     // that one block.
@@ -38,6 +39,12 @@ export async function loadInsights() {
   } catch (err) {
     logIssue('Insights', err);
   }
+  // Latch only once the month data actually came back — a transient API
+  // failure on the first expand should retry on the next one, not leave the
+  // panel blank until an app restart. (Gas year feeds just one sub-block, so
+  // it's best-effort and doesn't gate the latch.)
+  insightsState.loaded = hasUsableDays(fuelData.elec.month) && hasUsableDays(fuelData.gas.month);
+  insightsState.loading = false;
   renderInsightsElec();
   renderInsightsGas();
   renderInsightsBilling();
